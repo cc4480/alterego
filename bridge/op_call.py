@@ -24,6 +24,11 @@ def post(path, body, session_id=None):
         headers={
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
+            # The named tunnel sits behind the user's own Cloudflare zone,
+            # whose firewall 403s non-browser User-Agents (urllib included).
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) "
+                          "Chrome/126.0.0.0 Safari/537.36",
             "Authorization": f"Bearer {TOKEN}",
             **({"Mcp-Session-Id": session_id} if session_id else {}),
         },
