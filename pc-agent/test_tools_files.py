@@ -1,13 +1,15 @@
-"""Tests for tools_files (real tmp dirs; approval dialog stubbed)."""
+"""Tests for tools_files + tools_write pure logic (no Windows needed)."""
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import tools_files
+import tools_write
 import tool_wrappers
 
 tools_files.request_approval = lambda *a, **k: True
+tools_write.request_approval = lambda *a, **k: True
 
 
 def test_write_and_overwrite(tmp_path):
@@ -103,12 +105,54 @@ def test_denied_raises(tmp_path):
 
 def test_wrappers_register_all():
     names = [f.__name__ for f in tool_wrappers.ALL_TOOLS]
-    assert len(names) == 18, names
-    assert len(set(names)) == 18, "duplicate tool names"
+    assert len(names) == 30, names
+    assert len(set(names)) == 30, "duplicate tool names"
     for n in ("write_file", "edit_file", "delete_file", "create_dir",
-              "close_window"):
+              "close_window", "hotkey", "mouse_move", "mouse_click",
+              "mouse_scroll", "minimize_window", "maximize_window",
+              "kill_process", "clipboard_set", "clipboard_get",
+              "copy_file", "move_file", "file_info"):
         assert n in names, n
-    print("PASS wrappers: 18 tools registered")
+    print("PASS wrappers: 30 tools registered")
+
+
+def test_hotkey_parse():
+    mods, vk = tools_write._parse_hotkey("ctrl+shift+s")
+    assert mods == [0x11, 0x10] and vk == 0x53, (mods, vk)
+    assert tools_write._parse_hotkey("enter") == ([], 0x0D)
+    assert tools_write._parse_hotkey("alt+f4") == ([0x12], 0x73)
+    assert tools_write._parse_hotkey("win+r") == ([0x5B], 0x52)
+    for bad in ("", "ctrl+", "ctrl+bogus", "bogus+x", "+"):
+        try:
+            tools_write._parse_hotkey(bad)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"should have raised: {bad!r}")
+    print("PASS hotkey parse")
+
+
+def test_copy_move_info(tmp_path):
+    src = str(tmp_path / "orig.txt")
+    open(src, "w", encoding="utf-8").write("data123")
+    dst = str(tmp_path / "sub" / "copy.txt")
+    r = tools_files.copy_file(src, dst)
+    assert r["bytes"] == 7 and open(dst, encoding="utf-8").read() == "data123", r
+    mv = str(tmp_path / "moved.txt")
+    r = tools_files.move_file(dst, mv)
+    assert r["moved"] is True and not os.path.exists(dst), r
+    assert open(mv, encoding="utf-8").read() == "data123"
+    info = tools_files.file_info(mv)
+    assert info["is_file"] and info["size"] == 7 and "modified" in info, info
+    dinfo = tools_files.file_info(str(tmp_path))
+    assert dinfo["is_dir"], dinfo
+    try:
+        tools_files.file_info(str(tmp_path / "nope.txt"))
+    except FileNotFoundError:
+        pass
+    else:
+        raise AssertionError("should have raised")
+    print("PASS copy/move/info")
 
 
 if __name__ == "__main__":
@@ -125,5 +169,7 @@ if __name__ == "__main__":
         test_delete_rejects_dir(tp)
         test_create_dir(tp)
         test_denied_raises(tp)
+        test_copy_move_info(tp)
     test_wrappers_register_all()
+    test_hotkey_parse()
     print("ALL TOOLS_FILES TESTS PASS")

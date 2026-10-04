@@ -37,6 +37,11 @@ def read_file(path: str) -> dict:
     return toolcall.call("read_file", tools_read.read_file, {"path": path})
 
 
+def clipboard_get() -> dict:
+    """Read text from the Windows clipboard (no approval)."""
+    return toolcall.call("clipboard_get", tools_read.clipboard_get, {})
+
+
 # ---- write tools (each pops a native approval dialog on the PC) -----------
 def focus_window(hwnd: int) -> dict:
     """Bring a window to the foreground. Requires on-PC approval."""
@@ -63,6 +68,54 @@ def shell_exec(command: str, timeout_s: int = 60) -> dict:
                          write=True)
 
 
+def hotkey(keys: str) -> dict:
+    """Press a key combo: 'enter', 'esc', 'tab', 'ctrl+c', 'alt+f4', 'win+r'."""
+    return toolcall.call("hotkey", tools_write.hotkey,
+                         {"keys": keys}, write=True)
+
+
+def mouse_move(x: int, y: int) -> dict:
+    """Move the cursor to screen coordinates. Requires on-PC approval."""
+    return toolcall.call("mouse_move", tools_write.mouse_move,
+                         {"x": x, "y": y}, write=True)
+
+
+def mouse_click(x: int, y: int, button: str = "left") -> dict:
+    """Click at screen coordinates. Requires on-PC approval."""
+    return toolcall.call("mouse_click", tools_write.mouse_click,
+                         {"x": x, "y": y, "button": button}, write=True)
+
+
+def mouse_scroll(direction: str = "down", clicks: int = 3) -> dict:
+    """Scroll the wheel under the cursor. Requires on-PC approval."""
+    return toolcall.call("mouse_scroll", tools_write.mouse_scroll,
+                         {"direction": direction, "clicks": clicks}, write=True)
+
+
+def minimize_window(hwnd: int) -> dict:
+    """Minimize a window. Requires on-PC approval."""
+    return toolcall.call("minimize_window", tools_write.minimize_window,
+                         {"hwnd": hwnd}, write=True)
+
+
+def maximize_window(hwnd: int) -> dict:
+    """Maximize a window. Requires on-PC approval."""
+    return toolcall.call("maximize_window", tools_write.maximize_window,
+                         {"hwnd": hwnd}, write=True)
+
+
+def kill_process(pid: int) -> dict:
+    """Terminate a process by PID. Requires on-PC approval."""
+    return toolcall.call("kill_process", tools_write.kill_process,
+                         {"pid": pid}, write=True)
+
+
+def clipboard_set(text: str) -> dict:
+    """Put text on the Windows clipboard. Requires on-PC approval."""
+    return toolcall.call("clipboard_set", tools_write.clipboard_set,
+                         {"text": text}, write=True)
+
+
 # ---- file tools (absolute paths anywhere; each needs approval) ------------
 def write_file(path: str, content: str) -> dict:
     """Create/overwrite a UTF-8 text file (parents created). Requires approval."""
@@ -87,6 +140,23 @@ def create_dir(path: str) -> dict:
     """Create a directory (parents too). Requires on-PC approval."""
     return toolcall.call("create_dir", tools_files.create_dir,
                          {"path": path}, write=True)
+
+
+def copy_file(src: str, dst: str) -> dict:
+    """Copy a file (metadata preserved). Requires on-PC approval."""
+    return toolcall.call("copy_file", tools_files.copy_file,
+                         {"src": src, "dst": dst}, write=True)
+
+
+def move_file(src: str, dst: str) -> dict:
+    """Move/rename a file. Requires on-PC approval."""
+    return toolcall.call("move_file", tools_files.move_file,
+                         {"src": src, "dst": dst}, write=True)
+
+
+def file_info(path: str) -> dict:
+    """Size and timestamps for a file or directory (no approval)."""
+    return toolcall.call("file_info", tools_files.file_info, {"path": path})
 
 
 # ---- browser tools (CDP; Edge needs --remote-debugging-port=9222) ----------
@@ -125,8 +195,12 @@ def browser_eval(js: str, url_contains: str = "") -> dict:
 
 ALL_TOOLS = [
     screenshot, list_windows, system_info, list_dir, read_file,
+    clipboard_get,
     focus_window, close_window, type_text, shell_exec,
+    hotkey, mouse_move, mouse_click, mouse_scroll,
+    minimize_window, maximize_window, kill_process, clipboard_set,
     write_file, edit_file, delete_file, create_dir,
+    copy_file, move_file, file_info,
     browser_snapshot, browser_navigate, browser_click, browser_fill,
     browser_eval,
 ]

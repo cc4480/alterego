@@ -12,6 +12,7 @@ authenticated with the session bearer token from `/pair`.
 | `system_info` | — | OS, hostname, username, CPU / memory |
 | `list_dir` | `path` (default: profile root) | `{"path": ..., "items": [{"name", "dir", "size"}]}` |
 | `read_file` | `path` (required) | UTF-8 text file, max 1 MB |
+| `clipboard_get` | — | Current Windows clipboard text |
 
 `list_dir` / `read_file` are restricted to the user's own profile directory
 (`C:\Users\<name>\...`). Windows system directories and other users'
@@ -26,7 +27,15 @@ written to the audit log either way.
 |---|---|---|
 | `focus_window` | `hwnd` (int, from `list_windows`) | Brings a window to the foreground |
 | `close_window` | `hwnd` (int, from `list_windows`) | Gracefully closes a window via WM_CLOSE (like clicking X; apps with unsaved changes show their save dialog) |
+| `minimize_window` | `hwnd` (int) | Minimizes a window |
+| `maximize_window` | `hwnd` (int) | Maximizes a window |
 | `type_text` | `text` (string) | Types text into the focused window |
+| `hotkey` | `keys` (string, e.g. `"ctrl+c"`, `"alt+f4"`, `"enter"`) | Presses a key combo |
+| `mouse_move` | `x`, `y` (int) | Moves the cursor to screen coordinates |
+| `mouse_click` | `x`, `y` (int), `button` (`left`/`right`/`middle`) | Moves to (x, y) and clicks |
+| `mouse_scroll` | `direction` (`up`/`down`), `clicks` (int) | Scrolls the wheel under the cursor |
+| `clipboard_set` | `text` (string) | Puts text on the Windows clipboard |
+| `kill_process` | `pid` (int) | Terminates a process (refuses the bridge's own PID) |
 | `shell_exec` | `command` (string), `timeout_s` (int, default 60) | Runs a command in `cmd.exe`, returns stdout/stderr/exit code |
 
 ## File tools — full read/write access to the machine
@@ -43,6 +52,9 @@ byte-exact, no newline translation, so write → read roundtrips cleanly.
 | `edit_file` | `path`, `old_text`, `new_text` | Yes | Replaces the first occurrence of `old_text`; errors if not found |
 | `delete_file` | `path` | Yes | Permanently deletes a file (files only, not directories) |
 | `create_dir` | `path` | Yes | Creates a directory including parents (no-op if it exists) |
+| `copy_file` | `src`, `dst` | Yes | Copies a file, metadata preserved (destination parents created) |
+| `move_file` | `src`, `dst` | Yes | Moves/renames a file (destination parents created) |
+| `file_info` | `path` | No | Size and created/modified timestamps for a file or directory |
 
 ## Browser tools — drive a live Edge tab via CDP
 

@@ -78,3 +78,43 @@ def create_dir(path: str) -> dict:
     _approved("create_dir", f"Create directory:\n{p}")
     p.mkdir(parents=True, exist_ok=True)
     return {"path": str(p), "created": True}
+
+
+def copy_file(src: str, dst: str) -> dict:
+    """Copy a file (metadata preserved); creates destination parents."""
+    import shutil
+
+    s, d = _abs(src), _abs(dst)
+    if not s.is_file():
+        raise FileNotFoundError(f"not a file: {s}")
+    _approved("copy_file", f"Copy file:\n{s}\nto:\n{d}")
+    d.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(s, d)
+    return {"src": str(s), "dst": str(d), "bytes": d.stat().st_size}
+
+
+def move_file(src: str, dst: str) -> dict:
+    """Move/rename a file; creates destination parents."""
+    import shutil
+
+    s, d = _abs(src), _abs(dst)
+    if not s.is_file():
+        raise FileNotFoundError(f"not a file: {s}")
+    _approved("move_file", f"Move file:\n{s}\nto:\n{d}")
+    d.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(s), str(d))
+    return {"src": str(s), "dst": str(d), "moved": True}
+
+
+def file_info(path: str) -> dict:
+    """Size and timestamps for a file or directory (no approval; read-only)."""
+    from datetime import datetime, timezone
+
+    p = _abs(path)
+    if not p.exists():
+        raise FileNotFoundError(f"no such path: {p}")
+    st = p.stat()
+    iso = lambda ts: datetime.fromtimestamp(ts, timezone.utc).isoformat()
+    return {"path": str(p), "is_file": p.is_file(), "is_dir": p.is_dir(),
+            "size": st.st_size, "modified": iso(st.st_mtime),
+            "created": iso(st.st_ctime)}

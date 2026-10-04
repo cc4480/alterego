@@ -111,3 +111,25 @@ def read_file(path: str) -> dict:
     except UnicodeDecodeError:
         raise ValueError("not a UTF-8 text file")
     return {"path": str(p), "content": text}
+
+
+def clipboard_get() -> dict:
+    """Read text from the Windows clipboard (no approval; it's a read)."""
+    import ctypes
+
+    user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
+    CF_UNICODETEXT = 13
+    if not user32.OpenClipboard(None):
+        return {"text": "", "note": "clipboard unavailable"}
+    try:
+        h = user32.GetClipboardData(CF_UNICODETEXT)
+        if not h:
+            return {"text": ""}
+        p = kernel32.GlobalLock(h)
+        try:
+            text = ctypes.wstring_at(p)
+        finally:
+            kernel32.GlobalUnlock(h)
+        return {"text": text or ""}
+    finally:
+        user32.CloseClipboard()
