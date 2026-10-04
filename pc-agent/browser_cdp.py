@@ -1,8 +1,9 @@
 """CDP browser tools: drive the user's Edge via Chrome DevTools Protocol.
 
-Edge must run with --remote-debugging-port=9222. The bridge attaches to the
-live tab (keeping the user's sessions/cookies) and gets full DOM access:
-every button, input, iframe, and popup that UI Automation cannot see.
+Edge must run with --remote-debugging-port=9222 --user-data-dir=<fresh dir>
+--remote-allow-origins=* (all three are required on Edge 154+). The bridge
+attaches to the live tab and gets full DOM access: buttons, inputs, open
+shadow roots, and same-origin iframes that UI Automation cannot see.
 
 Requires: pip install websocket-client
 """
@@ -92,21 +93,59 @@ class Browser:
 
 
 # --- high-level actions (JS snippets run in the page) ---
+#
+# _DEEP is prepended to every snippet below (except raw browser_eval): it
+# collects interactive elements from the main document, every open shadow
+# root, and every same-origin iframe (recursively). Cross-origin iframes
+# cannot be pierced from the page context — they are counted as skipped.
+
+_DEEP = """
+function __cdp_roots() {
+  const roots = [{node: document, ctx: 'page'}];
+  const seen = new Set([document]);
+  let skipped = 0;
+  for (let i = 0; i < roots.length; i++) {
+    const root = roots[i].node;
+    root.querySelectorAll('*').forEach(e => {
+      if (e.shadowRoot && !seen.has(e.shadowRoot)) {
+        seen.add(e.shadowRoot);
+        roots.push({node: e.shadowRoot, ctx: 'shadow'});
+      }
+    });
+    root.querySelectorAll('iframe').forEach(f => {
+      try {
+        const d = f.contentDocument;
+        if (d && !seen.has(d)) { seen.add(d); roots.push({node: d, ctx: 'iframe'}); }
+      } catch (err) { skipped++; }
+    });
+  }
+  return {roots: roots, skipped: skipped};
+}
+function __cdp_els() {
+  const found = __cdp_roots();
+  const els = [];
+  found.roots.forEach(r => {
+    r.node.querySelectorAll('button, a, input, textarea, select, [role=button]')
+      .forEach(e => els.push({el: e, ctx: r.ctx}));
+  });
+  return {els: els, skipped: found.skipped};
+}
+"""
 
 _FIND_CLICK = """(text) => {
   const t = text.toLowerCase();
-  const els = [...document.querySelectorAll('button, a, [role=button], input[type=submit]')];
-  const el = els.find(e => (e.innerText || e.value || e.getAttribute('aria-label') || '').toLowerCase().includes(t));
-  if (!el) return 'NOT-FOUND';
-  const r = el.getBoundingClientRect();
-  el.scrollIntoView({block: 'center'});
-  el.click();
-  return 'CLICKED:' + (el.innerText || el.value || '').trim().slice(0, 60);
+  const els = __cdp_els().els;
+  const hit = els.find(({el: e}) => (e.innerText || e.value || e.getAttribute('aria-label') || '').toLowerCase().includes(t));
+  if (!hit) return 'NOT-FOUND';
+  const e = hit.el;
+  e.scrollIntoView({block: 'center'});
+  e.click();
+  return 'CLICKED:' + (e.innerText || e.value || '').trim().slice(0, 60) + ' [' + hit.ctx + ']';
 }"""
 
 _FIND_FILL = """(label, text) => {
   const l = label.toLowerCase();
-  const els = [...document.querySelectorAll('input, textarea')];
+  const els = __cdp_els().els.map(h => h.el);
   const el = els.find(e => ((e.placeholder || '') + ' ' + (e.getAttribute('aria-label') || '') + ' ' + (e.name || '')).toLowerCase().includes(l))
         || els.find(e => e.type === 'text' || e.type === 'url' || !e.type);
   if (!el) return 'NOT-FOUND';
@@ -121,16 +160,17 @@ _FIND_FILL = """(label, text) => {
 }"""
 
 _SNAPSHOT = """() => {
+  const found = __cdp_els();
   const out = [];
-  const els = document.querySelectorAll('button, a, input, textarea, select, [role=button]');
-  els.forEach(e => {
+  found.els.forEach(({el: e, ctx}) => {
     const r = e.getBoundingClientRect();
     if (r.width === 0 && r.height === 0) return;
     const label = (e.innerText || e.value || e.placeholder || e.getAttribute('aria-label') || e.name || '').trim().replace(/\\s+/g, ' ').slice(0, 80);
     if (!label) return;
-    out.push(e.tagName.toLowerCase() + ' "' + label + '"');
+    const tag = e.tagName.toLowerCase() + (ctx === 'page' ? '' : ' [' + ctx + ']');
+    out.push(tag + ' "' + label + '"');
   });
-  return {url: location.href, title: document.title, elements: out.slice(0, 120)};
+  return {url: location.href, title: document.title, elements: out.slice(0, 150), cross_origin_iframes: found.skipped};
 }"""
 
 
@@ -139,7 +179,7 @@ def snapshot(url_contains=None):
     try:
         # NB: the arrow IIFE must be wrapped in parens — `() => {}()`
         # is a SyntaxError, which CDP reports as protocol error "Uncaught".
-        val, _ = b.eval("(" + _SNAPSHOT + ")()")
+        val, _ = b.eval(_DEEP + "(" + _SNAPSHOT + ")()")
         return {"page_url": b.page_url, **(val or {})}
     finally:
         b.close()
@@ -148,7 +188,7 @@ def snapshot(url_contains=None):
 def click_text(text, url_contains=None):
     b = Browser(url_contains)
     try:
-        val, _ = b.eval(f"({_FIND_CLICK})({json.dumps(text)})")
+        val, _ = b.eval(_DEEP + f"({_FIND_CLICK})({json.dumps(text)})")
         return {"page_url": b.page_url, "result": val}
     finally:
         b.close()
@@ -157,7 +197,7 @@ def click_text(text, url_contains=None):
 def fill_field(label, text, url_contains=None):
     b = Browser(url_contains)
     try:
-        val, _ = b.eval(f"({_FIND_FILL})({json.dumps(label)}, {json.dumps(text)})")
+        val, _ = b.eval(_DEEP + f"({_FIND_FILL})({json.dumps(label)}, {json.dumps(text)})")
         return {"page_url": b.page_url, "result": val}
     finally:
         b.close()

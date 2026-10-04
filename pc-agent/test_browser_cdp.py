@@ -76,6 +76,10 @@ def test_js_snippets_present():
     for name in ("_FIND_CLICK", "_FIND_FILL", "_SNAPSHOT"):
         s = getattr(browser_cdp, name)
         assert isinstance(s, str) and "=>" in s, name
+        # every snippet must use the deep query (shadow roots + iframes)
+        assert "__cdp_els" in s, name
+    assert "shadowRoot" in browser_cdp._DEEP
+    assert "contentDocument" in browser_cdp._DEEP
     print("PASS snippets")
 
 
