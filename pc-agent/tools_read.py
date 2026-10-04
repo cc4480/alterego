@@ -1,11 +1,18 @@
 """Read-only tools. File access is restricted to the user's own profile."""
 import base64
+import ctypes
 import getpass
 import os
 import platform
 from pathlib import Path
 
 MAX_READ_BYTES = 1_000_000  # 1 MB cap on read_file
+
+if os.name == "nt":
+    # ctypes assumes c_int returns; 64-bit pointer returns would be
+    # truncated (window handles are 32-bit, so only these need fixing).
+    ctypes.windll.user32.GetClipboardData.restype = ctypes.c_void_p
+    ctypes.windll.kernel32.GlobalLock.restype = ctypes.c_void_p
 
 
 def _user_profile() -> Path:
@@ -115,8 +122,6 @@ def read_file(path: str) -> dict:
 
 def clipboard_get() -> dict:
     """Read text from the Windows clipboard (no approval; it's a read)."""
-    import ctypes
-
     user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
     CF_UNICODETEXT = 13
     if not user32.OpenClipboard(None):

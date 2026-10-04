@@ -37,6 +37,16 @@ class INPUT(ctypes.Structure):
 INPUT_MOUSE, INPUT_KEYBOARD = 0, 1
 KEYEVENTF_KEYUP = 0x0002
 
+if os.name == "nt":
+    # ctypes assumes c_int for unstated returns; 64-bit pointer returns
+    # would be truncated. Window handles are always 32-bit, so only the
+    # memory-handle functions below need fixing.
+    ctypes.windll.kernel32.GlobalAlloc.restype = ctypes.c_void_p
+    ctypes.windll.kernel32.GlobalLock.restype = ctypes.c_void_p
+    ctypes.windll.user32.GetClipboardData.restype = ctypes.c_void_p
+    ctypes.windll.user32.SetClipboardData.restype = ctypes.c_void_p
+    ctypes.windll.kernel32.OpenProcess.restype = ctypes.c_void_p
+
 
 def _approved(tool: str, summary: str) -> None:
     if not request_approval(f"[{tool}]\n{summary}"):
@@ -45,8 +55,6 @@ def _approved(tool: str, summary: str) -> None:
 
 def focus_window(hwnd: int) -> dict:
     _approved("focus_window", f"Bring window handle {hwnd} to the foreground.")
-    import ctypes
-
     ok = bool(ctypes.windll.user32.SetForegroundWindow(int(hwnd)))
     return {"hwnd": int(hwnd), "focused": ok}
 
@@ -58,8 +66,6 @@ def close_window(hwnd: int) -> dict:
     open — this only _requests_ the close, it never force-kills.
     """
     _approved("close_window", f"Close window handle {hwnd} (graceful, like clicking X).")
-    import ctypes
-
     WM_CLOSE = 0x0010
     ok = bool(ctypes.windll.user32.PostMessageW(int(hwnd), WM_CLOSE, 0, 0))
     return {"hwnd": int(hwnd), "close_requested": ok}
@@ -246,8 +252,7 @@ def kill_process(pid: int) -> dict:
         raise ValueError("refusing to kill the bridge itself")
     _approved("kill_process", f"Terminate process PID {pid}. Unsaved work will be lost.")
     kernel32 = ctypes.windll.kernel32
-    PROCESS_TERMINATE = 0x0001
-    h = kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
+    h = kernel32.OpenProcess(0x0001, False, pid)  # PROCESS_TERMINATE
     if not h:
         raise OSError(f"cannot open PID {pid}")
     try:
@@ -277,6 +282,9 @@ def clipboard_set(text: str) -> dict:
         if not h:
             raise OSError("GlobalAlloc failed")
         p = kernel32.GlobalLock(h)
+        if not p:
+            kernel32.GlobalFree(h)
+            raise OSError("GlobalLock failed")
         ctypes.memmove(p, data, len(data))
         kernel32.GlobalUnlock(h)
         if not user32.SetClipboardData(CF_UNICODETEXT, h):
