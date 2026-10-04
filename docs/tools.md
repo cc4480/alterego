@@ -28,22 +28,54 @@ written to the audit log either way.
 | `type_text` | `text` (string) | Types text into the focused window |
 | `shell_exec` | `command` (string), `timeout_s` (int, default 60) | Runs a command in `cmd.exe`, returns stdout/stderr/exit code |
 
-## Browser tools — drive the live Edge tab via CDP
+## Browser tools — drive a live Edge tab via CDP
 
-Edge must run with `--remote-debugging-port=9222` (add to the Edge shortcut
-target). The bridge attaches to the user's real tab — sessions and logins
-intact — and sees the full DOM: buttons, inputs, iframes, and popups that
-UI Automation cannot reach. Requires `pip install websocket-client`.
+Edge must be launched with remote debugging enabled. Proven working flags
+(verified 2026-10-04 against Edge 154):
+
+```bat
+msedge.exe --remote-debugging-port=9222 --user-data-dir=C:\edge-cdp --remote-allow-origins=*
+```
+
+Notes from live testing — `--remote-debugging-port` alone is not enough:
+
+- Without a **separate `--user-data-dir`**, a relaunch reuses the existing
+  browser process and the flag is silently ignored (nothing listens on 9222).
+- Without **`--remote-allow-origins=*`**, Edge 154 rejects the bridge's
+  WebSocket with `403 Forbidden`.
+- Requires `pip install websocket-client` on the PC.
+
+The bridge attaches to a live tab and sees the DOM that UI Automation
+cannot reach. `browser_snapshot` currently queries the **main document
+only** — it does not yet recurse into iframes or shadow roots.
 
 | Tool | Args | Approval | What it does |
 |---|---|---|---|
 | `browser_snapshot` | `url_contains` (optional filter) | No | Lists interactive elements of the tab: tag + label |
-| `browser_navigate` | `url`, `url_contains` | Yes | Navigates the tab |
+| `browser_navigate` | `url`, `url_contains` | Yes | Navigates the tab (`url` must start with `http(s)://`) |
 | `browser_click` | `text`, `url_contains` | Yes | Clicks the element containing `text` |
 | `browser_fill` | `label`, `text`, `url_contains` | Yes | Fills the field matching `label` (React-aware) |
 | `browser_eval` | `js`, `url_contains` | Yes | Runs JavaScript, returns the value |
 
 `url_contains` picks which tab when several are open (e.g. `"seclayer"`).
+
+Live-verified 2026-10-04 (Edge 154, fresh `--user-data-dir` profile):
+
+- `browser_snapshot` returned real element lists for two pages
+  (Tampermonkey welcome page, `seclayer.app` landing — 27 and 39 controls).
+- `browser_navigate` moved the tab to `https://seclayer.app`; it rejects
+  non-`http(s)` URLs (`data:`) with `ValueError`.
+- `browser_fill` filled `seclayer.app`'s URL field; value confirmed via
+  `browser_eval`. Note: when no field matches `label`, it falls back to the
+  first text-like input instead of returning `NOT-FOUND`.
+- `browser_click` clicked a FAQ accordion (`CLICKED:What does Seclayer…`).
+- `browser_eval` evaluated expressions and DOM queries (`1+1` → `2`).
+- Fixed live: `browser_snapshot`'s JS was `() => {}()` (unwrapped arrow
+  IIFE — a SyntaxError; CDP reports it as protocol error `"Uncaught"`).
+  Wrapping it (`(() => {})()`) fixed it — commit `8f954f1`.
+
+Not yet verified: iframe/shadow-root recursion, and the Google account
+chooser as a separate CDP target (untestable on the fresh test profile).
 
 ## Examples (via `bridge/pc_bridge.py`)
 
