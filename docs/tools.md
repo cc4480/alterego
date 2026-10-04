@@ -33,7 +33,8 @@ written to the audit log either way.
 Paths are absolute Windows paths anywhere on the machine (the read tools
 are restricted to the user profile; the write tools below are not — the
 on-PC approval dialog showing the full path is the guardrail). Text
-files only (UTF-8, 1 MB cap, mirroring `read_file`).
+files only (UTF-8, 1 MB cap, mirroring `read_file`); writes are
+byte-exact, no newline translation, so write → read roundtrips cleanly.
 
 | Tool | Args | Approval | What it does |
 |---|---|---|---|
