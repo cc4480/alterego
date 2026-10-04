@@ -120,6 +120,24 @@ them gone.
   30 seconds with no answer = **denied**. No interactive session = fail
   closed. You are the final say on everything the operator tries to do.
 
+## Auto-approve mode (your own testing only)
+
+If you're driving a long automation and don't want to click Yes on every
+step, start the server with the dialogs off:
+
+```powershell
+$env:PC_BRIDGE_AUTO_APPROVE=1; python pc-agent\server.py
+```
+
+- The server prints a loud warning banner so you know dialogs are off.
+- Every auto-approved call is marked `AUTO-APPROVED, no dialog shown` in
+  the audit log.
+- Pairing and the bearer token are **still required** — this only skips
+  the per-action prompts, it doesn't open the server to anyone.
+- Restart normally (without the env var) to bring the dialogs back.
+- Never run someone else's PC in this mode, and never leave it on
+  unattended.
+
 ## Troubleshooting
 
 | Symptom | Fix |

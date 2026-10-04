@@ -53,6 +53,10 @@ against a real Windows PC through a live Cloudflare tunnel.
   Windows approval dialog showing the exact action; 30s timeout = deny; no
   interactive session = fail closed. Every call (read and write) is appended
   to a local audit log at `%APPDATA%\pc-mcp-bridge\audit.log`.
+  (The PC owner can start the server with `PC_BRIDGE_AUTO_APPROVE=1` to
+  skip the dialogs for their own testing — the server prints a loud warning
+  banner, the audit log marks every auto-approved call, and bearer auth is
+  still required. Restart without the env var to restore dialogs.)
 - Read tools are restricted to the user's own profile directory; Windows
   system dirs and other users' profiles are denied.
 - The MCP SDK's DNS-rebinding host check is disabled: the tunnel hostname is

@@ -32,6 +32,7 @@ from starlette.routing import Route
 import uvicorn
 
 from audit import log_event
+import approval
 import tools_read
 import tools_write
 
@@ -142,7 +143,10 @@ def _call(name, fn, args, write=False):
     """Run a tool with audit logging; errors become {error} payloads."""
     try:
         result = fn(**args)
-        log_event(name, args, "ok", approved=True if write else None)
+        status = "ok"
+        if write and approval.is_auto_approve():
+            status = "ok (AUTO-APPROVED, no dialog shown)"
+        log_event(name, args, status, approved=True if write else None)
         return result
     except PermissionError as e:
         log_event(name, args, f"denied: {e}", approved=False)
@@ -233,6 +237,14 @@ def main():
     print(f"pc-mcp-bridge listening on http://{HOST}:{PORT} (loopback only)")
     print("tunnel:  cloudflared tunnel --url http://127.0.0.1:8765")
     print()
+    if approval.is_auto_approve():
+        print("!" * 68)
+        print("!!!  AUTO-APPROVE MODE (PC_BRIDGE_AUTO_APPROVE=1) — DIALOGS OFF  !!!")
+        print("!!!  Every write tool executes WITHOUT asking. For the PC     !!!")
+        print("!!!  owner's own testing only. Restart without the env var     !!!")
+        print("!!!  to restore approval dialogs. Auth still required.         !!!")
+        print("!" * 68)
+        print()
     print(f"PAIRING CODE: {_pairing_code}")
     print(f"(single-use, expires in {PAIRING_TTL_S // 60:.0f} minutes — "
           "the operator POSTs it to /pair to receive a session token)")
