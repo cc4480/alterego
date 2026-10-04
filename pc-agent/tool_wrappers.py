@@ -10,6 +10,7 @@ import tools_write
 import tools_browser
 import tools_files
 import tools_memory
+import tools_support
 
 
 # ---- read tools -----------------------------------------------------------
@@ -172,6 +173,18 @@ def memory_recall(query: str, limit: int = 5) -> dict:
                          {"query": query, "limit": limit})
 
 
+def shell_pwsh(script: str, timeout_s: int = 60) -> dict:
+    """Run a PowerShell script directly (no cmd.exe wrapping). Requires approval."""
+    return toolcall.call("shell_pwsh", tools_support.shell_pwsh,
+                         {"script": script, "timeout_s": timeout_s}, write=True)
+
+
+def batch(calls: list) -> dict:
+    """Run up to 20 tool calls in one roundtrip. One approval covers all writes."""
+    return toolcall.call("batch", tools_support.batch,
+                         {"calls": calls}, write=True)
+
+
 # ---- browser tools (CDP; Edge needs --remote-debugging-port=9222) ----------
 def browser_snapshot(url_contains: str = "") -> dict:
     """List interactive elements of the live Edge tab (no approval)."""
@@ -217,4 +230,5 @@ ALL_TOOLS = [
     copy_file, move_file, file_info,
     browser_snapshot, browser_navigate, browser_click, browser_fill,
     browser_eval,
+    shell_pwsh, batch,
 ]

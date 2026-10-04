@@ -15,6 +15,13 @@ authenticated with the session bearer token from `/pair`.
 | `clipboard_get` | — | Current Windows clipboard text |
 | `memory_recall` | `query` (string), `limit` (int, default 5) | Keyword search over the on-PC memory archive (transcripts + subject index), ranked with snippets |
 
+### Support tools (faster task execution)
+
+| Tool | Arguments | Notes |
+|---|---|---|
+| `shell_pwsh` | `script` (string, 1–8000 chars), `timeout_s` (int, default 60) | Run PowerShell directly — no cmd.exe wrapping or quoting layers. Requires approval. |
+| `batch` | `calls` (array of `{tool, args}`, 1–20 items) | Run many tools in one roundtrip. One approval dialog covers every write in the batch; no nesting. |
+
 `list_dir` / `read_file` are restricted to the user's own profile directory
 (`C:\Users\<name>\...`). Windows system directories and other users'
 profiles are denied.
