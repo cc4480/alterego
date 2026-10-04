@@ -12,6 +12,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -113,7 +114,17 @@ async def _health(request):
 
 def main():
     token, created = load_or_create_token()
-    app = mcp.streamable_http_app()
+    # The SDK auto-enables DNS-rebinding protection for localhost servers,
+    # which 421s any Host header that isn't localhost — including our
+    # Cloudflare tunnel hostname (random per session, can't be allowlisted).
+    # Disabled here: the server binds 127.0.0.1-only, every route (except
+    # /health) requires the bearer token, and the tunnel is user-initiated.
+    # The bearer token, not the Host header, is the real authentication.
+    app = mcp.streamable_http_app(
+        transport_security=TransportSecuritySettings(
+            enable_dns_rebinding_protection=False
+        )
+    )
     app.routes.append(Route("/health", _health))
     app.add_middleware(BearerAuth, token=token)
 
