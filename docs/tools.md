@@ -25,6 +25,7 @@ written to the audit log either way.
 | Tool | Args | What it does |
 |---|---|---|
 | `focus_window` | `hwnd` (int, from `list_windows`) | Brings a window to the foreground |
+| `close_window` | `hwnd` (int, from `list_windows`) | Gracefully closes a window via WM_CLOSE (like clicking X; apps with unsaved changes show their save dialog) |
 | `type_text` | `text` (string) | Types text into the focused window |
 | `shell_exec` | `command` (string), `timeout_s` (int, default 60) | Runs a command in `cmd.exe`, returns stdout/stderr/exit code |
 

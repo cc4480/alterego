@@ -103,11 +103,12 @@ def test_denied_raises(tmp_path):
 
 def test_wrappers_register_all():
     names = [f.__name__ for f in tool_wrappers.ALL_TOOLS]
-    assert len(names) == 17, names
-    assert len(set(names)) == 17, "duplicate tool names"
-    for n in ("write_file", "edit_file", "delete_file", "create_dir"):
+    assert len(names) == 18, names
+    assert len(set(names)) == 18, "duplicate tool names"
+    for n in ("write_file", "edit_file", "delete_file", "create_dir",
+              "close_window"):
         assert n in names, n
-    print("PASS wrappers: 17 tools registered")
+    print("PASS wrappers: 18 tools registered")
 
 
 if __name__ == "__main__":

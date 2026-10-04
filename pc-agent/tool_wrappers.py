@@ -44,6 +44,12 @@ def focus_window(hwnd: int) -> dict:
                          {"hwnd": hwnd}, write=True)
 
 
+def close_window(hwnd: int) -> dict:
+    """Gracefully close a window (like clicking X). Requires on-PC approval."""
+    return toolcall.call("close_window", tools_write.close_window,
+                         {"hwnd": hwnd}, write=True)
+
+
 def type_text(text: str) -> dict:
     """Type text into the focused window. Requires on-PC approval."""
     return toolcall.call("type_text", tools_write.type_text,
@@ -119,7 +125,7 @@ def browser_eval(js: str, url_contains: str = "") -> dict:
 
 ALL_TOOLS = [
     screenshot, list_windows, system_info, list_dir, read_file,
-    focus_window, type_text, shell_exec,
+    focus_window, close_window, type_text, shell_exec,
     write_file, edit_file, delete_file, create_dir,
     browser_snapshot, browser_navigate, browser_click, browser_fill,
     browser_eval,

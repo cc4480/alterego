@@ -19,6 +19,20 @@ def focus_window(hwnd: int) -> dict:
     return {"hwnd": int(hwnd), "focused": ok}
 
 
+def close_window(hwnd: int) -> dict:
+    """Gracefully close a window via WM_CLOSE (like clicking X).
+
+    If the app has unsaved changes it shows its own save dialog and stays
+    open — this only _requests_ the close, it never force-kills.
+    """
+    _approved("close_window", f"Close window handle {hwnd} (graceful, like clicking X).")
+    import ctypes
+
+    WM_CLOSE = 0x0010
+    ok = bool(ctypes.windll.user32.PostMessageW(int(hwnd), WM_CLOSE, 0, 0))
+    return {"hwnd": int(hwnd), "close_requested": ok}
+
+
 def type_text(text: str) -> dict:
     if not isinstance(text, str) or not text or len(text) > 2000:
         raise ValueError("text must be a non-empty string up to 2000 chars")
