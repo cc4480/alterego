@@ -17,7 +17,7 @@ cd pc-mcp-bridge
 pip install -r pc-agent\requirements.txt
 ```
 
-## 3. Start the agent (first run)
+## 3. Start the agent
 
 ```powershell
 python pc-agent\server.py
@@ -25,8 +25,9 @@ python pc-agent\server.py
 
 - It listens on `http://127.0.0.1:8765` — loopback only, unreachable from the
   network except through the tunnel below.
-- **First run prints a 64-hex token.** Copy it into the Secure Vault
-  (your operator reads it from there). **Never paste the token in chat.**
+- It prints a **6-digit pairing code** (single-use, expires in 5 minutes).
+  **Paste the code in chat** — it's safe to share: it dies 5 minutes after
+  the server starts and can't be reused.
 - It also prints the audit log location: `%APPDATA%\pc-mcp-bridge\audit.log`.
 
 ## 4. Open the tunnel
@@ -40,10 +41,14 @@ cloudflared tunnel --url http://127.0.0.1:8765
 
 Copy the `https://<random>.trycloudflare.com` URL it prints.
 
-## 5. Hand two things to the operator
+## 5. Hand two things to the operator (both in chat — both are safe to share)
 
-1. **In chat:** the `https://....trycloudflare.com` tunnel URL.
-2. **Via Secure Vault only:** the bearer token from step 3.
+1. The `https://....trycloudflare.com` tunnel URL.
+2. The 6-digit pairing code from step 3.
+
+The operator POSTs the code to `/pair` and receives a session bearer token
+over TLS. That token never touches chat — it lives only in the operator's
+session memory and dies when the server restarts.
 
 That's it. Keep both terminals running while the operator works.
 

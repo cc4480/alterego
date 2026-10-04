@@ -9,6 +9,8 @@ Commands:
   tools                        list remote tools
   call <name> '<json args>'    call a tool
   screenshot --out file.png    save a screenshot as PNG
+  pair <6-digit-code>          exchange a pairing code for a session token
+                               (needs only PC_BRIDGE_URL; prints the token)
 """
 import argparse
 import base64
@@ -107,12 +109,37 @@ def main():
     c.add_argument("args_json", nargs="?", default="{}")
     s = sub.add_parser("screenshot", help="save a screenshot as PNG")
     s.add_argument("--out", required=True)
+    p = sub.add_parser("pair", help="exchange a pairing code for a session token")
+    p.add_argument("code", help="6-digit pairing code from the PC server")
     args = ap.parse_args()
 
     url = os.environ.get("PC_BRIDGE_URL")
+    if not url:
+        sys.exit("set PC_BRIDGE_URL first")
+
+    if args.cmd == "pair":
+        # Pairing needs no token — it RETURNS the session token.
+        try:
+            r = httpx.post(
+                url.rstrip("/") + "/pair",
+                json={"code": args.code},
+                headers={"Content-Type": "application/json"},
+                timeout=30.0,
+                trust_env=False,
+            )
+            r.raise_for_status()
+            token = r.json().get("token")
+            if not token:
+                sys.exit(f"pairing failed: {r.text[:200]}")
+            print(token)
+        except httpx.HTTPStatusError as e:
+            sys.exit(f"pairing failed: HTTP {e.response.status_code}: "
+                     f"{e.response.text[:200]}")
+        return
+
     token = os.environ.get("PC_BRIDGE_TOKEN")
-    if not url or not token:
-        sys.exit("set PC_BRIDGE_URL and PC_BRIDGE_TOKEN first")
+    if not token:
+        sys.exit("set PC_BRIDGE_TOKEN first (or run the 'pair' command)")
 
     b = Bridge(url, token)
     try:

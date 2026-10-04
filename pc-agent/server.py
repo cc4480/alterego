@@ -2,23 +2,30 @@
 """pc-mcp-bridge PC agent (Windows).
 
 MCP server, Streamable HTTP, bound to 127.0.0.1:8765 only.
-Bearer-token auth via middleware; /health is the only unauthenticated route.
+
+Authentication: interactive pairing. On startup the server prints a 6-digit
+pairing code (single-use, 5-minute expiry, 5-attempt lockout). The operator
+POSTs the code to /pair and receives a session bearer token over TLS, used
+for all subsequent tool calls. There is no long-term shared secret to
+distribute, and nothing sensitive ever needs to travel through chat.
+
 Run:  python pc-agent/server.py   (from the repo root)
 """
 import os
 import secrets
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 import uvicorn
 
-from auth import load_or_create_token
 from audit import log_event
 import tools_read
 import tools_write
@@ -26,19 +33,65 @@ import tools_write
 HOST, PORT = "127.0.0.1", 8765
 mcp = MCPServer("pc-bridge")
 
+PAIRING_TTL_S = 5 * 60
+MAX_PAIRING_ATTEMPTS = 5
+
+_pairing_code: str = ""
+_pairing_expires: float = 0.0
+_pairing_consumed: bool = False
+_pairing_failures: int = 0
+_session_token: str | None = None
+
+
+def _new_pairing_code() -> str:
+    """Cryptographically random 6-digit code, zero-padded."""
+    return f"{secrets.randbelow(1_000_000):06d}"
+
 
 class BearerAuth(BaseHTTPMiddleware):
-    def __init__(self, app, token: str):
+    def __init__(self, app):
         super().__init__(app)
-        self._token = token
 
     async def dispatch(self, request, call_next):
-        if request.url.path == "/health":
+        if request.url.path in ("/health", "/pair"):
             return await call_next(request)
         auth = request.headers.get("authorization", "")
-        if not secrets.compare_digest(auth, f"Bearer {self._token}"):
+        token = _session_token
+        if not token or not secrets.compare_digest(auth, f"Bearer {token}"):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         return await call_next(request)
+
+
+async def _pair(request: Request):
+    """POST /pair {"code": "482913"} -> {"token": "<session bearer token>"}.
+
+    The code is single-use, expires after PAIRING_TTL_S, and the endpoint
+    locks after MAX_PAIRING_ATTEMPTS wrong guesses (until server restart).
+    """
+    global _pairing_consumed, _pairing_failures, _session_token
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "bad request"}, status_code=400)
+    code = str(body.get("code", "")).strip()
+
+    if _pairing_consumed or _pairing_failures >= MAX_PAIRING_ATTEMPTS:
+        return JSONResponse({"error": "pairing unavailable"}, status_code=403)
+    if time.time() > _pairing_expires:
+        return JSONResponse({"error": "pairing code expired"}, status_code=403)
+    if not secrets.compare_digest(code, _pairing_code):
+        _pairing_failures += 1
+        log_event("pair", {}, "denied: wrong code")
+        remaining = MAX_PAIRING_ATTEMPTS - _pairing_failures
+        return JSONResponse(
+            {"error": "wrong code", "attempts_remaining": remaining},
+            status_code=401,
+        )
+
+    _pairing_consumed = True
+    _session_token = secrets.token_hex(32)
+    log_event("pair", {}, "ok: session paired")
+    return JSONResponse({"token": _session_token})
 
 
 def _call(name, fn, args, write=False):
@@ -113,28 +166,31 @@ async def _health(request):
 
 
 def main():
-    token, created = load_or_create_token()
+    global _pairing_code, _pairing_expires
+    _pairing_code = _new_pairing_code()
+    _pairing_expires = time.time() + PAIRING_TTL_S
     # The SDK auto-enables DNS-rebinding protection for localhost servers,
     # which 421s any Host header that isn't localhost — including our
     # Cloudflare tunnel hostname (random per session, can't be allowlisted).
     # Disabled here: the server binds 127.0.0.1-only, every route (except
-    # /health) requires the bearer token, and the tunnel is user-initiated.
-    # The bearer token, not the Host header, is the real authentication.
+    # /health and /pair) requires the session bearer token, and the tunnel
+    # is user-initiated. The bearer token, not the Host header, is the
+    # real authentication.
     app = mcp.streamable_http_app(
         transport_security=TransportSecuritySettings(
             enable_dns_rebinding_protection=False
         )
     )
     app.routes.append(Route("/health", _health))
-    app.add_middleware(BearerAuth, token=token)
+    app.routes.append(Route("/pair", _pair, methods=["POST"]))
+    app.add_middleware(BearerAuth)
 
     print(f"pc-mcp-bridge listening on http://{HOST}:{PORT} (loopback only)")
     print("tunnel:  cloudflared tunnel --url http://127.0.0.1:8765")
-    if created:
-        print("NEW TOKEN (store in the operator's Secure Vault, never chat):")
-        print(token)
-    else:
-        print("token: loaded from %APPDATA%/pc-mcp-bridge/token")
+    print()
+    print(f"PAIRING CODE: {_pairing_code}")
+    print(f"(single-use, expires in {PAIRING_TTL_S // 60:.0f} minutes — "
+          "the operator POSTs it to /pair to receive a session token)")
     print("audit: %APPDATA%/pc-mcp-bridge/audit.log")
     uvicorn.run(app, host=HOST, port=PORT, log_level="warning")
 
