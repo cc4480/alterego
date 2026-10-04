@@ -25,8 +25,8 @@ python pc-agent\server.py
 
 - It listens on `http://127.0.0.1:8765` — loopback only, unreachable from the
   network except through the tunnel below.
-- It prints a **6-digit pairing code** (single-use, expires in 5 minutes).
-  **Paste the code in chat** — it's safe to share: it dies 5 minutes after
+- It prints a **6-digit pairing code** (single-use, expires in 30 minutes).
+  **Paste the code in chat** — it's safe to share: it dies 30 minutes after
   the server starts and can't be reused.
 - It also prints the audit log location: `%APPDATA%\pc-mcp-bridge\audit.log`.
 

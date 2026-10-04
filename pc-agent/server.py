@@ -4,7 +4,7 @@
 MCP server, Streamable HTTP, bound to 127.0.0.1:8765 only.
 
 Authentication: interactive pairing. On startup the server prints a 6-digit
-pairing code (single-use, 5-minute expiry, 5-attempt lockout). The operator
+pairing code (single-use, 30-minute expiry, 5-attempt lockout). The operator
 POSTs the code to /pair and receives a session bearer token over TLS, used
 for all subsequent tool calls. There is no long-term shared secret to
 distribute, and nothing sensitive ever needs to travel through chat.
@@ -33,7 +33,7 @@ import tools_write
 HOST, PORT = "127.0.0.1", 8765
 mcp = MCPServer("pc-bridge")
 
-PAIRING_TTL_S = 5 * 60
+PAIRING_TTL_S = 30 * 60
 MAX_PAIRING_ATTEMPTS = 5
 
 _pairing_code: str = ""

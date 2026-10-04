@@ -6,7 +6,7 @@ dials out through a Cloudflare quick tunnel, and the operator talks MCP
 (Streamable HTTP) through it.
 
 **Auth:** interactive pairing — the server prints a 6-digit code (single-use,
-5-minute expiry, 5-attempt lockout); the operator exchanges it at `/pair` for
+30-minute expiry, 5-attempt lockout); the operator exchanges it at `/pair` for
 a session bearer token. No long-term secret to distribute.
 
 **Status: prototype.** The Linux bridge half is tested here. The Windows
@@ -25,7 +25,7 @@ a session bearer token. No long-term secret to distribute.
 - Server binds **loopback only** (`127.0.0.1`). The only inbound path is the
   outbound Cloudflare tunnel the user starts themselves.
 - **Pairing, not pre-shared secrets:** the server prints a 6-digit code
-  (cryptographically random, single-use, 5-minute expiry, locks after 5 wrong
+  (cryptographically random, single-use, 30-minute expiry, locks after 5 wrong
   guesses until restart). The operator exchanges it at `POST /pair` for a
   session bearer token delivered over TLS. The session token lives only in
   the operator's session memory and dies with the server. Nothing
