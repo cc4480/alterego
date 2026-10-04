@@ -162,8 +162,27 @@ def test_recon_validation():
     import struct
     name, off = R._decode_name(b"\x07example\x03com\x00", 0)
     assert name == "example.com" and off == 13, (name, off)
-    assert R._rdata_text(1, bytes([93, 184, 216, 34])) == "93.184.216.34"
-    assert R._rdata_text(16, b"\x05hello") == "hello"
+    assert R._rdata_text(1, bytes([93, 184, 216, 34]), 0, 4) == "93.184.216.34"
+    assert R._rdata_text(16, b"\x05hello", 0, 6) == "hello"
+    # MX with compression pointer back into the packet (the earlier IndexError)
+    pkt = (b"\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00"
+           b"\x07example\x03com\x00"          # qname at offset 12
+           b"\x00\x0f\x00\x01"
+           b"\xc0\x0c"                        # answer name -> offset 12
+           b"\x00\x0f\x00\x01"
+           b"\x00\x00\x0e\x10\x00\x09"
+           b"\x00\x0a\x04mail\xc0\x0c")       # pref 10, "mail" + ptr -> example.com
+    # parse the canned packet through the answer loop manually
+    data = pkt
+    off = 12
+    while data[off] != 0:
+        off += 1 + data[off]
+    off += 5
+    assert data[off] & 0xC0 == 0xC0
+    atype, _, _, rdlen = struct.unpack(">HHIH", data[off + 2:off + 12])
+    rdata_off = off + 12
+    assert R._rdata_text(atype, data, rdata_off, rdlen) == "10 mail.example.com", \
+        R._rdata_text(atype, data, rdata_off, rdlen)
     print("PASS recon validation")
 
 

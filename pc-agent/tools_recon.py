@@ -67,34 +67,37 @@ def _dns_query_raw(domain: str, qtype: int, timeout_s: int = 5) -> list:
                 off += 1 + data[off]
             off += 1
         atype, aclass, ttl, rdlen = struct.unpack(">HHIH", data[off:off + 10])
-        rdata = data[off + 10:off + 10 + rdlen]
+        rdata_off = off + 10
         off += 10 + rdlen
         if atype == qtype:
-            answers.append((atype, rdata, ttl))
+            # keep the full packet: embedded names may use compression
+            # pointers back into it
+            answers.append((atype, data, rdata_off, rdlen, ttl))
     return answers
 
 
-def _rdata_text(atype: int, rdata: bytes) -> str:
+def _rdata_text(atype: int, data: bytes, rdata_off: int, rdlen: int) -> str:
+    seg = data[rdata_off:rdata_off + rdlen]
     if atype == 1:
-        return socket.inet_ntoa(rdata)
+        return socket.inet_ntoa(seg)
     if atype == 28:
-        return socket.inet_ntop(socket.AF_INET6, rdata)
+        return socket.inet_ntop(socket.AF_INET6, seg)
     if atype == 16:  # TXT: length-prefixed strings
         parts, i = [], 0
-        while i < len(rdata):
-            n = rdata[i]
-            parts.append(rdata[i + 1:i + 1 + n].decode("utf-8", errors="replace"))
+        while i < len(seg):
+            n = seg[i]
+            parts.append(seg[i + 1:i + 1 + n].decode("utf-8", errors="replace"))
             i += 1 + n
         return "".join(parts)
-    if atype in (2, 5):  # NS, CNAME: decode (possibly compressed) name
-        return _decode_name(rdata, 0)[0]
-    if atype == 15:  # MX
-        pref = struct.unpack(">H", rdata[:2])[0]
-        return f"{pref} {_decode_name(rdata, 2)[0]}"
+    if atype in (2, 5):  # NS, CNAME: name, possibly compressed into packet
+        return _decode_name(data, rdata_off)[0]
+    if atype == 15:  # MX: preference + name
+        pref = struct.unpack(">H", seg[:2])[0]
+        return f"{pref} {_decode_name(data, rdata_off + 2)[0]}"
     if atype == 48:  # DNSKEY: flags(2) proto(1) alg(1) + key
-        flags, proto, alg = struct.unpack(">HBB", rdata[:4])
-        return f"flags={flags} proto={proto} alg={alg} key_len={len(rdata) - 4}"
-    return rdata.hex()
+        flags, proto, alg = struct.unpack(">HBB", seg[:4])
+        return f"flags={flags} proto={proto} alg={alg} key_len={len(seg) - 4}"
+    return seg.hex()
 
 
 def _decode_name(data: bytes, off: int) -> tuple:
@@ -129,7 +132,7 @@ def dns_query(domain: str, rtype: str = "A") -> dict:
         return {"domain": domain, "type": rtype, "records": [],
                 "note": str(e)}
     return {"domain": domain, "type": rtype,
-            "records": [_rdata_text(t, r) for t, r, _ in answers]}
+            "records": [_rdata_text(t, pkt, off, ln) for t, pkt, off, ln, _ in answers]}
 
 
 def tls_info(host: str, port: int = 443, timeout_s: int = 15) -> dict:
@@ -143,6 +146,8 @@ def tls_info(host: str, port: int = 443, timeout_s: int = 15) -> dict:
         with socket.create_connection((host, port), timeout=timeout_s) as sock:
             with ctx.wrap_socket(sock, server_hostname=host) as ss:
                 cert = ss.getpeercert() or {}
+                tls_version = ss.version()
+                cipher = (ss.cipher() or [None])[0]
     except ssl.SSLCertVerificationError as e:
         return {"host": host, "port": port, "error": f"cert verification failed: {e.verify_message}"}
     except (socket.timeout, ConnectionRefusedError, OSError) as e:
@@ -152,7 +157,7 @@ def tls_info(host: str, port: int = 443, timeout_s: int = 15) -> dict:
         return ", ".join(f"{k}={v}" for tup in seq for k, v in tup)
 
     return {"host": host, "port": port,
-            "tls_version": ss.version(), "cipher": (ss.cipher() or [None])[0],
+            "tls_version": tls_version, "cipher": cipher,
             "cert_subject": _name(cert.get("subject", [])),
             "cert_issuer": _name(cert.get("issuer", [])),
             "cert_not_before": cert.get("notBefore"),
