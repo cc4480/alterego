@@ -27,7 +27,10 @@ def _abs(path: str) -> Path:
 
 
 def write_file(path: str, content: str) -> dict:
-    """Create or overwrite a text file (creates parent dirs)."""
+    """Create or overwrite a text file (creates parent dirs).
+
+    Byte-exact: no newline translation, so write -> read roundtrips.
+    """
     p = _abs(path)
     if not isinstance(content, str):
         raise ValueError("content must be a string")
@@ -38,7 +41,7 @@ def write_file(path: str, content: str) -> dict:
     _approved("write_file",
               f"Write {len(data)} bytes to:\n{p}\n---\n{preview}")
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(content, encoding="utf-8")
+    p.write_bytes(data)
     return {"path": str(p), "bytes_written": len(data)}
 
 
@@ -52,10 +55,10 @@ def edit_file(path: str, old_text: str, new_text: str) -> dict:
         raise FileNotFoundError(f"not a file: {p}")
     _approved("edit_file",
               f"Edit file:\n{p}\nreplace:\n{old_text[:300]}\nwith:\n{new_text[:300]}")
-    text = p.read_text(encoding="utf-8")
+    text = p.read_bytes().decode("utf-8")
     if old_text not in text:
         raise ValueError("old_text not found in file")
-    p.write_text(text.replace(old_text, new_text, 1), encoding="utf-8")
+    p.write_bytes(text.replace(old_text, new_text, 1).encode("utf-8"))
     return {"path": str(p), "replacements": 1}
 
 
