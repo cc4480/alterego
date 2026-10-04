@@ -35,6 +35,7 @@ from audit import log_event
 import approval
 import tools_read
 import tools_write
+import tools_browser
 
 HOST, PORT = "127.0.0.1", 8765
 mcp = MCPServer("pc-bridge")
@@ -207,6 +208,43 @@ def shell_exec(command: str, timeout_s: int = 60) -> dict:
         "shell_exec", tools_write.shell_exec,
         {"command": command, "timeout_s": timeout_s}, write=True,
     )
+
+
+# ---- browser tools (CDP; Edge needs --remote-debugging-port=9222) ---------
+@mcp.tool()
+def browser_snapshot(url_contains: str = "") -> dict:
+    """List interactive elements of the live Edge tab (no approval)."""
+    return _call("browser_snapshot", tools_browser.browser_snapshot,
+                 {"url_contains": url_contains})
+
+
+@mcp.tool()
+def browser_navigate(url: str, url_contains: str = "") -> dict:
+    """Navigate the Edge tab to a URL. Requires on-PC approval."""
+    return _call("browser_navigate", tools_browser.browser_navigate,
+                 {"url": url, "url_contains": url_contains}, write=True)
+
+
+@mcp.tool()
+def browser_click(text: str, url_contains: str = "") -> dict:
+    """Click the element containing text in the Edge tab. Requires approval."""
+    return _call("browser_click", tools_browser.browser_click,
+                 {"text": text, "url_contains": url_contains}, write=True)
+
+
+@mcp.tool()
+def browser_fill(label: str, text: str, url_contains: str = "") -> dict:
+    """Fill the field matching label in the Edge tab. Requires approval."""
+    return _call("browser_fill", tools_browser.browser_fill,
+                 {"label": label, "text": text,
+                  "url_contains": url_contains}, write=True)
+
+
+@mcp.tool()
+def browser_eval(js: str, url_contains: str = "") -> dict:
+    """Run JavaScript in the Edge tab. Requires on-PC approval."""
+    return _call("browser_eval", tools_browser.browser_eval,
+                 {"js": js, "url_contains": url_contains}, write=True)
 
 
 async def _health(request):

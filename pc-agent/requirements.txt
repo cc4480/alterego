@@ -4,3 +4,4 @@ uvicorn>=0.30
 mss>=9.0
 pywin32>=306
 psutil>=6.0
+websocket-client>=1.7  # browser_cdp (Edge CDP tools)

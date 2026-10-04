@@ -28,6 +28,23 @@ written to the audit log either way.
 | `type_text` | `text` (string) | Types text into the focused window |
 | `shell_exec` | `command` (string), `timeout_s` (int, default 60) | Runs a command in `cmd.exe`, returns stdout/stderr/exit code |
 
+## Browser tools — drive the live Edge tab via CDP
+
+Edge must run with `--remote-debugging-port=9222` (add to the Edge shortcut
+target). The bridge attaches to the user's real tab — sessions and logins
+intact — and sees the full DOM: buttons, inputs, iframes, and popups that
+UI Automation cannot reach. Requires `pip install websocket-client`.
+
+| Tool | Args | Approval | What it does |
+|---|---|---|---|
+| `browser_snapshot` | `url_contains` (optional filter) | No | Lists interactive elements of the tab: tag + label |
+| `browser_navigate` | `url`, `url_contains` | Yes | Navigates the tab |
+| `browser_click` | `text`, `url_contains` | Yes | Clicks the element containing `text` |
+| `browser_fill` | `label`, `text`, `url_contains` | Yes | Fills the field matching `label` (React-aware) |
+| `browser_eval` | `js`, `url_contains` | Yes | Runs JavaScript, returns the value |
+
+`url_contains` picks which tab when several are open (e.g. `"seclayer"`).
+
 ## Examples (via `bridge/pc_bridge.py`)
 
 ```bash
