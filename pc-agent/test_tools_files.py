@@ -105,15 +105,15 @@ def test_denied_raises(tmp_path):
 
 def test_wrappers_register_all():
     names = [f.__name__ for f in tool_wrappers.ALL_TOOLS]
-    assert len(names) == 30, names
-    assert len(set(names)) == 30, "duplicate tool names"
+    assert len(names) == 31, names
+    assert len(set(names)) == 31, "duplicate tool names"
     for n in ("write_file", "edit_file", "delete_file", "create_dir",
               "close_window", "hotkey", "mouse_move", "mouse_click",
               "mouse_scroll", "minimize_window", "maximize_window",
               "kill_process", "clipboard_set", "clipboard_get",
-              "copy_file", "move_file", "file_info"):
+              "copy_file", "move_file", "file_info", "paste_text"):
         assert n in names, n
-    print("PASS wrappers: 30 tools registered")
+    print("PASS wrappers: 31 tools registered")
 
 
 def test_hotkey_parse():
@@ -130,6 +130,17 @@ def test_hotkey_parse():
         else:
             raise AssertionError(f"should have raised: {bad!r}")
     print("PASS hotkey parse")
+
+
+def test_paste_text_validation():
+    for bad in ("", 123, None, "x" * 100001):
+        try:
+            tools_write.paste_text(bad)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"should have raised for {str(bad)[:20]!r}")
+    print("PASS paste_text validation")
 
 
 def test_copy_move_info(tmp_path):
@@ -172,4 +183,5 @@ if __name__ == "__main__":
         test_copy_move_info(tp)
     test_wrappers_register_all()
     test_hotkey_parse()
+    test_paste_text_validation()
     print("ALL TOOLS_FILES TESTS PASS")

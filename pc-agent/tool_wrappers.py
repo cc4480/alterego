@@ -116,6 +116,12 @@ def clipboard_set(text: str) -> dict:
                          {"text": text}, write=True)
 
 
+def paste_text(text: str) -> dict:
+    """Paste text into the focused window (reliable for long text)."""
+    return toolcall.call("paste_text", tools_write.paste_text,
+                         {"text": text}, write=True)
+
+
 # ---- file tools (absolute paths anywhere; each needs approval) ------------
 def write_file(path: str, content: str) -> dict:
     """Create/overwrite a UTF-8 text file (parents created). Requires approval."""
@@ -199,6 +205,7 @@ ALL_TOOLS = [
     focus_window, close_window, type_text, shell_exec,
     hotkey, mouse_move, mouse_click, mouse_scroll,
     minimize_window, maximize_window, kill_process, clipboard_set,
+    paste_text,
     write_file, edit_file, delete_file, create_dir,
     copy_file, move_file, file_info,
     browser_snapshot, browser_navigate, browser_click, browser_fill,

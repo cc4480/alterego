@@ -35,6 +35,7 @@ written to the audit log either way.
 | `mouse_click` | `x`, `y` (int), `button` (`left`/`right`/`middle`) | Moves to (x, y) and clicks (physical pixels; the bridge is DPI-aware) |
 | `mouse_scroll` | `direction` (`up`/`down`), `clicks` (int) | Scrolls the wheel under the cursor |
 | `clipboard_set` | `text` (string) | Puts text on the Windows clipboard |
+| `paste_text` | `text` (string) | Pastes text into the focused window via clipboard (reliable for long text; restores prior clipboard) |
 | `kill_process` | `pid` (int) | Terminates a process (refuses the bridge's own PID) |
 | `shell_exec` | `command` (string), `timeout_s` (int, default 60) | Runs a command in `cmd.exe`, returns stdout/stderr/exit code |
 

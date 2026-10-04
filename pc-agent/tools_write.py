@@ -38,20 +38,14 @@ INPUT_MOUSE, INPUT_KEYBOARD = 0, 1
 KEYEVENTF_KEYUP = 0x0002
 
 if os.name == "nt":
-    # ctypes defaults to c_int args/returns. 64-bit pointer args AND
-    # returns must be declared, else truncation/OverflowError follows.
-    # (HWNDs stay 32-bit even on 64-bit Windows, so those are fine.)
-    _k32, _u32, _P = ctypes.windll.kernel32, ctypes.windll.user32, ctypes.c_void_p
-    _k32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]; _k32.GlobalAlloc.restype = _P
-    _k32.GlobalLock.argtypes = [_P]; _k32.GlobalLock.restype = _P
-    _k32.GlobalUnlock.argtypes = [_P]; _k32.GlobalFree.argtypes = [_P]
-    _k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]; _k32.OpenProcess.restype = _P
-    _k32.TerminateProcess.argtypes = [_P, wintypes.UINT]; _k32.CloseHandle.argtypes = [_P]
-    _u32.GetClipboardData.argtypes = [wintypes.UINT]; _u32.GetClipboardData.restype = _P
-    _u32.SetClipboardData.argtypes = [wintypes.UINT, _P]; _u32.SetClipboardData.restype = _P
-    _u32.OpenClipboard.argtypes = [_P]
-    # Physical-pixel mouse coords: opt into per-monitor DPI awareness at
-    # import (before any UI call); otherwise Windows virtualizes coords.
+    # ctypes assumes c_int args/returns: declare 64-bit pointer args/returns
+    # for the process APIs (HWNDs stay 32-bit, fine undeclared).
+    _k32, _P = ctypes.windll.kernel32, ctypes.c_void_p
+    _k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    _k32.OpenProcess.restype = _P
+    _k32.TerminateProcess.argtypes = [_P, wintypes.UINT]
+    _k32.CloseHandle.argtypes = [_P]
+    # Per-monitor DPI awareness: mouse coords are true physical pixels.
     try: ctypes.windll.shcore.SetProcessDpiAwareness(2)
     except Exception: pass
 
@@ -273,25 +267,33 @@ def clipboard_set(text: str) -> dict:
         raise ValueError("text too long (100k chars max)")
     preview = text if len(text) <= 300 else text[:300] + "..."
     _approved("clipboard_set", f"Set clipboard ({len(text)} chars):\n{preview}")
-    user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
-    CF_UNICODETEXT, GHND = 13, 0x0042
-    data = text.encode("utf-16-le") + b"\x00\x00"
-    if not user32.OpenClipboard(None):
-        raise OSError("cannot open clipboard")
-    try:
-        user32.EmptyClipboard()
-        h = kernel32.GlobalAlloc(GHND, len(data))
-        if not h:
-            raise OSError("GlobalAlloc failed")
-        p = kernel32.GlobalLock(h)
-        if not p:
-            kernel32.GlobalFree(h)
-            raise OSError("GlobalLock failed")
-        ctypes.memmove(p, data, len(data))
-        kernel32.GlobalUnlock(h)
-        if not user32.SetClipboardData(CF_UNICODETEXT, h):
-            kernel32.GlobalFree(h)
-            raise OSError("SetClipboardData failed")
-    finally:
-        user32.CloseClipboard()
+    import clipboard
+    clipboard.set_text(text)
     return {"clipboard_chars": len(text)}
+
+
+def paste_text(text: str) -> dict:
+    """Paste text into the focused window via the clipboard.
+
+    Reliable for long text: one paste instead of thousands of key events
+    (keystroke typing can garble long input). Restores the prior clipboard.
+    """
+    if not isinstance(text, str) or not text:
+        raise ValueError("text must be a non-empty string")
+    if len(text) > 100000:
+        raise ValueError("text too long (100k chars max)")
+    _approved("paste_text", f"Paste {len(text)} chars into the focused window.")
+    import clipboard
+    import time
+    old = clipboard.get_text()
+    try:
+        clipboard.set_text(text)
+        _key_event(_VK["ctrl"], True)
+        try:
+            _tap_vk(ord("V"))
+        finally:
+            _key_event(_VK["ctrl"], False)
+        time.sleep(0.5)  # let the paste land before restoring clipboard
+    finally:
+        clipboard.set_text(old)
+    return {"pasted_chars": len(text)}

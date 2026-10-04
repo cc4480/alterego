@@ -1,19 +1,11 @@
 """Read-only tools. File access is restricted to the user's own profile."""
 import base64
-import ctypes
 import getpass
 import os
 import platform
 from pathlib import Path
 
 MAX_READ_BYTES = 1_000_000  # 1 MB cap on read_file
-
-if os.name == "nt":
-    # 64-bit pointer args/returns must be declared (see tools_write.py).
-    _ku, _kk, _KP = ctypes.windll.user32, ctypes.windll.kernel32, ctypes.c_void_p
-    _ku.GetClipboardData.argtypes = [ctypes.c_uint]; _ku.GetClipboardData.restype = _KP
-    _kk.GlobalLock.argtypes = [_KP]; _kk.GlobalLock.restype = _KP
-    _kk.GlobalUnlock.argtypes = [_KP]
 
 
 def _user_profile() -> Path:
@@ -123,19 +115,8 @@ def read_file(path: str) -> dict:
 
 def clipboard_get() -> dict:
     """Read text from the Windows clipboard (no approval; it's a read)."""
-    user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
-    CF_UNICODETEXT = 13
-    if not user32.OpenClipboard(None):
-        return {"text": "", "note": "clipboard unavailable"}
+    import clipboard
     try:
-        h = user32.GetClipboardData(CF_UNICODETEXT)
-        if not h:
-            return {"text": ""}
-        p = kernel32.GlobalLock(h)
-        try:
-            text = ctypes.wstring_at(p)
-        finally:
-            kernel32.GlobalUnlock(h)
-        return {"text": text or ""}
-    finally:
-        user32.CloseClipboard()
+        return {"text": clipboard.get_text()}
+    except OSError:
+        return {"text": "", "note": "clipboard unavailable"}
