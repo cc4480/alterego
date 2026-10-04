@@ -33,12 +33,13 @@ import uvicorn
 
 from audit import log_event
 import approval
-import tools_read
-import tools_write
-import tools_browser
+from tool_wrappers import ALL_TOOLS
 
 HOST, PORT = "127.0.0.1", 8765
 mcp = MCPServer("pc-bridge")
+
+for _tool_fn in ALL_TOOLS:
+    mcp.tool()(_tool_fn)
 
 PAIRING_TTL_S = 30 * 60
 MAX_PAIRING_ATTEMPTS = 5
@@ -138,113 +139,6 @@ async def _logout(request: Request):
     _clear_session_token()
     log_event("logout", {}, "ok: session revoked by operator")
     return JSONResponse({"ok": True})
-
-
-def _call(name, fn, args, write=False):
-    """Run a tool with audit logging; errors become {error} payloads."""
-    try:
-        result = fn(**args)
-        status = "ok"
-        if write and approval.is_auto_approve():
-            status = "ok (AUTO-APPROVED, no dialog shown)"
-        log_event(name, args, status, approved=True if write else None)
-        return result
-    except PermissionError as e:
-        log_event(name, args, f"denied: {e}", approved=False)
-        return {"error": str(e)}
-    except Exception as e:  # noqa: BLE001 - surface as tool error, never crash
-        log_event(name, args, f"error: {type(e).__name__}: {e}")
-        return {"error": f"{type(e).__name__}: {e}"}
-
-
-# ---- read tools -----------------------------------------------------------
-@mcp.tool()
-def screenshot() -> dict:
-    """Capture the primary monitor as PNG (base64)."""
-    return _call("screenshot", tools_read.screenshot, {})
-
-
-@mcp.tool()
-def list_windows() -> dict:
-    """List visible windows: handle, pid, title."""
-    return _call("list_windows", tools_read.list_windows, {})
-
-
-@mcp.tool()
-def system_info() -> dict:
-    """OS, host, user, CPU/memory."""
-    return _call("system_info", tools_read.system_info, {})
-
-
-@mcp.tool()
-def list_dir(path: str = "") -> dict:
-    """List a directory. Restricted to the user's profile."""
-    return _call("list_dir", tools_read.list_dir, {"path": path})
-
-
-@mcp.tool()
-def read_file(path: str) -> dict:
-    """Read a UTF-8 text file (<=1MB). Restricted to the user's profile."""
-    return _call("read_file", tools_read.read_file, {"path": path})
-
-
-# ---- write tools (each pops a native approval dialog on the PC) -----------
-@mcp.tool()
-def focus_window(hwnd: int) -> dict:
-    """Bring a window to the foreground. Requires on-PC approval."""
-    return _call("focus_window", tools_write.focus_window, {"hwnd": hwnd}, write=True)
-
-
-@mcp.tool()
-def type_text(text: str) -> dict:
-    """Type text into the focused window. Requires on-PC approval."""
-    return _call("type_text", tools_write.type_text, {"text": text}, write=True)
-
-
-@mcp.tool()
-def shell_exec(command: str, timeout_s: int = 60) -> dict:
-    """Run a command in cmd.exe. Requires on-PC approval."""
-    return _call(
-        "shell_exec", tools_write.shell_exec,
-        {"command": command, "timeout_s": timeout_s}, write=True,
-    )
-
-
-# ---- browser tools (CDP; Edge needs --remote-debugging-port=9222) ---------
-@mcp.tool()
-def browser_snapshot(url_contains: str = "") -> dict:
-    """List interactive elements of the live Edge tab (no approval)."""
-    return _call("browser_snapshot", tools_browser.browser_snapshot,
-                 {"url_contains": url_contains})
-
-
-@mcp.tool()
-def browser_navigate(url: str, url_contains: str = "") -> dict:
-    """Navigate the Edge tab to a URL. Requires on-PC approval."""
-    return _call("browser_navigate", tools_browser.browser_navigate,
-                 {"url": url, "url_contains": url_contains}, write=True)
-
-
-@mcp.tool()
-def browser_click(text: str, url_contains: str = "") -> dict:
-    """Click the element containing text in the Edge tab. Requires approval."""
-    return _call("browser_click", tools_browser.browser_click,
-                 {"text": text, "url_contains": url_contains}, write=True)
-
-
-@mcp.tool()
-def browser_fill(label: str, text: str, url_contains: str = "") -> dict:
-    """Fill the field matching label in the Edge tab. Requires approval."""
-    return _call("browser_fill", tools_browser.browser_fill,
-                 {"label": label, "text": text,
-                  "url_contains": url_contains}, write=True)
-
-
-@mcp.tool()
-def browser_eval(js: str, url_contains: str = "") -> dict:
-    """Run JavaScript in the Edge tab. Requires on-PC approval."""
-    return _call("browser_eval", tools_browser.browser_eval,
-                 {"js": js, "url_contains": url_contains}, write=True)
 
 
 async def _health(request):

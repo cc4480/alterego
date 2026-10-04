@@ -28,6 +28,20 @@ written to the audit log either way.
 | `type_text` | `text` (string) | Types text into the focused window |
 | `shell_exec` | `command` (string), `timeout_s` (int, default 60) | Runs a command in `cmd.exe`, returns stdout/stderr/exit code |
 
+## File tools — full read/write access to the machine
+
+Paths are absolute Windows paths anywhere on the machine (the read tools
+are restricted to the user profile; the write tools below are not — the
+on-PC approval dialog showing the full path is the guardrail). Text
+files only (UTF-8, 1 MB cap, mirroring `read_file`).
+
+| Tool | Args | Approval | What it does |
+|---|---|---|---|
+| `write_file` | `path`, `content` | Yes | Creates/overwrites a text file (parent dirs created) |
+| `edit_file` | `path`, `old_text`, `new_text` | Yes | Replaces the first occurrence of `old_text`; errors if not found |
+| `delete_file` | `path` | Yes | Permanently deletes a file (files only, not directories) |
+| `create_dir` | `path` | Yes | Creates a directory including parents (no-op if it exists) |
+
 ## Browser tools — drive a live Edge tab via CDP
 
 Edge must be launched with remote debugging enabled. Proven working flags
