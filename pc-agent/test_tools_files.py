@@ -105,15 +105,16 @@ def test_denied_raises(tmp_path):
 
 def test_wrappers_register_all():
     names = [f.__name__ for f in tool_wrappers.ALL_TOOLS]
-    assert len(names) == 31, names
-    assert len(set(names)) == 31, "duplicate tool names"
+    assert len(names) == 32, names
+    assert len(set(names)) == 32, "duplicate tool names"
     for n in ("write_file", "edit_file", "delete_file", "create_dir",
               "close_window", "hotkey", "mouse_move", "mouse_click",
               "mouse_scroll", "minimize_window", "maximize_window",
               "kill_process", "clipboard_set", "clipboard_get",
-              "copy_file", "move_file", "file_info", "paste_text"):
+              "copy_file", "move_file", "file_info", "paste_text",
+              "memory_recall"):
         assert n in names, n
-    print("PASS wrappers: 31 tools registered")
+    print("PASS wrappers: 32 tools registered")
 
 
 def test_hotkey_parse():
@@ -141,6 +142,35 @@ def test_paste_text_validation():
         else:
             raise AssertionError(f"should have raised for {str(bad)[:20]!r}")
     print("PASS paste_text validation")
+
+
+def test_memory_recall(tmp_path):
+    import tools_memory
+    (tmp_path / "transcripts").mkdir()
+    (tmp_path / "transcripts" / "2026-10-04-main.md").write_text(
+        "# Day log\n\n## paste_text tool\nBuilt paste_text for reliable long text entry via clipboard.\n",
+        encoding="utf-8")
+    (tmp_path / "transcripts" / "2026-10-03-main.md").write_text(
+        "# Day log\n\nDiscussed video rendering pipelines and codecs.\n",
+        encoding="utf-8")
+    os.environ["PC_BRIDGE_MEMORY_DIR"] = str(tmp_path)
+    try:
+        r = tools_memory.memory_recall("paste_text clipboard")
+        assert r["files_matched"] == 1, r
+        assert r["results"][0]["file"].endswith("2026-10-04-main.md"), r
+        assert "paste_text" in r["results"][0]["snippet"], r
+        r = tools_memory.memory_recall("zzzznope")
+        assert r["results"] == [] and r["files_matched"] == 0, r
+        for bad in ("", "a", "!!!"):
+            try:
+                tools_memory.memory_recall(bad)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"should have raised for {bad!r}")
+    finally:
+        del os.environ["PC_BRIDGE_MEMORY_DIR"]
+    print("PASS memory_recall")
 
 
 def test_copy_move_info(tmp_path):
@@ -181,6 +211,7 @@ if __name__ == "__main__":
         test_create_dir(tp)
         test_denied_raises(tp)
         test_copy_move_info(tp)
+        test_memory_recall(tp)
     test_wrappers_register_all()
     test_hotkey_parse()
     test_paste_text_validation()

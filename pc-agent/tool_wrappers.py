@@ -9,6 +9,7 @@ import tools_read
 import tools_write
 import tools_browser
 import tools_files
+import tools_memory
 
 
 # ---- read tools -----------------------------------------------------------
@@ -165,6 +166,12 @@ def file_info(path: str) -> dict:
     return toolcall.call("file_info", tools_files.file_info, {"path": path})
 
 
+def memory_recall(query: str, limit: int = 5) -> dict:
+    """Search the on-PC memory archive (transcripts + subjects). No approval."""
+    return toolcall.call("memory_recall", tools_memory.memory_recall,
+                         {"query": query, "limit": limit})
+
+
 # ---- browser tools (CDP; Edge needs --remote-debugging-port=9222) ----------
 def browser_snapshot(url_contains: str = "") -> dict:
     """List interactive elements of the live Edge tab (no approval)."""
@@ -201,7 +208,7 @@ def browser_eval(js: str, url_contains: str = "") -> dict:
 
 ALL_TOOLS = [
     screenshot, list_windows, system_info, list_dir, read_file,
-    clipboard_get,
+    clipboard_get, memory_recall,
     focus_window, close_window, type_text, shell_exec,
     hotkey, mouse_move, mouse_click, mouse_scroll,
     minimize_window, maximize_window, kill_process, clipboard_set,

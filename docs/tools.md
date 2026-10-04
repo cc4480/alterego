@@ -13,6 +13,7 @@ authenticated with the session bearer token from `/pair`.
 | `list_dir` | `path` (default: profile root) | `{"path": ..., "items": [{"name", "dir", "size"}]}` |
 | `read_file` | `path` (required) | UTF-8 text file, max 1 MB |
 | `clipboard_get` | — | Current Windows clipboard text |
+| `memory_recall` | `query` (string), `limit` (int, default 5) | Keyword search over the on-PC memory archive (transcripts + subject index), ranked with snippets |
 
 `list_dir` / `read_file` are restricted to the user's own profile directory
 (`C:\Users\<name>\...`). Windows system directories and other users'
