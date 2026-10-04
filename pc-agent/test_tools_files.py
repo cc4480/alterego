@@ -105,16 +105,17 @@ def test_denied_raises(tmp_path):
 
 def test_wrappers_register_all():
     names = [f.__name__ for f in tool_wrappers.ALL_TOOLS]
-    assert len(names) == 34, names
-    assert len(set(names)) == 34, "duplicate tool names"
+    assert len(names) == 38, names
+    assert len(set(names)) == 38, "duplicate tool names"
     for n in ("write_file", "edit_file", "delete_file", "create_dir",
               "close_window", "hotkey", "mouse_move", "mouse_click",
               "mouse_scroll", "minimize_window", "maximize_window",
               "kill_process", "clipboard_set", "clipboard_get",
               "copy_file", "move_file", "file_info", "paste_text",
-              "memory_recall", "shell_pwsh", "batch"):
+              "memory_recall", "shell_pwsh", "batch",
+              "http_headers", "dns_query", "tls_info", "tcp_check"):
         assert n in names, n
-    print("PASS wrappers: 34 tools registered")
+    print("PASS wrappers: 38 tools registered")
 
 
 def test_hotkey_parse():
@@ -142,6 +143,28 @@ def test_paste_text_validation():
         else:
             raise AssertionError(f"should have raised for {str(bad)[:20]!r}")
     print("PASS paste_text validation")
+
+
+def test_recon_validation():
+    import tools_recon as R
+    for fn, bad in ((R.http_headers, ["ftp://x", "", None]),
+                    (R.tls_info, ["", None]),
+                    (R.tcp_check, [("", [80]), ("h", []), ("h", list(range(60)))]),
+                    (R.dns_query, [("", "A"), ("x", "ZZZ"), (None, "A")])):
+        for b in bad:
+            try:
+                fn(*b) if isinstance(b, tuple) else fn(b)
+            except (ValueError, TypeError):
+                pass
+            else:
+                raise AssertionError(f"{fn.__name__} should have raised for {b!r}")
+    # DNS name decoding + packet parse against a canned response
+    import struct
+    name, off = R._decode_name(b"\x07example\x03com\x00", 0)
+    assert name == "example.com" and off == 13, (name, off)
+    assert R._rdata_text(1, bytes([93, 184, 216, 34])) == "93.184.216.34"
+    assert R._rdata_text(16, b"\x05hello") == "hello"
+    print("PASS recon validation")
 
 
 def test_support_tools(tmp_path):
@@ -249,6 +272,7 @@ if __name__ == "__main__":
         test_copy_move_info(tp)
         test_memory_recall(tp)
         test_support_tools(tp)
+        test_recon_validation()
     test_wrappers_register_all()
     test_hotkey_parse()
     test_paste_text_validation()

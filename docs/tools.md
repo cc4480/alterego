@@ -22,6 +22,15 @@ authenticated with the session bearer token from `/pair`.
 | `shell_pwsh` | `script` (string, 1–8000 chars), `timeout_s` (int, default 60) | Run PowerShell directly — no cmd.exe wrapping or quoting layers. Requires approval. |
 | `batch` | `calls` (array of `{tool, args}`, 1–20 items) | Run many tools in one roundtrip. One approval dialog covers every write in the batch; no nesting. |
 
+### Recon tools (passive, read-only, no approval)
+
+| Tool | Arguments | Notes |
+|---|---|---|
+| `http_headers` | `url` (http/https), `timeout_s` (default 20) | GET a URL, return status + all response headers — verify security headers without a scan credit |
+| `dns_query` | `domain`, `rtype` (A/AAAA/CNAME/MX/NS/TXT/DNSKEY/SOA) | Raw DNS over UDP — check TXT verification records, DNSSEC (DNSKEY), mail config |
+| `tls_info` | `host`, `port` (default 443) | TLS version, cipher, cert subject/issuer/expiry |
+| `tcp_check` | `host`, `ports` (1–50) | TCP connect: open / closed / filtered per port |
+
 `list_dir` / `read_file` are restricted to the user's own profile directory
 (`C:\Users\<name>\...`). Windows system directories and other users'
 profiles are denied.
