@@ -1,0 +1,6 @@
+# pc-agent (Windows, Python 3.11+)
+mcp>=2.0
+uvicorn>=0.30
+mss>=9.0
+pywin32>=306
+psutil>=6.0
