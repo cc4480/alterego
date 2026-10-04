@@ -46,8 +46,13 @@ Notes from live testing — `--remote-debugging-port` alone is not enough:
 - Requires `pip install websocket-client` on the PC.
 
 The bridge attaches to a live tab and sees the DOM that UI Automation
-cannot reach. `browser_snapshot` currently queries the **main document
-only** — it does not yet recurse into iframes or shadow roots.
+cannot reach. `browser_snapshot`, `browser_click`, and `browser_fill` all
+recurse through **open shadow roots** and **same-origin iframes**
+(recursively); snapshot tags such elements `[shadow]` / `[iframe]`, and
+reports `cross_origin_iframes` (count of iframes that could not be pierced —
+cross-origin DOM is inaccessible from the page context). Verified live
+2026-10-04: injected shadow-DOM and `srcdoc`-iframe buttons were listed and
+clickable, clicks confirmed via page title changes.
 
 | Tool | Args | Approval | What it does |
 |---|---|---|---|
@@ -74,8 +79,9 @@ Live-verified 2026-10-04 (Edge 154, fresh `--user-data-dir` profile):
   IIFE — a SyntaxError; CDP reports it as protocol error `"Uncaught"`).
   Wrapping it (`(() => {})()`) fixed it — commit `8f954f1`.
 
-Not yet verified: iframe/shadow-root recursion, and the Google account
-chooser as a separate CDP target (untestable on the fresh test profile).
+Not yet verified: closed shadow roots (inaccessible by design), and the
+Google account chooser as a separate CDP target (untestable on the fresh
+test profile).
 
 ## Examples (via `bridge/pc_bridge.py`)
 
