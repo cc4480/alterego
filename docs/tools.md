@@ -31,8 +31,8 @@ written to the audit log either way.
 | `maximize_window` | `hwnd` (int) | Maximizes a window |
 | `type_text` | `text` (string) | Types text into the focused window |
 | `hotkey` | `keys` (string, e.g. `"ctrl+c"`, `"alt+f4"`, `"enter"`) | Presses a key combo |
-| `mouse_move` | `x`, `y` (int) | Moves the cursor to screen coordinates |
-| `mouse_click` | `x`, `y` (int), `button` (`left`/`right`/`middle`) | Moves to (x, y) and clicks |
+| `mouse_move` | `x`, `y` (int) | Moves the cursor to physical screen pixels |
+| `mouse_click` | `x`, `y` (int), `button` (`left`/`right`/`middle`) | Moves to (x, y) and clicks (physical pixels; the bridge is DPI-aware) |
 | `mouse_scroll` | `direction` (`up`/`down`), `clicks` (int) | Scrolls the wheel under the cursor |
 | `clipboard_set` | `text` (string) | Puts text on the Windows clipboard |
 | `kill_process` | `pid` (int) | Terminates a process (refuses the bridge's own PID) |
