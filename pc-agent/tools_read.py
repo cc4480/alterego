@@ -9,10 +9,11 @@ from pathlib import Path
 MAX_READ_BYTES = 1_000_000  # 1 MB cap on read_file
 
 if os.name == "nt":
-    # ctypes assumes c_int returns; 64-bit pointer returns would be
-    # truncated (window handles are 32-bit, so only these need fixing).
-    ctypes.windll.user32.GetClipboardData.restype = ctypes.c_void_p
-    ctypes.windll.kernel32.GlobalLock.restype = ctypes.c_void_p
+    # 64-bit pointer args/returns must be declared (see tools_write.py).
+    _ku, _kk, _KP = ctypes.windll.user32, ctypes.windll.kernel32, ctypes.c_void_p
+    _ku.GetClipboardData.argtypes = [ctypes.c_uint]; _ku.GetClipboardData.restype = _KP
+    _kk.GlobalLock.argtypes = [_KP]; _kk.GlobalLock.restype = _KP
+    _kk.GlobalUnlock.argtypes = [_KP]
 
 
 def _user_profile() -> Path:

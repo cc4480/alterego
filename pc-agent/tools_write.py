@@ -38,14 +38,18 @@ INPUT_MOUSE, INPUT_KEYBOARD = 0, 1
 KEYEVENTF_KEYUP = 0x0002
 
 if os.name == "nt":
-    # ctypes assumes c_int for unstated returns; 64-bit pointer returns
-    # would be truncated. Window handles are always 32-bit, so only the
-    # memory-handle functions below need fixing.
-    ctypes.windll.kernel32.GlobalAlloc.restype = ctypes.c_void_p
-    ctypes.windll.kernel32.GlobalLock.restype = ctypes.c_void_p
-    ctypes.windll.user32.GetClipboardData.restype = ctypes.c_void_p
-    ctypes.windll.user32.SetClipboardData.restype = ctypes.c_void_p
-    ctypes.windll.kernel32.OpenProcess.restype = ctypes.c_void_p
+    # ctypes defaults to c_int args/returns. 64-bit pointer args AND
+    # returns must be declared, else truncation/OverflowError follows.
+    # (HWNDs stay 32-bit even on 64-bit Windows, so those are fine.)
+    _k32, _u32, _P = ctypes.windll.kernel32, ctypes.windll.user32, ctypes.c_void_p
+    _k32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]; _k32.GlobalAlloc.restype = _P
+    _k32.GlobalLock.argtypes = [_P]; _k32.GlobalLock.restype = _P
+    _k32.GlobalUnlock.argtypes = [_P]; _k32.GlobalFree.argtypes = [_P]
+    _k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]; _k32.OpenProcess.restype = _P
+    _k32.TerminateProcess.argtypes = [_P, wintypes.UINT]; _k32.CloseHandle.argtypes = [_P]
+    _u32.GetClipboardData.argtypes = [wintypes.UINT]; _u32.GetClipboardData.restype = _P
+    _u32.SetClipboardData.argtypes = [wintypes.UINT, _P]; _u32.SetClipboardData.restype = _P
+    _u32.OpenClipboard.argtypes = [_P]
 
 
 def _approved(tool: str, summary: str) -> None:
