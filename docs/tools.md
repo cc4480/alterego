@@ -31,6 +31,18 @@ authenticated with the session bearer token from `/pair`.
 | `tls_info` | `host`, `port` (default 443) | TLS version, cipher, cert subject/issuer/expiry |
 | `tcp_check` | `host`, `ports` (1–50) | TCP connect: open / closed / filtered per port |
 
+### PC awareness & control
+
+| Tool | Notes |
+|---|---|
+| `active_window` | Foreground window: hwnd, title, pid, process. No approval |
+| `idle_seconds` | Seconds since last keyboard/mouse input. No approval |
+| `list_processes` | Running processes (pid + exe). No approval |
+| `notify` | Windows tray balloon: `title`, `message`, `timeout_s`. Approval |
+| `speak` | Text-to-speech through PC speakers (1–500 chars). Approval |
+| `set_volume` | Master volume 0–100. Approval |
+| `power` | `lock` / `sleep` / `restart` / `shutdown`. Approval |
+
 `list_dir` / `read_file` are restricted to the user's own profile directory
 (`C:\Users\<name>\...`). Windows system directories and other users'
 profiles are denied.

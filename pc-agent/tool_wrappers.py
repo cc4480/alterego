@@ -12,6 +12,7 @@ import tools_files
 import tools_memory
 import tools_support
 import tools_recon
+import tools_pc
 
 
 # ---- read tools -----------------------------------------------------------
@@ -210,6 +211,44 @@ def tcp_check(host: str, ports: list, timeout_s: int = 3) -> dict:
                          {"host": host, "ports": ports, "timeout_s": timeout_s})
 
 
+def active_window() -> dict:
+    """Foreground window: hwnd, title, pid, process. No approval."""
+    return toolcall.call("active_window", tools_pc.active_window, {})
+
+
+def idle_seconds() -> dict:
+    """Seconds since last keyboard/mouse input. No approval."""
+    return toolcall.call("idle_seconds", tools_pc.idle_seconds, {})
+
+
+def list_processes() -> dict:
+    """Running processes (pid + exe). No approval."""
+    return toolcall.call("list_processes", tools_pc.list_processes, {})
+
+
+def notify(title: str, message: str, timeout_s: int = 5) -> dict:
+    """Windows tray balloon notification. Requires approval."""
+    return toolcall.call("notify", tools_pc.notify,
+                         {"title": title, "message": message,
+                          "timeout_s": timeout_s}, write=True)
+
+
+def speak(text: str) -> dict:
+    """Speak text aloud through the PC speakers. Requires approval."""
+    return toolcall.call("speak", tools_pc.speak, {"text": text}, write=True)
+
+
+def set_volume(level: int) -> dict:
+    """Set master volume 0-100. Requires approval."""
+    return toolcall.call("set_volume", tools_pc.set_volume,
+                         {"level": level}, write=True)
+
+
+def power(action: str) -> dict:
+    """lock | sleep | restart | shutdown. Requires approval."""
+    return toolcall.call("power", tools_pc.power, {"action": action}, write=True)
+
+
 # ---- browser tools (CDP; Edge needs --remote-debugging-port=9222) ----------
 def browser_snapshot(url_contains: str = "") -> dict:
     """List interactive elements of the live Edge tab (no approval)."""
@@ -257,4 +296,6 @@ ALL_TOOLS = [
     browser_eval,
     shell_pwsh, batch,
     http_headers, dns_query, tls_info, tcp_check,
+    active_window, idle_seconds, list_processes,
+    notify, speak, set_volume, power,
 ]

@@ -105,17 +105,19 @@ def test_denied_raises(tmp_path):
 
 def test_wrappers_register_all():
     names = [f.__name__ for f in tool_wrappers.ALL_TOOLS]
-    assert len(names) == 38, names
-    assert len(set(names)) == 38, "duplicate tool names"
+    assert len(names) == 45, names
+    assert len(set(names)) == 45, "duplicate tool names"
     for n in ("write_file", "edit_file", "delete_file", "create_dir",
               "close_window", "hotkey", "mouse_move", "mouse_click",
               "mouse_scroll", "minimize_window", "maximize_window",
               "kill_process", "clipboard_set", "clipboard_get",
               "copy_file", "move_file", "file_info", "paste_text",
               "memory_recall", "shell_pwsh", "batch",
-              "http_headers", "dns_query", "tls_info", "tcp_check"):
+              "http_headers", "dns_query", "tls_info", "tcp_check",
+              "active_window", "idle_seconds", "list_processes",
+              "notify", "speak", "set_volume", "power"):
         assert n in names, n
-    print("PASS wrappers: 38 tools registered")
+    print("PASS wrappers: 45 tools registered")
 
 
 def test_hotkey_parse():
@@ -143,6 +145,23 @@ def test_paste_text_validation():
         else:
             raise AssertionError(f"should have raised for {str(bad)[:20]!r}")
     print("PASS paste_text validation")
+
+
+def test_pc_tools_validation():
+    import tools_pc as P
+    # validation paths only (windll calls need Windows); approval must not fire
+    for fn, bad in ((P.notify, [("", "m"), ("t", ""), (None, "m")]),
+                    (P.speak, ["", "   ", None, "x" * 501]),
+                    (P.power, ["explode", "", None])):
+        for b in bad:
+            try:
+                fn(*b) if isinstance(b, tuple) else fn(b)
+            except (ValueError, TypeError):
+                pass
+            else:
+                raise AssertionError(f"{fn.__name__} should have raised for {b!r}")
+    assert P._ps_quote("it's") == "it''s"
+    print("PASS pc tools validation")
 
 
 def test_recon_validation():
@@ -292,6 +311,7 @@ if __name__ == "__main__":
         test_memory_recall(tp)
         test_support_tools(tp)
         test_recon_validation()
+        test_pc_tools_validation()
     test_wrappers_register_all()
     test_hotkey_parse()
     test_paste_text_validation()
