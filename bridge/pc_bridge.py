@@ -11,6 +11,8 @@ Commands:
   screenshot --out file.png    save a screenshot as PNG
   pair <6-digit-code>          exchange a pairing code for a session token
                                (needs only PC_BRIDGE_URL; prints the token)
+  logout                       revoke the session token now
+                               (needs PC_BRIDGE_URL + PC_BRIDGE_TOKEN)
 """
 import argparse
 import base64
@@ -111,6 +113,7 @@ def main():
     s.add_argument("--out", required=True)
     p = sub.add_parser("pair", help="exchange a pairing code for a session token")
     p.add_argument("code", help="6-digit pairing code from the PC server")
+    sub.add_parser("logout", help="revoke the session token now")
     args = ap.parse_args()
 
     url = os.environ.get("PC_BRIDGE_URL")
@@ -135,6 +138,20 @@ def main():
         except httpx.HTTPStatusError as e:
             sys.exit(f"pairing failed: HTTP {e.response.status_code}: "
                      f"{e.response.text[:200]}")
+        return
+
+    if args.cmd == "logout":
+        token = os.environ.get("PC_BRIDGE_TOKEN")
+        if not token:
+            sys.exit("set PC_BRIDGE_TOKEN first")
+        r = httpx.post(
+            url.rstrip("/") + "/logout",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=30.0,
+            trust_env=False,
+        )
+        r.raise_for_status()
+        print(r.text)
         return
 
     token = os.environ.get("PC_BRIDGE_TOKEN")

@@ -73,7 +73,22 @@ Both are safe to share in chat:
 
 The operator exchanges the code at `POST /pair` and receives a session
 bearer token over TLS. That token never touches chat — it lives only in the
-operator's session memory and **dies when you restart the server**.
+operator's session memory, and it's persisted on your PC at
+`%APPDATA%\pc-mcp-bridge\session_token` so it **survives server restarts**.
+It lasts until you log the operator out (see below) — restarting the
+server does *not* disconnect them.
+
+## Logging the operator out
+
+Either of these revokes access immediately:
+
+1. Delete `%APPDATA%\pc-mcp-bridge\session_token` — the server checks the
+   file on every request, so this works even while the server is running.
+2. Ask the operator to `POST /logout` with their token (or run
+   `python3 bridge/pc_bridge.py logout`).
+
+Pairing again with a fresh code rotates the token — the old one stops
+working.
 
 ## Daily use
 
@@ -92,7 +107,9 @@ git pull
 ```
 
 **Stopping:** close both terminals (or Ctrl+C in each). The tunnel URL dies
-with it, and the operator's session token dies with the server.
+with it. Note: stopping the server does **not** log the operator out — the
+session token persists. See "Logging the operator out" above when you want
+them gone.
 
 ## What to expect while the operator works
 
@@ -109,7 +126,7 @@ with it, and the operator's session token dies with the server.
 |---|---|
 | `ModuleNotFoundError: No module named 'mcp'` | `python -m pip install -r pc-agent\requirements.txt` |
 | `[Errno 10048] ... only one usage of each socket address` (port 8765) | An old server is still running — use the kill-first one-paste command above |
-| Operator gets 401 on everything | The session token died (server restarted). Restart the server, paste the fresh pairing code, operator re-pairs |
+| Operator gets 401 on everything | The session token was revoked (owner logged you out or re-paired). Ask for a fresh pairing code and re-pair |
 | Pairing code rejected / expired | Codes are single-use and expire after 30 min. Restart the server for a fresh one |
 | `cloudflared` not recognized | `winget install cloudflare.cloudflared`, then open a new terminal |
 | Tunnel URL stopped working | Quick tunnels get a new random URL on every restart — copy the new one to the operator and re-pair |

@@ -6,7 +6,11 @@ MCP server, Streamable HTTP, bound to 127.0.0.1:8765 only.
 Authentication: interactive pairing. On startup the server prints a 6-digit
 pairing code (single-use, 30-minute expiry, 5-attempt lockout). The operator
 POSTs the code to /pair and receives a session bearer token over TLS, used
-for all subsequent tool calls. There is no long-term shared secret to
+for all subsequent tool calls. The token is persisted to
+%APPDATA%/pc-mcp-bridge/session_token so it survives server restarts, and
+lasts until logout: POST /logout with the token, or delete the token file
+(deleting it revokes access immediately, even while the server runs).
+Re-pairing rotates the token. There is no long-term shared secret to
 distribute, and nothing sensitive ever needs to travel through chat.
 
 Run:  python pc-agent/server.py   (from the repo root)
@@ -15,6 +19,7 @@ import os
 import secrets
 import sys
 import time
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -36,16 +41,44 @@ mcp = MCPServer("pc-bridge")
 PAIRING_TTL_S = 30 * 60
 MAX_PAIRING_ATTEMPTS = 5
 
+APPDATA_DIR = Path(os.environ.get("APPDATA", os.path.expanduser("~")))
+SESSION_TOKEN_FILE = APPDATA_DIR / "pc-mcp-bridge" / "session_token"
+
 _pairing_code: str = ""
 _pairing_expires: float = 0.0
 _pairing_consumed: bool = False
 _pairing_failures: int = 0
-_session_token: str | None = None
 
 
 def _new_pairing_code() -> str:
     """Cryptographically random 6-digit code, zero-padded."""
     return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def _load_session_token() -> str | None:
+    """Read the persisted session token. The file is the source of truth:
+    deleting it revokes the operator immediately, even while running."""
+    try:
+        token = SESSION_TOKEN_FILE.read_text(encoding="utf-8").strip()
+        return token or None
+    except OSError:
+        return None
+
+
+def _save_session_token(token: str) -> None:
+    SESSION_TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    SESSION_TOKEN_FILE.write_text(token + "\n", encoding="utf-8")
+    try:
+        os.chmod(SESSION_TOKEN_FILE, 0o600)
+    except OSError:
+        pass  # %APPDATA% is already user-private via Windows ACLs
+
+
+def _clear_session_token() -> None:
+    try:
+        SESSION_TOKEN_FILE.unlink()
+    except OSError:
+        pass
 
 
 class BearerAuth(BaseHTTPMiddleware):
@@ -56,7 +89,7 @@ class BearerAuth(BaseHTTPMiddleware):
         if request.url.path in ("/health", "/pair"):
             return await call_next(request)
         auth = request.headers.get("authorization", "")
-        token = _session_token
+        token = _load_session_token()
         if not token or not secrets.compare_digest(auth, f"Bearer {token}"):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         return await call_next(request)
@@ -67,8 +100,11 @@ async def _pair(request: Request):
 
     The code is single-use, expires after PAIRING_TTL_S, and the endpoint
     locks after MAX_PAIRING_ATTEMPTS wrong guesses (until server restart).
+    The issued token is persisted to disk (survives restarts) and any
+    previous token is rotated out. Lasts until POST /logout or the token
+    file is deleted.
     """
-    global _pairing_consumed, _pairing_failures, _session_token
+    global _pairing_consumed, _pairing_failures
     try:
         body = await request.json()
     except Exception:
@@ -89,9 +125,17 @@ async def _pair(request: Request):
         )
 
     _pairing_consumed = True
-    _session_token = secrets.token_hex(32)
-    log_event("pair", {}, "ok: session paired")
-    return JSONResponse({"token": _session_token})
+    token = secrets.token_hex(32)
+    _save_session_token(token)
+    log_event("pair", {}, "ok: session paired (token persisted)")
+    return JSONResponse({"token": token})
+
+
+async def _logout(request: Request):
+    """POST /logout (bearer token required) -> revokes the session now."""
+    _clear_session_token()
+    log_event("logout", {}, "ok: session revoked by operator")
+    return JSONResponse({"ok": True})
 
 
 def _call(name, fn, args, write=False):
@@ -183,6 +227,7 @@ def main():
     )
     app.routes.append(Route("/health", _health))
     app.routes.append(Route("/pair", _pair, methods=["POST"]))
+    app.routes.append(Route("/logout", _logout, methods=["POST"]))
     app.add_middleware(BearerAuth)
 
     print(f"pc-mcp-bridge listening on http://{HOST}:{PORT} (loopback only)")
@@ -191,6 +236,12 @@ def main():
     print(f"PAIRING CODE: {_pairing_code}")
     print(f"(single-use, expires in {PAIRING_TTL_S // 60:.0f} minutes — "
           "the operator POSTs it to /pair to receive a session token)")
+    if _load_session_token():
+        print("session: existing operator session restored (persists until logout)")
+    else:
+        print("session: no operator paired yet")
+    print("logout: POST /logout with the bearer token, or delete")
+    print("        %APPDATA%/pc-mcp-bridge/session_token (revokes instantly)")
     print("audit: %APPDATA%/pc-mcp-bridge/audit.log")
     uvicorn.run(app, host=HOST, port=PORT, log_level="warning")
 

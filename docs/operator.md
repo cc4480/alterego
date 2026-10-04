@@ -30,9 +30,13 @@ curl -s -X POST $PC_BRIDGE_URL/pair \
 
 - The token lives only in your session memory / environment — never in
   chat, logs, files, or URLs.
-- It dies when the PC server restarts. If every call starts returning 401,
-  the server was restarted: ask the owner for a fresh pairing code and
-  re-pair. Do not ask for any other secret — there isn't one.
+- It **persists on the PC across server restarts** and lasts until logout.
+  A 401 on every call means the owner revoked you (or re-paired someone
+  else): ask for a fresh pairing code and re-pair. Do not ask for any
+  other secret — there isn't one.
+- Pairing again **rotates** the token — the previous one stops working.
+- When you're done, log yourself out:
+  `PC_BRIDGE_URL=... PC_BRIDGE_TOKEN=... python3 bridge/pc_bridge.py logout`
 - Pairing codes can't be reused and lock after 5 wrong guesses (until the
   owner restarts the server).
 

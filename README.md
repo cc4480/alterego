@@ -8,7 +8,10 @@ out through a Cloudflare quick tunnel, and the operator talks MCP
 **Auth:** interactive pairing — the server prints a 6-digit code
 (cryptographically random, single-use, 30-minute expiry, 5-attempt
 lockout); the operator exchanges it at `POST /pair` for a session bearer
-token over TLS. No long-term secret to distribute, nothing sensitive in chat.
+token over TLS. The token is persisted on the PC (`%APPDATA%\pc-mcp-bridge\session_token`)
+so it survives server restarts, and lasts until logout (`POST /logout`, or
+deleting the token file — which revokes instantly). No long-term secret to
+distribute, nothing sensitive in chat.
 
 **Status: working prototype, live-tested end-to-end** (2026-10-04) —
 pairing, authenticated MCP session, tool calls, and screenshots verified
@@ -37,10 +40,13 @@ against a real Windows PC through a live Cloudflare tunnel.
 - **Pairing, not pre-shared secrets:** the server prints a 6-digit code
   (cryptographically random, single-use, 30-minute expiry, locks after 5
   wrong guesses until restart). The operator exchanges it at `POST /pair`
-  for a session bearer token delivered over TLS. The session token lives
-  only in the operator's session memory and dies when the server restarts.
-  The 6-digit code is safe to share because it expires in minutes and can't
-  be reused.
+  for a session bearer token delivered over TLS. The token is persisted to
+  `%APPDATA%\pc-mcp-bridge\session_token` so it survives server restarts;
+  re-pairing rotates it. It lasts until the owner logs the operator out —
+  either `POST /logout` with the token, or deleting the token file, which
+  the server checks on every request and revokes **instantly**, even while
+  running (mechanical kill switch). The 6-digit code is safe to share
+  because it expires in minutes and can't be reused.
 - The tunnel URL is *not* treated as a secret — it's just the address.
   Authentication is the session bearer token.
 - Write tools (`focus_window`, `type_text`, `shell_exec`) each pop a native
