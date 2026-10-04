@@ -4,7 +4,10 @@
 MCP server, Streamable HTTP, bound to 127.0.0.1:8765 only.
 
 Authentication: interactive pairing. On startup the server prints a 6-digit
-pairing code (single-use, 30-minute expiry, 5-attempt lockout). The operator
+pairing code (single-use, 30-minute expiry, 5-attempt lockout). A background
+thread keeps a fresh code printed: whenever the current one is consumed,
+expires, or locks out, a new one is minted automatically — no restart
+needed to re-pair. The operator
 POSTs the code to /pair and receives a session bearer token over TLS, used
 for all subsequent tool calls. The token is persisted to
 %APPDATA%/pc-mcp-bridge/session_token so it survives server restarts, and
@@ -18,6 +21,7 @@ Run:  python pc-agent/server.py   (from the repo root)
 import os
 import secrets
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -56,6 +60,32 @@ _pairing_failures: int = 0
 def _new_pairing_code() -> str:
     """Cryptographically random 6-digit code, zero-padded."""
     return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def _refresh_pairing_code() -> None:
+    """Mint a fresh pairing code and print it for the operator."""
+    global _pairing_code, _pairing_expires, _pairing_consumed, _pairing_failures
+    _pairing_code = _new_pairing_code()
+    _pairing_expires = time.time() + PAIRING_TTL_S
+    _pairing_consumed = False
+    _pairing_failures = 0
+    print(f"PAIRING CODE: {_pairing_code}")
+    print(f"(single-use, expires in {PAIRING_TTL_S // 60:.0f} minutes — "
+          "the operator POSTs it to /pair to receive a session token)")
+
+
+def _pairing_refresher() -> None:
+    """Background thread: always keep a usable pairing code printed.
+
+    Whenever the current code is consumed, expires, or locks out, mint a
+    new one so the operator never needs a server restart just to pair."""
+    while True:
+        time.sleep(30)
+        if (_pairing_consumed or _pairing_failures >= MAX_PAIRING_ATTEMPTS
+                or time.time() > _pairing_expires):
+            print()
+            print("--- previous pairing code consumed/expired: new code ---")
+            _refresh_pairing_code()
 
 
 def _load_session_token() -> str | None:
@@ -102,7 +132,8 @@ async def _pair(request: Request):
     """POST /pair {"code": "482913"} -> {"token": "<session bearer token>"}.
 
     The code is single-use, expires after PAIRING_TTL_S, and the endpoint
-    locks after MAX_PAIRING_ATTEMPTS wrong guesses (until server restart).
+    locks after MAX_PAIRING_ATTEMPTS wrong guesses; the refresher thread
+    mints a fresh code automatically afterwards.
     The issued token is persisted to disk (survives restarts) and any
     previous token is rotated out. Lasts until POST /logout or the token
     file is deleted.
@@ -146,9 +177,8 @@ async def _health(request):
 
 
 def main():
-    global _pairing_code, _pairing_expires
-    _pairing_code = _new_pairing_code()
-    _pairing_expires = time.time() + PAIRING_TTL_S
+    _refresh_pairing_code()
+    threading.Thread(target=_pairing_refresher, daemon=True).start()
     # The SDK auto-enables DNS-rebinding protection for localhost servers,
     # which 421s any Host header that isn't localhost — including our
     # Cloudflare tunnel hostname (random per session, can't be allowlisted).
@@ -177,9 +207,6 @@ def main():
         print("!!!  to restore approval dialogs. Auth still required.         !!!")
         print("!" * 68)
         print()
-    print(f"PAIRING CODE: {_pairing_code}")
-    print(f"(single-use, expires in {PAIRING_TTL_S // 60:.0f} minutes — "
-          "the operator POSTs it to /pair to receive a session token)")
     if _load_session_token():
         print("session: existing operator session restored (persists until logout)")
     else:
