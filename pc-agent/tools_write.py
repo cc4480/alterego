@@ -50,6 +50,10 @@ if os.name == "nt":
     _u32.GetClipboardData.argtypes = [wintypes.UINT]; _u32.GetClipboardData.restype = _P
     _u32.SetClipboardData.argtypes = [wintypes.UINT, _P]; _u32.SetClipboardData.restype = _P
     _u32.OpenClipboard.argtypes = [_P]
+    # Physical-pixel mouse coords: opt into per-monitor DPI awareness at
+    # import (before any UI call); otherwise Windows virtualizes coords.
+    try: ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except Exception: pass
 
 
 def _approved(tool: str, summary: str) -> None:
@@ -162,35 +166,29 @@ def _parse_hotkey(spec: str):
     return [_VK[m] for m in mods], vk
 
 
+def _key_event(vk: int, down: bool) -> None:
+    ki = _KEYBDINPUT(wVk=vk, wScan=0, dwFlags=0 if down else KEYEVENTF_KEYUP,
+                     time=0, dwExtraInfo=None)
+    inp = INPUT(INPUT_KEYBOARD, _INPUT_UNION(ki=ki))
+    if ctypes.windll.user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(inp)) != 1:
+        raise OSError("SendInput failed")
+
+
 def _tap_vk(vk: int) -> None:
-    user32 = ctypes.windll.user32
-    for down in (True, False):
-        ki = _KEYBDINPUT(wVk=vk, wScan=0,
-                         dwFlags=0 if down else KEYEVENTF_KEYUP,
-                         time=0, dwExtraInfo=None)
-        inp = INPUT(INPUT_KEYBOARD, _INPUT_UNION(ki=ki))
-        if user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(inp)) != 1:
-            raise OSError("SendInput failed")
+    _key_event(vk, True); _key_event(vk, False)
 
 
 def hotkey(keys: str) -> dict:
     """Press a key combo: 'enter', 'esc', 'tab', 'ctrl+c', 'alt+f4', 'win+r'."""
     mods, vk = _parse_hotkey(keys)
     _approved("hotkey", f"Press key combo:\n{keys}")
-    user32 = ctypes.windll.user32
-    sent = []
     try:
-        for m in mods:  # modifiers down
-            ki = _KEYBDINPUT(wVk=m, wScan=0, dwFlags=0, time=0, dwExtraInfo=None)
-            user32.SendInput(1, ctypes.byref(INPUT(INPUT_KEYBOARD, _INPUT_UNION(ki=ki))),
-                             ctypes.sizeof(INPUT))
-            sent.append(m)
+        for m in mods:
+            _key_event(m, True)
         _tap_vk(vk)
     finally:
-        for m in reversed(sent):  # modifiers up, even on failure
-            ki = _KEYBDINPUT(wVk=m, wScan=0, dwFlags=KEYEVENTF_KEYUP, time=0, dwExtraInfo=None)
-            user32.SendInput(1, ctypes.byref(INPUT(INPUT_KEYBOARD, _INPUT_UNION(ki=ki))),
-                             ctypes.sizeof(INPUT))
+        for m in reversed(mods):
+            _key_event(m, False)
     return {"hotkey": keys, "pressed": True}
 
 
@@ -203,14 +201,14 @@ def _mouse_event(flags: int, data: int = 0) -> None:
 
 
 def mouse_move(x: int, y: int) -> dict:
-    """Move the cursor to screen coordinates. Requires on-PC approval."""
+    """Move the cursor to physical screen pixels. Requires on-PC approval."""
     _approved("mouse_move", f"Move mouse to ({int(x)}, {int(y)}).")
     ctypes.windll.user32.SetCursorPos(int(x), int(y))
     return {"x": int(x), "y": int(y)}
 
 
 def mouse_click(x: int, y: int, button: str = "left") -> dict:
-    """Move to (x, y) and click. button: left/right/middle."""
+    """Move to physical screen pixels (x, y) and click. button: left/right/middle."""
     if button not in ("left", "right", "middle"):
         raise ValueError("button must be left, right, or middle")
     _approved("mouse_click", f"{button} click at ({int(x)}, {int(y)}).")
