@@ -131,8 +131,12 @@ def set_volume(level: int) -> dict:
     """Set master wave volume 0-100. Requires approval."""
     level = max(0, min(int(level), 100))
     v = int(level * 65535 / 100)
-    if not ctypes.windll.winmm.waveOutSetVolume(0, v | (v << 16)):
-        raise OSError("waveOutSetVolume failed")
+    fn = ctypes.windll.winmm.waveOutSetVolume
+    fn.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    fn.restype = wintypes.UINT
+    rc = fn(0, v | (v << 16))
+    if rc != 0:
+        raise OSError(f"waveOutSetVolume failed (mmresult={rc})")
     return {"volume": level}
 
 
