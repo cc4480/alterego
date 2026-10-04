@@ -33,6 +33,16 @@ def _send_unicode(text: str) -> None:
     import ctypes
     from ctypes import wintypes
 
+    class MOUSEINPUT(ctypes.Structure):
+        _fields_ = [
+            ("dx", wintypes.LONG),
+            ("dy", wintypes.LONG),
+            ("mouseData", wintypes.DWORD),
+            ("dwFlags", wintypes.DWORD),
+            ("time", wintypes.DWORD),
+            ("dwExtraInfo", ctypes.c_void_p),
+        ]
+
     class KEYBDINPUT(ctypes.Structure):
         _fields_ = [
             ("wVk", wintypes.WORD),
@@ -42,8 +52,27 @@ def _send_unicode(text: str) -> None:
             ("dwExtraInfo", ctypes.c_void_p),
         ]
 
+    class HARDWAREINPUT(ctypes.Structure):
+        _fields_ = [
+            ("uMsg", wintypes.DWORD),
+            ("wParamL", wintypes.WORD),
+            ("wParamH", wintypes.WORD),
+            ("dwExtraInfo", ctypes.c_void_p),
+        ]
+
+    class _INPUT_UNION(ctypes.Union):
+        _fields_ = [
+            ("mi", MOUSEINPUT),
+            ("ki", KEYBDINPUT),
+            ("hi", HARDWAREINPUT),
+        ]
+
     class INPUT(ctypes.Structure):
-        _fields_ = [("type", wintypes.DWORD), ("ki", KEYBDINPUT)]
+        _fields_ = [("type", wintypes.DWORD), ("u", _INPUT_UNION)]
+
+    # Sanity: 64-bit Windows requires sizeof(INPUT) == 40 (DWORD + union).
+    # A flat struct without the union measures 32 and SendInput rejects it.
+    assert ctypes.sizeof(INPUT) == 40, f"INPUT size {ctypes.sizeof(INPUT)} != 40"
 
     INPUT_KEYBOARD, KEYEVENTF_UNICODE, KEYEVENTF_KEYUP = 1, 0x0004, 0x0002
     user32 = ctypes.windll.user32
@@ -52,8 +81,7 @@ def _send_unicode(text: str) -> None:
         code = int.from_bytes(units[i : i + 2], "little")
         for keyup in (False, True):
             flags = KEYEVENTF_UNICODE | (KEYEVENTF_KEYUP if keyup else 0)
-            ki = KEYBDINPUT(0, code, flags, 0, None)
-            inp = INPUT(INPUT_KEYBOARD, ki)
+            inp = INPUT(INPUT_KEYBOARD, _INPUT_UNION(ki=KEYBDINPUT(0, code, flags, 0, None)))
             if user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(inp)) != 1:
                 raise OSError("SendInput failed")
 
