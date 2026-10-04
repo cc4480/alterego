@@ -137,7 +137,9 @@ _SNAPSHOT = """() => {
 def snapshot(url_contains=None):
     b = Browser(url_contains)
     try:
-        val, _ = b.eval(_SNAPSHOT + "()")
+        # NB: the arrow IIFE must be wrapped in parens — `() => {}()`
+        # is a SyntaxError, which CDP reports as protocol error "Uncaught".
+        val, _ = b.eval("(" + _SNAPSHOT + ")()")
         return {"page_url": b.page_url, **(val or {})}
     finally:
         b.close()
