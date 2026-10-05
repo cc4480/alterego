@@ -189,3 +189,10 @@ def tcp_check(host: str, ports: list, timeout_s: int = 3) -> dict:
         finally:
             s.close()
     return {"host": host, "ports": out}
+
+
+def web_fetch(url: str, max_bytes: int = 100000,
+              timeout_s: int = 15) -> dict:
+    """Fetch a URL's readable text. SSRF-guarded (see webfetch.py)."""
+    from seams.providers.windows.webfetch import web_fetch as _impl
+    return _impl(url=url, max_bytes=max_bytes, timeout_s=timeout_s)
