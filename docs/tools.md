@@ -3,6 +3,23 @@
 All tools are exposed over MCP (Streamable HTTP) at `POST {tunnel-url}/mcp`,
 authenticated with the session bearer token from `/pair`.
 
+## Approval tiers
+
+Every tool carries a machine-readable risk profile (`tool_profiles.py`:
+blast radius, recoverability, side effects, compensating action,
+sensitivity tags). The profile maps to an approval tier:
+
+| Tier | Meaning | Dialog? |
+|---|---|---|
+| `silent` | Read-only (blast radius `none`) | Never — no dialog |
+| `routine` | Session-scope, reversible writes | Yes, skipped in auto-approve mode |
+| `ask` | User-data writes | Yes, skipped in auto-approve mode |
+| `always_ask` | Destructive (`power`, `kill_process`, `delete_file`, `shell_exec`, `shell_pwsh`, `browser_eval`, `write_file`, `edit_file`, `batch`) | **Always** — even in auto-approve mode, with a DESTRUCTIVE title |
+
+Unknown tools fail closed to `always_ask`. Every audit-log entry records
+the tool's risk snapshot (tier, blast radius, recoverability) plus the
+agent's rationale when one is supplied.
+
 ## Read tools — no approval needed
 
 | Tool | Args | Returns |
@@ -78,13 +95,34 @@ byte-exact, no newline translation, so write → read roundtrips cleanly.
 
 | Tool | Args | Approval | What it does |
 |---|---|---|---|
-| `write_file` | `path`, `content` | Yes | Creates/overwrites a text file (parent dirs created) |
-| `edit_file` | `path`, `old_text`, `new_text` | Yes | Replaces the first occurrence of `old_text`; errors if not found |
-| `delete_file` | `path` | Yes | Permanently deletes a file (files only, not directories) |
-| `create_dir` | `path` | Yes | Creates a directory including parents (no-op if it exists) |
-| `copy_file` | `src`, `dst` | Yes | Copies a file, metadata preserved (destination parents created) |
-| `move_file` | `src`, `dst` | Yes | Moves/renames a file (destination parents created) |
+| `write_file` | `path`, `content`, `dry_run` (bool) | Yes, unless `dry_run` | Creates/overwrites a text file (parent dirs created) |
+| `edit_file` | `path`, `old_text`, `new_text`, `dry_run` (bool) | Yes, unless `dry_run` | Replaces the first occurrence of `old_text`; errors if not found |
+| `delete_file` | `path`, `dry_run` (bool) | Yes, unless `dry_run` | Permanently deletes a file (files only, not directories) |
+| `create_dir` | `path`, `dry_run` (bool) | Yes, unless `dry_run` | Creates a directory including parents (no-op if it exists) |
+| `copy_file` | `src`, `dst`, `dry_run` (bool) | Yes, unless `dry_run` | Copies a file, metadata preserved (destination parents created) |
+| `move_file` | `src`, `dst`, `dry_run` (bool) | Yes, unless `dry_run` | Moves/renames a file (destination parents created) |
 | `file_info` | `path` | No | Size and created/modified timestamps for a file or directory |
+
+`dry_run=True` computes the full plan — including a unified diff for
+`write_file`/`edit_file` overwrites — with no approval dialog and zero
+side effects. The compensating action for each tool is documented in its
+risk profile (`tool_profiles.py`).
+
+### Task state & arbitration (no approval — local bookkeeping)
+
+| Tool | Args | What it does |
+|---|---|---|
+| `task_create` | `goal` (string), `plan` (string list) | Creates a signed task record; returns `task_id` |
+| `task_checkpoint` | `task_id`, `step` (int), `result` (string), `done` (bool) | Appends a signed checkpoint to the task |
+| `task_status` | `task_id` (optional) | Verifies the hash chain and returns status; with no id, lists all tasks |
+| `arbitrate` | `trajectories` (list of tool-name lists) | Scores/ranks candidate tool sequences by risk: `score`, tier (`auto`/`confirm`/`explicit_intent`), one-line rationale |
+
+Task records are append-only and HMAC-signed with a machine-local key;
+each checkpoint hash-chains to the previous one, so tampering is
+detected on read. `arbitrate` uses the weighted formula
+`0.25·(1−blast) + 0.35·recoverability + 0.15·(1−side_effects) +
+0.25·optionality − 0.10·human_cost`; thresholds: >0.8 auto, 0.5–0.8
+confirm, <0.5 explicit intent.
 
 ## Browser tools — drive a live Edge tab via CDP
 

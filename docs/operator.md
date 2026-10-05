@@ -51,7 +51,12 @@ python3 bridge/pc_bridge.py call shell_exec '{"command":"whoami"}'
 
 Write tools pop a native Yes/No dialog **on the PC owner's screen** — the
 call blocks until they answer (30 s timeout = deny). A denial comes back
-as `{"error": "..."}`, not a crash.
+as `{"error": "..."}`, not a crash. Approval is tiered (see tools.md):
+reads never ask, routine/standard writes ask (skipped when the server runs
+with `PC_BRIDGE_AUTO_APPROVE=1`), and destructive tools (`power`,
+`kill_process`, `delete_file`, `shell_exec`, `shell_pwsh`, `browser_eval`,
+`write_file`, `edit_file`, `batch`) **always** pop a DESTRUCTIVE-titled
+dialog — auto-approve mode cannot bypass them.
 
 See [tools.md](tools.md) for the full tool reference.
 
