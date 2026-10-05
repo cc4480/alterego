@@ -162,8 +162,7 @@ async def _pair(request: Request):
     ok, reason = _pairing.check(code)
     if not ok:
         if "wrong code" in reason:
-            from audit import log_event
-            log_event("pair", {}, f"denied: {reason}")
+            events.append("PairingDenied", {"reason": reason})
         status = 403 if "unavailable" in reason or "expired" in reason else 401
         return JSONResponse({"error": reason}, status_code=status)
 
