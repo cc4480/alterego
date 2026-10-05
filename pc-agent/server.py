@@ -37,6 +37,8 @@ import uvicorn
 
 from audit import log_event
 import approval
+import events
+import hooks
 from tool_wrappers import ALL_TOOLS
 
 HOST, PORT = "127.0.0.1", 8765
@@ -190,6 +192,39 @@ async def _health(request):
     return JSONResponse({"ok": True, "service": "pc-bridge"})
 
 
+def _server_version():
+    """Git sha when available, else PC_BRIDGE_VERSION env, else unknown."""
+    try:
+        import subprocess
+        out = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+            cwd=os.path.dirname(os.path.abspath(__file__)))
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()
+    except Exception:
+        pass
+    return os.environ.get("PC_BRIDGE_VERSION", "unknown")
+
+
+def _emit_server_started():
+    """Append the ServerStarted lifecycle event (session_id=null: this is
+    infrastructure, not an operator action). Best-effort: never raises."""
+    try:
+        import platform
+        hook_lists = hooks.list_hooks()
+        events.append("ServerStarted", {
+            "version": _server_version(),
+            "permission_mode": approval.get_permission_mode(),
+            "python": platform.python_version(),
+            "hook_count": len(hook_lists.get(hooks.PRE_TOOL_USE, []))
+            + len(hook_lists.get(hooks.POST_TOOL_USE, [])),
+            "event_log_version": events.EVENT_LOG_VERSION,
+        }, session_id=None)
+    except Exception as e:  # noqa: BLE001 - startup must never fail on this
+        print(f"[events] ServerStarted emit failed: {e}")
+
+
 def main():
     _refresh_pairing_code()
     threading.Thread(target=_pairing_refresher, daemon=True).start()
@@ -248,6 +283,8 @@ def main():
     print("logout: POST /logout with the bearer token, or delete")
     print("        %APPDATA%/pc-mcp-bridge/session_token (revokes instantly)")
     print("audit: %APPDATA%/pc-mcp-bridge/audit.log")
+    print("events: %APPDATA%/pc-mcp-bridge/events/")
+    _emit_server_started()
     uvicorn.run(app, host=HOST, port=PORT, log_level="warning")
 
 
