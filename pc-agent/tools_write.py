@@ -57,16 +57,22 @@ def _approved(tool: str, summary: str) -> None:
 
 def focus_window(hwnd: int) -> dict:
     _approved("focus_window", f"Bring window handle {hwnd} to the foreground.")
-    ok = bool(ctypes.windll.user32.SetForegroundWindow(int(hwnd)))
-    return {"hwnd": int(hwnd), "focused": ok}
+    u32, hwnd = ctypes.windll.user32, int(hwnd)
+    u32.ShowWindow(hwnd, 9)  # SW_RESTORE: unminimize first
+    me = ctypes.windll.kernel32.GetCurrentThreadId()
+    fg = u32.GetForegroundWindow()
+    ft = u32.GetWindowThreadProcessId(fg, None)
+    if fg and ft != me:
+        u32.AttachThreadInput(me, ft, True)  # bypass the foreground lock
+    u32.SetForegroundWindow(hwnd)
+    u32.BringWindowToTop(hwnd)
+    if fg and ft != me:
+        u32.AttachThreadInput(me, ft, False)
+    return {"hwnd": hwnd, "focused": u32.GetForegroundWindow() == hwnd}
 
 
 def close_window(hwnd: int) -> dict:
-    """Gracefully close a window via WM_CLOSE (like clicking X).
-
-    If the app has unsaved changes it shows its own save dialog and stays
-    open — this only _requests_ the close, it never force-kills.
-    """
+    """Gracefully close a window via WM_CLOSE (apps with unsaved work show their save dialog)."""
     _approved("close_window", f"Close window handle {hwnd} (graceful, like clicking X).")
     WM_CLOSE = 0x0010
     ok = bool(ctypes.windll.user32.PostMessageW(int(hwnd), WM_CLOSE, 0, 0))
@@ -84,8 +90,7 @@ def type_text(text: str) -> dict:
 
 def _send_unicode(text: str) -> None:
     """Type via SendInput with KEYEVENTF_UNICODE (handles all of Unicode)."""
-    # Sanity: 64-bit Windows requires sizeof(INPUT) == 40 (DWORD + union).
-    # A flat struct without the union measures 32 and SendInput rejects it.
+    # Win64 requires sizeof(INPUT) == 40; a flat struct is 32 and SendInput rejects it.
     assert ctypes.sizeof(INPUT) == 40, f"INPUT size {ctypes.sizeof(INPUT)} != 40"
 
     KEYEVENTF_UNICODE = 0x0004
@@ -273,11 +278,7 @@ def clipboard_set(text: str) -> dict:
 
 
 def paste_text(text: str) -> dict:
-    """Paste text into the focused window via the clipboard.
-
-    Reliable for long text: one paste instead of thousands of key events
-    (keystroke typing can garble long input). Restores the prior clipboard.
-    """
+    """Paste into the focused window via the clipboard; restores the prior clipboard."""
     if not isinstance(text, str) or not text:
         raise ValueError("text must be a non-empty string")
     if len(text) > 100000:
