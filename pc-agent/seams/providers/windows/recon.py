@@ -196,3 +196,10 @@ def web_fetch(url: str, max_bytes: int = 100000,
     """Fetch a URL's readable text. SSRF-guarded (see webfetch.py)."""
     from seams.providers.windows.webfetch import web_fetch as _impl
     return _impl(url=url, max_bytes=max_bytes, timeout_s=timeout_s)
+
+
+def web_search(query: str, max_results: int = 10,
+               backend: str = "auto") -> dict:
+    """Search the web (DDG/Bing scrape, optional SearXNG). See websearch.py."""
+    from seams.providers.windows.websearch import web_search as _impl
+    return _impl(query=query, max_results=max_results, backend=backend)

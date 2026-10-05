@@ -163,36 +163,9 @@ from tool_wrappers_background import (  # noqa: E402
     exec_background, exec_status, exec_cancel)
 
 
-def http_headers(url: str, timeout_s: int = 20) -> dict:
-    """GET a URL, return status + response headers. No approval (read-only)."""
-    return toolcall.call("http_headers", {"url": url, "timeout_s": timeout_s})
-
-
-def dns_query(domain: str, rtype: str = "A") -> dict:
-    """Resolve DNS records (A AAAA CNAME MX NS TXT DNSKEY SOA). No approval."""
-    return toolcall.call("dns_query", {"domain": domain, "rtype": rtype})
-
-
-def tls_info(host: str, port: int = 443, timeout_s: int = 15) -> dict:
-    """TLS handshake: version, cipher, cert subject/issuer/expiry. No approval."""
-    return toolcall.call("tls_info",
-                         {"host": host, "port": port, "timeout_s": timeout_s})
-
-
-def tcp_check(host: str, ports: list, timeout_s: int = 3) -> dict:
-    """TCP connect check across ports (open/closed/filtered). No approval."""
-    return toolcall.call("tcp_check",
-                         {"host": host, "ports": ports,
-                          "timeout_s": timeout_s})
-
-
-def web_fetch(url: str, max_bytes: int = 100000,
-              timeout_s: int = 15) -> dict:
-    """Fetch a URL, return its readable text. SSRF-guarded: public IPs only,
-    every redirect hop re-checked, optional host rules. Approval in
-    default mode (skipped when dontAsk)."""
-    return toolcall.call("web_fetch", {"url": url, "max_bytes": max_bytes,
-                                       "timeout_s": timeout_s})
+# Recon tools live in tool_wrappers_recon (file size limit).
+from tool_wrappers_recon import (  # noqa: E402
+    http_headers, dns_query, tls_info, tcp_check, web_fetch, web_search)
 
 
 def active_window() -> dict:
@@ -302,7 +275,7 @@ ALL_TOOLS = [
     browser_eval,
     shell_pwsh, batch,
     exec_background, exec_status, exec_cancel,
-    http_headers, dns_query, tls_info, tcp_check, web_fetch,
+    http_headers, dns_query, tls_info, tcp_check, web_fetch, web_search,
     active_window, idle_seconds, list_processes,
     notify, speak, set_volume, power, tools_tasks.task_create,
     tools_tasks.task_checkpoint, tools_tasks.task_status, _arb.arbitrate_tool,

@@ -55,3 +55,14 @@ def web_fetch(url: str, max_bytes: int = 100000,
     return {"url": url, "status_code": 200, "content_type": "text/html",
             "content": "Mock Example Domain",
             "truncated": False}
+
+
+def web_search(query: str, max_results: int = 10,
+               backend: str = "auto") -> dict:
+    record("web_search", {"query": query, "max_results": max_results,
+                          "backend": backend})
+    return {"query": query, "backend_used": "mock",
+            "results": [{"title": "Mock Result",
+                         "url": "https://example.com",
+                         "snippet": "Mock snippet"}],
+            "total": 1}

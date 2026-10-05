@@ -2,7 +2,7 @@
 provider — hooks -> plan-mode -> execute -> typed events (the primary
 record since the Phase 5 cutover; the legacy audit.log is gone).
 
-Covers: result_keys contract for all 57 tools, hook allow/deny/modify,
+Covers: result_keys contract for all 58 tools, hook allow/deny/modify,
 plan-mode dry-run, approval tiers, and the expected event chain per call.
 """
 import pytest
@@ -47,6 +47,7 @@ ARGS = {
     "tls_info": {"host": "example.com"},
     "tcp_check": {"host": "example.com", "ports": [80, 443]},
     "web_fetch": {"url": "https://example.com"},
+    "web_search": {"query": "example test query"},
     "shell_pwsh": {"script": "echo hi"},
     "batch": {"calls": [{"tool": "idle_seconds", "args": {}}]},
     "task_create": {"goal": "g", "plan": ["a", "b"]},
@@ -65,7 +66,7 @@ ARGS = {
 ALL_NAMES = [d.name for d in definitions.ALL_DEFS]
 PARAM_NAMES = [n for n in ALL_NAMES
                if n not in ("task_checkpoint", "task_status")]
-assert len(PARAM_NAMES) == 57, len(PARAM_NAMES)
+assert len(PARAM_NAMES) == 58, len(PARAM_NAMES)
 
 
 def _write_flag(name):
