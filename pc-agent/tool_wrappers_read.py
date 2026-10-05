@@ -36,15 +36,22 @@ def clipboard_get() -> dict:
     return toolcall.call("clipboard_get", {})
 
 def search_files(pattern: str, path: str, file_pattern: str = "*",
-                 max_results: int = 50) -> dict:
+                 max_results: int = 50, context: int = 0,
+                 case_insensitive: bool = False,
+                 output_mode: str = "matches",
+                 offset: int = 0) -> dict:
     """Content search (regex) under a dir. Profile-restricted, no approval."""
     a = {"pattern": pattern, "path": path, "file_pattern": file_pattern,
-         "max_results": max_results}
+         "max_results": max_results, "context": context,
+         "case_insensitive": case_insensitive, "output_mode": output_mode,
+         "offset": offset}
     return toolcall.call("search_files", a)
 
-def search_filenames(pattern: str, path: str, max_results: int = 50) -> dict:
+def search_filenames(pattern: str, path: str, max_results: int = 50,
+                     sort_by: str = "name", offset: int = 0) -> dict:
     """Find files by name glob under a dir. Profile-restricted, no approval."""
-    a = {"pattern": pattern, "path": path, "max_results": max_results}
+    a = {"pattern": pattern, "path": path, "max_results": max_results,
+         "sort_by": sort_by, "offset": offset}
     return toolcall.call("search_filenames", a)
 
 def read_file_range(path: str, start_line: int, end_line: int = 0) -> dict:
