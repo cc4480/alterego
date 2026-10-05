@@ -46,6 +46,26 @@ def _load_provider(kind: str):
     _ACTIVE = kind
 
 
+def _mock_mode() -> str:
+    """PC_BRIDGE_MOCK_MODE: 'strict' (default) or 'lenient'. Fail loud on
+    anything else — never silently pick a behavior."""
+    mode = os.environ.get("PC_BRIDGE_MOCK_MODE", "strict").strip().lower()
+    if mode not in ("strict", "lenient"):
+        raise RuntimeError(
+            f"PC_BRIDGE_MOCK_MODE={mode!r} is invalid; "
+            "expected 'strict' or 'lenient'")
+    return mode
+
+
+def _lenient_fn(name: str):
+    """Generic mock result for tools the mock provider does not define.
+    Only reachable when PC_BRIDGE_MOCK_MODE=lenient."""
+    def fn(**kwargs):
+        return {"mock": True, "tool": name, "args": kwargs}
+    fn.__name__ = name
+    return fn
+
+
 def resolve(name: str):
     """Return the active provider's implementation for tool `name`."""
     if _ACTIVE is None:
@@ -57,6 +77,8 @@ def resolve(name: str):
         _load_provider(kind)
     fn = _PROVIDERS.get(_ALIASES.get(name, name))
     if fn is None:
+        if _ACTIVE == "mock" and _mock_mode() == "lenient":
+            return _lenient_fn(name)
         raise RuntimeError(
             f"tool {name!r} is not implemented by the "
             f"{_ACTIVE!r} provider")
