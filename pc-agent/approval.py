@@ -22,6 +22,17 @@ FULL-ACCESS MODE: if PC_BRIDGE_FULL_ACCESS=1 is set, every dialog is
 skipped unconditionally — including always_ask/DESTRUCTIVE. The audit
 log still records every call with its tier. Restart without the env var
 to restore dialogs.
+
+NAMED PERMISSION POSTURES (PC_BRIDGE_PERMISSION_MODE):
+- default     : reads silent, writes show dialog, destructive always dialog.
+- plan        : every write/destructive tool runs in dry-run mode (no
+                dialogs, no side effects). Handled in toolcall.call.
+- acceptEdits : file write tools auto-approved; shell/destructive tools
+                still show the approval dialog.
+- dontAsk     : no dialogs at all (same as PC_BRIDGE_FULL_ACCESS=1).
+
+Backward compat: PC_BRIDGE_FULL_ACCESS=1 with no explicit mode is
+treated as dontAsk.
 """
 import os
 import threading
@@ -36,27 +47,58 @@ WM_CLOSE = 0x0010
 AUTO_APPROVE = os.environ.get("PC_BRIDGE_AUTO_APPROVE") == "1"
 FULL_ACCESS = os.environ.get("PC_BRIDGE_FULL_ACCESS") == "1"
 
+# File tools that acceptEdits mode auto-approves. delete_file stays on
+# dialog (tagged destructive, recoverability 2).
+ACCEPT_EDITS_AUTO = {"write_file", "edit_file", "create_dir",
+                     "copy_file", "move_file"}
+
+
+def _resolve_permission_mode() -> str:
+    mode = os.environ.get("PC_BRIDGE_PERMISSION_MODE", "").strip().lower()
+    if mode in ("plan", "acceptedits", "dontask", "default"):
+        return mode
+    if FULL_ACCESS:  # backward compat
+        return "dontask"
+    return "default"
+
+
+PERMISSION_MODE = _resolve_permission_mode()
+
+
+def get_permission_mode() -> str:
+    """One of: plan | acceptEdits | dontAsk | default."""
+    return PERMISSION_MODE
+
 
 def is_auto_approve() -> bool:
     return AUTO_APPROVE
 
 
 def is_full_access() -> bool:
-    return FULL_ACCESS
+    # Full access now means the dontAsk posture (or the legacy env var).
+    return FULL_ACCESS or PERMISSION_MODE == "dontask"
 
 
 def request_approval(summary: str, timeout_s: int = 30,
-                     tier: str = "routine") -> bool:
+                     tier: str = "routine",
+                     tool_name: str | None = None) -> bool:
     """Show the dialog; return True only on an explicit Yes click.
 
     In auto-approve mode the dialog is skipped and this returns True —
     unless tier is "always_ask" (destructive tools), which always shows
     the dialog with a DESTRUCTIVE title.
 
-    In full-access mode (PC_BRIDGE_FULL_ACCESS=1) ALL dialogs are skipped,
-    including always_ask. The audit log still records every call.
+    In dontAsk mode (PC_BRIDGE_FULL_ACCESS=1 or mode=dontAsk) ALL dialogs
+    are skipped, including always_ask. The audit log still records
+    every call.
+
+    In acceptEdits mode, file write tools (write_file, edit_file, ...)
+    are auto-approved; shell/destructive tools still show the dialog.
     """
-    if FULL_ACCESS:
+    if is_full_access():
+        return True
+    if (PERMISSION_MODE == "acceptedits" and tool_name in ACCEPT_EDITS_AUTO
+            and tier != "always_ask"):
         return True
     if tier == "always_ask":
         return _show_dialog(summary, timeout_s, destructive=True)

@@ -32,6 +32,7 @@ PROFILES = {
     "active_window": _p("none", 10),
     "idle_seconds": _p("none", 10),
     "list_processes": _p("none", 10),
+    "doctor": _p("none", 10),
     # ---- recon: read-only but touches the network ----
     "http_headers": _p("external", 10, ("HTTP request to target URL",), tags=("network",)),
     "dns_query": _p("external", 10, ("DNS query issued",), tags=("network",)),

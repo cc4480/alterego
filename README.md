@@ -57,6 +57,39 @@ against a real Windows PC through a live Cloudflare tunnel.
   skip the dialogs for their own testing — the server prints a loud warning
   banner, the audit log marks every auto-approved call, and bearer auth is
   still required. Restart without the env var to restore dialogs.)
+
+### Permission postures (`PC_BRIDGE_PERMISSION_MODE`)
+
+Named modes replace the binary full-access switch (inspired by Claude Code):
+
+| Mode | Behavior |
+|---|---|
+| `default` | Reads silent; writes show the approval dialog; destructive tools always ask. |
+| `plan` | Every write/destructive tool runs in dry-run mode — no dialogs, no side effects. |
+| `acceptEdits` | File write tools (`write_file`, `edit_file`, `create_dir`, `copy_file`, `move_file`) auto-approved; shell and destructive tools still show the dialog. |
+| `dontAsk` | No dialogs at all — full remote control. Audit log still records everything. |
+
+Set it when starting the server:
+
+```powershell
+$env:PC_BRIDGE_PERMISSION_MODE = "acceptEdits"
+python pc-agent\server.py
+```
+
+Backward compat: `PC_BRIDGE_FULL_ACCESS=1` with no explicit mode is treated
+as `dontAsk`.
+
+### Tool hooks (`pc-agent/HOOKS.md`)
+
+PreToolUse/PostToolUse hooks let the PC owner inject custom policy into
+every tool call — e.g. deny deletes on `D:\`, or log every shell command.
+See [pc-agent/HOOKS.md](pc-agent/HOOKS.md).
+
+### Doctor (`doctor` tool)
+
+The `doctor` MCP tool checks bridge health (Python version, port 8765,
+Defender exclusions, Startup entry, tunnel config, disk space) and returns
+a specific fix command for anything that isn't ok.
 - Read tools are restricted to the user's own profile directory; Windows
   system dirs and other users' profiles are denied.
 - The MCP SDK's DNS-rebinding host check is disabled: the tunnel hostname is

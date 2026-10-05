@@ -10,47 +10,40 @@ import tools_files
 import tools_memory
 import tools_support
 import tools_recon
+import tools_doctor
 import tools_pc, tools_tasks
 import arbitrate as _arb
-
 
 # ---- read tools -----------------------------------------------------------
 def screenshot() -> dict:
     """Capture the primary monitor as PNG (base64)."""
     return toolcall.call("screenshot", tools_read.screenshot, {})
 
-
 def list_windows() -> dict:
     """List visible windows: handle, pid, title."""
     return toolcall.call("list_windows", tools_read.list_windows, {})
-
 
 def system_info() -> dict:
     """OS, host, user, CPU/memory."""
     return toolcall.call("system_info", tools_read.system_info, {})
 
-
 def list_dir(path: str = "") -> dict:
     """List a directory. Restricted to the user's profile."""
     return toolcall.call("list_dir", tools_read.list_dir, {"path": path})
-
 
 def read_file(path: str) -> dict:
     """Read a UTF-8 text file (<=1MB). Restricted to the user's profile."""
     return toolcall.call("read_file", tools_read.read_file, {"path": path})
 
-
 def clipboard_get() -> dict:
     """Read text from the Windows clipboard (no approval)."""
     return toolcall.call("clipboard_get", tools_read.clipboard_get, {})
-
 
 # ---- write tools (each pops a native approval dialog on the PC) -----------
 def focus_window(hwnd: int) -> dict:
     """Bring a window to the foreground. Requires on-PC approval."""
     return toolcall.call("focus_window", tools_write.focus_window,
                          {"hwnd": hwnd}, write=True)
-
 
 def close_window(hwnd: int) -> dict:
     """Gracefully close a window (like clicking X). Requires on-PC approval."""
@@ -247,6 +240,12 @@ def power(action: str) -> dict:
     return toolcall.call("power", tools_pc.power, {"action": action}, write=True)
 
 
+def doctor() -> dict:
+    """Bridge health check: Python, port, Defender, Startup, tunnel, disk.
+    Each check returns ok/warning/fail + a specific fix command. No approval."""
+    return toolcall.call("doctor", tools_doctor.doctor, {})
+
+
 # ---- browser tools (CDP; Edge needs --remote-debugging-port=9222) ----------
 def browser_snapshot(url_contains: str = "") -> dict:
     """List interactive elements of the live Edge tab (no approval)."""
@@ -297,4 +296,5 @@ ALL_TOOLS = [
     active_window, idle_seconds, list_processes,
     notify, speak, set_volume, power, tools_tasks.task_create,
     tools_tasks.task_checkpoint, tools_tasks.task_status, _arb.arbitrate_tool,
+    doctor,
 ]

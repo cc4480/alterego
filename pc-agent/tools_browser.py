@@ -8,7 +8,8 @@ import browser_cdp
 
 def _approved(tool: str, summary: str) -> None:
     from tool_profiles import approval_tier
-    if not request_approval(f"[{tool}]\n{summary}", tier=approval_tier(tool)):
+    if not request_approval(f"[{tool}]\n{summary}", tier=approval_tier(tool),
+                            tool_name=tool):
         raise PermissionError("denied by local approval (or timed out)")
 
 
