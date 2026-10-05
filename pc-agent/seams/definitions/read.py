@@ -91,31 +91,48 @@ SEARCH_FILES = ToolDef(
     name="search_files",
     group="read",
     doc="Search file contents for a regex/plain-text pattern under a "
-        "directory. Restricted to the user's profile.",
+        "directory. Restricted to the user's profile. context: lines of "
+        "context around each match. case_insensitive: ignore case. "
+        "output_mode: 'matches' (default), 'files' (unique file paths), "
+        "or 'count' (match count per file). offset: skip first N results.",
     args={
         "pattern": {"type": "str", "required": True},
         "path": {"type": "str", "required": True},
         "file_pattern": {"type": "str", "required": False,
                          "default": "*"},
         "max_results": {"type": "int", "required": False, "default": 50},
+        "context": {"type": "int", "required": False, "default": 0},
+        "case_insensitive": {"type": "bool", "required": False,
+                             "default": False},
+        "output_mode": {"type": "str", "required": False,
+                        "default": "matches"},
+        "offset": {"type": "int", "required": False, "default": 0},
     },
     result_keys=["matches", "truncated"],
     approval_tier="silent",
     side_effects="none",
     platform_notes="Fully portable: os.walk + re are stdlib. Same "
                    "profile-root restriction as list_dir; binary files "
-                   "are skipped (UTF-8 decode check).",
+                   "are skipped (UTF-8 decode check). The Windows "
+                   "provider shells out to rg (ripgrep) when installed "
+                   "for speed, else falls back to the stdlib walk. "
+                   "output_mode changes the shape of 'matches' entries: "
+                   "full match dicts, {'file'} dicts, or "
+                   "{'file', 'count'} dicts.",
 )
 
 SEARCH_FILENAMES = ToolDef(
     name="search_filenames",
     group="read",
     doc="Find files by name glob (e.g. '*.log') under a directory. "
-        "Restricted to the user's profile.",
+        "Restricted to the user's profile. sort_by: 'name' (default) or "
+        "'mtime' (newest first). offset: skip first N results.",
     args={
         "pattern": {"type": "str", "required": True},
         "path": {"type": "str", "required": True},
         "max_results": {"type": "int", "required": False, "default": 50},
+        "sort_by": {"type": "str", "required": False, "default": "name"},
+        "offset": {"type": "int", "required": False, "default": 0},
     },
     result_keys=["files", "truncated"],
     approval_tier="silent",

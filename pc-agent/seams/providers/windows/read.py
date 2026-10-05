@@ -192,76 +192,26 @@ def clipboard_get() -> dict:
 
 
 def search_files(pattern: str, path: str, file_pattern: str = "*",
-                 max_results: int = MAX_SEARCH_RESULTS) -> dict:
-    """Search file contents for a regex pattern under a directory.
-
-    Skips binary files and files over MAX_SEARCH_FILE_BYTES. Respects
-    the profile-root restriction via _check_path.
-    """
-    root = _check_path(path)
-    if not root.is_dir():
-        raise ValueError("not a directory")
-    try:
-        rx = re.compile(pattern)
-    except re.error as e:
-        raise ValueError(f"invalid regex: {e}")
-    matches = []
-    truncated = False
-    for dirpath, _dirnames, filenames in os.walk(root):
-        for fname in filenames:
-            if not fnmatch.fnmatch(fname, file_pattern):
-                continue
-            fpath = Path(dirpath) / fname
-            try:
-                if fpath.stat().st_size > MAX_SEARCH_FILE_BYTES:
-                    continue
-                text = fpath.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):
-                continue  # binary or unreadable: skip
-            for lineno, line in enumerate(text.splitlines(), start=1):
-                m = rx.search(line)
-                if m:
-                    matches.append({
-                        "file": str(fpath),
-                        "line_number": lineno,
-                        "line_content": line[:500],
-                        "match_text": m.group(0)[:200],
-                    })
-                    if len(matches) >= max_results:
-                        truncated = True
-                        break
-            if truncated:
-                break
-        if truncated:
-            break
-    return {"matches": matches, "truncated": truncated}
+                 max_results: int = MAX_SEARCH_RESULTS, context: int = 0,
+                 case_insensitive: bool = False,
+                 output_mode: str = "matches",
+                 offset: int = 0) -> dict:
+    """Delegate to seams.providers.windows.search (rg fast path with
+    stdlib fallback). Kept here so the registry resolves the tool name
+    against the read module."""
+    from seams.providers.windows import search as _search
+    return _search.search_files(pattern, path, file_pattern, max_results,
+                                context, case_insensitive, output_mode,
+                                offset)
 
 
 def search_filenames(pattern: str, path: str,
-                     max_results: int = MAX_SEARCH_RESULTS) -> dict:
-    """Find files by name glob under a directory. Respects the
-    profile-root restriction via _check_path."""
-    root = _check_path(path)
-    if not root.is_dir():
-        raise ValueError("not a directory")
-    files = []
-    truncated = False
-    for fpath in sorted(root.rglob(pattern)):
-        if not fpath.is_file():
-            continue
-        try:
-            st = fpath.stat()
-            files.append({
-                "path": str(fpath),
-                "size": st.st_size,
-                "modified": st.st_mtime,
-            })
-        except OSError:
-            continue
-        if len(files) >= max_results:
-            truncated = True
-            break
-    return {"files": files, "truncated": truncated}
+                     max_results: int = MAX_SEARCH_RESULTS,
+                     sort_by: str = "name", offset: int = 0) -> dict:
+    """Delegate to seams.providers.windows.search. See search_files."""
+    from seams.providers.windows import search as _search
+    return _search.search_filenames(pattern, path, max_results, sort_by,
+                                    offset)
 
 
 def read_file_range(path: str, start_line: int,

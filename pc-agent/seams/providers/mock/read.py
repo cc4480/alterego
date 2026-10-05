@@ -65,59 +65,110 @@ def _mock_files_under(root: str) -> list:
 
 
 def search_files(pattern: str, path: str, file_pattern: str = "*",
-                 max_results: int = 50) -> dict:
+                 max_results: int = 50, context: int = 0,
+                 case_insensitive: bool = False,
+                 output_mode: str = "matches",
+                 offset: int = 0) -> dict:
+    """Content search over the virtual FS.
+
+    output_mode: 'matches' (default) -> per-line match dicts, with
+    optional context_before/context_after when context > 0;
+    'files' -> unique {'file'} dicts in first-seen order;
+    'count' -> {'file', 'count'} dicts with full per-file counts.
+    offset skips the first N result entries (pagination).
+    """
     root = norm_path(path) if path else PROFILE_ROOT
     if not is_dir(root):
         raise FileNotFoundError(f"no such directory: {path!r}")
+    if output_mode not in ("matches", "files", "count"):
+        raise ValueError(f"bad output_mode: {output_mode!r} "
+                         "(matches|files|count)")
+    if max_results < 1:
+        raise ValueError("max_results must be >= 1")
+    if offset < 0:
+        raise ValueError("offset must be >= 0")
+    if context < 0:
+        raise ValueError("context must be >= 0")
+    flags = re.IGNORECASE if case_insensitive else 0
     try:
-        rx = re.compile(pattern)
+        rx = re.compile(pattern, flags)
     except re.error as e:
         raise ValueError(f"invalid regex: {e}")
-    matches = []
-    truncated = False
-    for fpath in _mock_files_under(root):
-        fname = fpath.rsplit("/", 1)[-1]
-        if not fnmatch.fnmatch(fname, file_pattern):
-            continue
-        content = FS[fpath].get("content") or ""
-        for lineno, line in enumerate(content.splitlines(), start=1):
-            m = rx.search(line)
-            if m:
-                matches.append({
+    entries = []
+    if output_mode == "count":
+        counts = []  # (file, count) in first-seen order
+        for fpath in _mock_files_under(root):
+            if not fnmatch.fnmatch(fpath.rsplit("/", 1)[-1], file_pattern):
+                continue
+            content = FS[fpath].get("content") or ""
+            n = sum(1 for line in content.splitlines() if rx.search(line))
+            if n:
+                counts.append((fpath, n))
+        entries = [{"file": f, "count": n} for f, n in counts]
+    else:
+        seen_files = set()
+        for fpath in _mock_files_under(root):
+            if not fnmatch.fnmatch(fpath.rsplit("/", 1)[-1], file_pattern):
+                continue
+            content = FS[fpath].get("content") or ""
+            lines = content.splitlines()
+            for lineno, line in enumerate(lines, start=1):
+                m = rx.search(line)
+                if not m:
+                    continue
+                if output_mode == "files":
+                    if fpath not in seen_files:
+                        seen_files.add(fpath)
+                        entries.append({"file": fpath})
+                    continue
+                entry = {
                     "file": fpath,
                     "line_number": lineno,
                     "line_content": line[:500],
                     "match_text": m.group(0)[:200],
-                })
-                if len(matches) >= max_results:
-                    truncated = True
-                    break
-        if truncated:
-            break
-    return {"matches": matches, "truncated": truncated}
+                }
+                if context:
+                    idx = lineno - 1
+                    entry["context_before"] = lines[max(0, idx - context):idx]
+                    entry["context_after"] = lines[idx + 1:idx + 1 + context]
+                entries.append(entry)
+    total = len(entries)
+    return {"matches": entries[offset:offset + max_results],
+            "truncated": total > offset + max_results}
 
 
 def search_filenames(pattern: str, path: str,
-                     max_results: int = 50) -> dict:
+                     max_results: int = 50, sort_by: str = "name",
+                     offset: int = 0) -> dict:
     root = norm_path(path) if path else PROFILE_ROOT
     if not is_dir(root):
         raise FileNotFoundError(f"no such directory: {path!r}")
-    files = []
-    truncated = False
+    if sort_by not in ("name", "mtime"):
+        raise ValueError(f"bad sort_by: {sort_by!r} (name|mtime)")
+    if max_results < 1:
+        raise ValueError("max_results must be >= 1")
+    if offset < 0:
+        raise ValueError("offset must be >= 0")
+    rows = []  # (mtime_key, result_dict); name order is the walk order
     for fpath in _mock_files_under(root):
         fname = fpath.rsplit("/", 1)[-1]
         if not fnmatch.fnmatch(fname, pattern):
             continue
-        content = FS[fpath].get("content") or ""
-        files.append({
+        entry = FS[fpath]
+        content = entry.get("content") or ""
+        rows.append((entry.get("modified") or "", {
             "path": fpath,
             "size": len(content.encode("utf-8")),
             "modified": 0.0,
-        })
-        if len(files) >= max_results:
-            truncated = True
-            break
-    return {"files": files, "truncated": truncated}
+        }))
+    if sort_by == "mtime":
+        # ISO-8601 strings sort chronologically; newest first. The sort
+        # is stable, so ties keep name order.
+        rows.sort(key=lambda r: r[0], reverse=True)
+    files = [r[1] for r in rows]
+    total = len(files)
+    return {"files": files[offset:offset + max_results],
+            "truncated": total > offset + max_results}
 
 
 def read_file_range(path: str, start_line: int,
