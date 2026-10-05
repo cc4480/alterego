@@ -74,6 +74,20 @@ def _refresh_pairing_code() -> None:
           "the operator POSTs it to /pair to receive a session token)")
 
 
+def _heartbeat_writer() -> None:
+    """Background thread: write a timestamp every 60s so the watchdog
+    can tell a live server from a hung one (a hung process may still
+    hold port 8765). File: %APPDATA%/pc-mcp-bridge/heartbeat.txt"""
+    hb_path = APPDATA_DIR / "pc-mcp-bridge" / "heartbeat.txt"
+    while True:
+        try:
+            with open(hb_path, "w") as f:
+                f.write(str(int(time.time())))
+        except OSError:
+            pass
+        time.sleep(60)
+
+
 def _pairing_refresher() -> None:
     """Background thread: always keep a usable pairing code printed.
 
@@ -179,6 +193,7 @@ async def _health(request):
 def main():
     _refresh_pairing_code()
     threading.Thread(target=_pairing_refresher, daemon=True).start()
+    threading.Thread(target=_heartbeat_writer, daemon=True).start()
     # The SDK auto-enables DNS-rebinding protection for localhost servers,
     # which 421s any Host header that isn't localhost — including our
     # Cloudflare tunnel hostname (random per session, can't be allowlisted).

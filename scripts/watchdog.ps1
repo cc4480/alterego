@@ -39,10 +39,26 @@ if (-not $tunnelOk) {
     WLog "tunnel restart launched"
 }
 
-# --- 2. Server: is 8765 listening? ---
+# --- 2. Server: is 8765 listening AND is the heartbeat fresh? ---
+# A hung server can still hold the port, so check heartbeat.txt too.
+# Stale = no heartbeat in 3+ minutes = hung, kill it.
+$serverOk = $false
 $listening = Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue
-if (-not $listening) {
-    WLog "server DOWN - restarting via start_bridge.ps1"
+if ($listening) {
+    $hbFile = "$env:APPDATA\pc-mcp-bridge\heartbeat.txt"
+    if (Test-Path $hbFile) {
+        try {
+            $hbTime = [int](Get-Content $hbFile -Raw)
+            $ageSec = [int](Get-Date -UFormat "%s") - $hbTime
+            if ($ageSec -lt 180) { $serverOk = $true }
+            else { WLog "server heartbeat STALE (${ageSec}s) - hung, will restart" }
+        } catch { }
+    }
+}
+
+if (-not $serverOk) {
+    if ($listening) { WLog "server HUNG (port held, heartbeat stale) - killing and restarting" }
+    else { WLog "server DOWN (port not listening) - restarting via start_bridge.ps1" }
     # Kill orphans first
     Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
         Where-Object { $_.CommandLine -like "*pc-agent\server.py*" } |
