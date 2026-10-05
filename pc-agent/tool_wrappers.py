@@ -180,6 +180,15 @@ def tcp_check(host: str, ports: list, timeout_s: int = 3) -> dict:
                           "timeout_s": timeout_s})
 
 
+def web_fetch(url: str, max_bytes: int = 100000,
+              timeout_s: int = 15) -> dict:
+    """Fetch a URL, return its readable text. SSRF-guarded: public IPs only,
+    every redirect hop re-checked, optional host rules. Approval in
+    default mode (skipped when dontAsk)."""
+    return toolcall.call("web_fetch", {"url": url, "max_bytes": max_bytes,
+                                       "timeout_s": timeout_s})
+
+
 def active_window() -> dict:
     """Foreground window: hwnd, title, pid, process. No approval."""
     return toolcall.call("active_window", {})
@@ -287,7 +296,7 @@ ALL_TOOLS = [
     browser_eval,
     shell_pwsh, batch,
     exec_background, exec_status, exec_cancel,
-    http_headers, dns_query, tls_info, tcp_check,
+    http_headers, dns_query, tls_info, tcp_check, web_fetch,
     active_window, idle_seconds, list_processes,
     notify, speak, set_volume, power, tools_tasks.task_create,
     tools_tasks.task_checkpoint, tools_tasks.task_status, _arb.arbitrate_tool,

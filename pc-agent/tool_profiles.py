@@ -40,6 +40,7 @@ PROFILES = {
     "dns_query": _p("external", 10, ("DNS query issued",), tags=("network",)),
     "tls_info": _p("external", 10, ("TLS handshake performed",), tags=("network",)),
     "tcp_check": _p("external", 10, ("TCP connection attempt",), tags=("network",)),
+    "web_fetch": _p("external", 10, ("HTTP fetch of target URL",), tags=("network",)),
     # ---- window / input: session scope ----
     "focus_window": _p("session", 10, ("window z-order changes",), "refocus previous window"),
     "minimize_window": _p("session", 10, ("window minimized",), "restore window"),

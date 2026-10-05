@@ -46,3 +46,12 @@ def tcp_check(host: str, ports: list, timeout_s: int = 3) -> dict:
         p = int(p)
         out[str(p)] = "invalid" if not 1 <= p <= 65535 else "open"
     return {"host": host, "ports": out}
+
+
+def web_fetch(url: str, max_bytes: int = 100000,
+              timeout_s: int = 15) -> dict:
+    record("web_fetch", {"url": url, "max_bytes": max_bytes,
+                         "timeout_s": timeout_s})
+    return {"url": url, "status_code": 200, "content_type": "text/html",
+            "content": "Mock Example Domain",
+            "truncated": False}

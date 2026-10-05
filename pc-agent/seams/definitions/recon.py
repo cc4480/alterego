@@ -62,4 +62,22 @@ TCP_CHECK = ToolDef(
     platform_notes=_PURE_PYTHON,
 )
 
-ALL_RECON_DEFS = [HTTP_HEADERS, DNS_QUERY, TLS_INFO, TCP_CHECK]
+
+WEB_FETCH = ToolDef(
+    name="web_fetch",
+    group="recon",
+    doc="Fetch a URL and return its readable text (HTML stripped to text). "
+        "SSRF-guarded: public IPs only, every redirect hop re-checked, "
+        "optional host allow/deny rules from command_rules.json.",
+    args={"url": {"type": "str", "required": True},
+          "max_bytes": {"type": "int", "default": 100000,
+                        "required": False},
+          "timeout_s": {"type": "int", "default": 15, "required": False}},
+    result_keys=["url", "status_code", "content_type", "content",
+                 "truncated"],
+    approval_tier="routine",
+    side_effects="network",
+    platform_notes=_PURE_PYTHON,
+)
+
+ALL_RECON_DEFS = [HTTP_HEADERS, DNS_QUERY, TLS_INFO, TCP_CHECK, WEB_FETCH]
