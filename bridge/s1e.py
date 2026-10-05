@@ -99,13 +99,13 @@ if port_open:
     C("browser_navigate", {"url": "https://www.bing.com"})
     time.sleep(4)
     snap = C("browser_snapshot", {"url_contains": "bing.com"})
-    print(f"CONTROLS: {len((snap or {}).get('controls', []))}", flush=True)
+    print(f"CONTROLS: {len((snap or {}).get('elements', []))}", flush=True)
     r = C("browser_click", {"text": "Copilot", "url_contains": "bing.com"})
     print("COPILOT_CLICK:", str(r)[:200], flush=True)
     time.sleep(6)
     snap = C("browser_snapshot", {})
     print("===COPILOT_CONTROLS===", flush=True)
-    for c in (snap or {}).get("controls", [])[:60]:
+    for c in (snap or {}).get("elements", [])[:60]:
         print(f'{c.get("role")}|{c.get("name")}|{(c.get("text") or "")[:80]}',
               flush=True)
     print("===END===", flush=True)

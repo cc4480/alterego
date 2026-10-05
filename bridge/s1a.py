@@ -122,6 +122,6 @@ C("browser_fill", {"label": "Search the web", "text": "Model Context Protocol",
                    "url_contains": "bing.com"})
 snap = C("browser_snapshot", {"url_contains": "bing.com"})
 print("===SNAPSHOT_CONTROLS===", flush=True)
-for c in (snap or {}).get("controls", [])[:40]:
+for c in (snap or {}).get("elements", [])[:40]:
     print(f'{c.get("role")}|{c.get("name")}|{c.get("text")}', flush=True)
 print("===END===", flush=True)
