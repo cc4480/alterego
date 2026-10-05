@@ -32,7 +32,7 @@ Write-Host "PCBridgeServer task installed (at logon, interactive)."
 # console window. cloudflared is in the user's WinGet package dir, so the
 # task runs in his context where that path resolves.
 $tunnelAction = New-ScheduledTaskAction -Execute $Cloudflared `
-    -Argument "tunnel --config `"C:\Users\celos\.cloudflared\config.yml`" run pc-bridge" `
+    -Argument "tunnel run pc-bridge" `
     -WorkingDirectory "C:\Users\celos\.cloudflared"
 $tunnelTrigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 $tunnelSettings = New-ScheduledTaskSettingsSet `
