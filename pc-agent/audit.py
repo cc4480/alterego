@@ -17,7 +17,7 @@ def _redact(args):
     }
 
 
-def log_event(tool, args, result, approved=None):
+def log_event(tool, args, result, approved=None, rationale=None, risk=None):
     entry = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "tool": tool,
@@ -25,6 +25,10 @@ def log_event(tool, args, result, approved=None):
         "approved": approved,  # True/False for write tools, None for reads
         "result": result,
     }
+    if risk is not None:
+        entry["risk"] = risk  # why the approval tier was what it was
+    if rationale:
+        entry["rationale"] = rationale  # agent's stated reason, if given
     p = app_dir() / AUDIT_FILE
     with p.open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
