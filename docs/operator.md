@@ -7,6 +7,23 @@ hands you two things in chat — both are safe to share:
 1. The tunnel URL, e.g. `https://<random>.trycloudflare.com`
 2. A 6-digit pairing code (single-use, 30-minute expiry)
 
+## 0. Health check (run first, every session)
+
+```bash
+export PC_BRIDGE_URL=https://pc.secscan.info
+python3 bridge/op_call.py health
+```
+
+Reports three layers independently:
+
+- `tunnel: UP/DOWN` — can we reach the PC at all (no auth needed)
+- `server: UP` — MCP handshake succeeded
+- `token: <redacted> / NONE / rejected` — session validity
+
+If the tunnel is DOWN, the PC is off, the tunnel isn't running, or
+there's a network issue — server/token checks are skipped. Diagnose
+before retrying blindly.
+
 ## 1. Pair
 
 Exchange the code for a session bearer token. With the bundled CLI:
