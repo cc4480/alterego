@@ -5,12 +5,16 @@ to jail reads under a different root (e.g. $HOME for a future Linux
 provider). Unset = Windows behavior, unchanged.
 """
 import base64
+import fnmatch
 import getpass
 import os
 import platform
+import re
 from pathlib import Path
 
 MAX_READ_BYTES = 1_000_000  # 1 MB cap on read_file
+MAX_SEARCH_RESULTS = 50
+MAX_SEARCH_FILE_BYTES = 1_000_000  # skip files larger than this in search
 
 
 def _user_profile() -> Path:
@@ -41,17 +45,72 @@ def _check_path(raw: str) -> Path:
     return p
 
 
-def screenshot() -> dict:
+def screenshot(region: dict | None = None, scale: float = 1.0) -> dict:
+    """Capture the primary monitor as PNG (base64).
+
+    region: optional {x, y, width, height} to capture part of the screen.
+    scale: optional 0.1-1.0 to downscale (saves bandwidth). Requires PIL.
+    Backward compatible: no args = full screenshot as before.
+    """
     import mss
     import mss.tools
 
+    if scale is not None:
+        scale = float(scale)
+        if not 0.1 <= scale <= 1.0:
+            raise ValueError("scale must be 0.1-1.0")
+    else:
+        scale = 1.0
+
     with mss.mss() as sct:
-        img = sct.grab(sct.monitors[0])
+        monitor = sct.monitors[0]
+        if region is not None:
+            if not isinstance(region, dict):
+                raise ValueError("region must be {x, y, width, height}")
+            try:
+                x = int(region["x"])
+                y = int(region["y"])
+                w = int(region["width"])
+                h = int(region["height"])
+            except (KeyError, TypeError, ValueError):
+                raise ValueError("region must be {x, y, width, height}")
+            if w <= 0 or h <= 0:
+                raise ValueError("region width/height must be positive")
+            # Clamp to monitor bounds
+            x = max(0, x)
+            y = max(0, y)
+            w = min(w, monitor["width"] - x)
+            h = min(h, monitor["height"] - y)
+            if w <= 0 or h <= 0:
+                raise ValueError("region is outside the screen")
+            grab_area = {"left": monitor["left"] + x,
+                         "top": monitor["top"] + y,
+                         "width": w, "height": h}
+        else:
+            grab_area = monitor
+        img = sct.grab(grab_area)
         png = mss.tools.to_png(img.rgb, img.size)
+        width, height = img.width, img.height
+
+    if scale < 1.0:
+        try:
+            from PIL import Image
+            import io
+            pil_img = Image.open(io.BytesIO(png))
+            new_w = max(1, int(width * scale))
+            new_h = max(1, int(height * scale))
+            pil_img = pil_img.resize((new_w, new_h), Image.LANCZOS)
+            buf = io.BytesIO()
+            pil_img.save(buf, format="PNG")
+            png = buf.getvalue()
+            width, height = new_w, new_h
+        except ImportError:
+            raise RuntimeError("scale requires Pillow (pip install Pillow)")
+
     return {
         "png_base64": base64.b64encode(png).decode("ascii"),
-        "width": img.width,
-        "height": img.height,
+        "width": width,
+        "height": height,
     }
 
 
@@ -130,3 +189,110 @@ def clipboard_get() -> dict:
         return {"text": clipboard.get_text()}
     except OSError:
         return {"text": "", "note": "clipboard unavailable"}
+
+
+def search_files(pattern: str, path: str, file_pattern: str = "*",
+                 max_results: int = MAX_SEARCH_RESULTS) -> dict:
+    """Search file contents for a regex pattern under a directory.
+
+    Skips binary files and files over MAX_SEARCH_FILE_BYTES. Respects
+    the profile-root restriction via _check_path.
+    """
+    root = _check_path(path)
+    if not root.is_dir():
+        raise ValueError("not a directory")
+    try:
+        rx = re.compile(pattern)
+    except re.error as e:
+        raise ValueError(f"invalid regex: {e}")
+    matches = []
+    truncated = False
+    for dirpath, _dirnames, filenames in os.walk(root):
+        for fname in filenames:
+            if not fnmatch.fnmatch(fname, file_pattern):
+                continue
+            fpath = Path(dirpath) / fname
+            try:
+                if fpath.stat().st_size > MAX_SEARCH_FILE_BYTES:
+                    continue
+                text = fpath.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue  # binary or unreadable: skip
+            for lineno, line in enumerate(text.splitlines(), start=1):
+                m = rx.search(line)
+                if m:
+                    matches.append({
+                        "file": str(fpath),
+                        "line_number": lineno,
+                        "line_content": line[:500],
+                        "match_text": m.group(0)[:200],
+                    })
+                    if len(matches) >= max_results:
+                        truncated = True
+                        break
+            if truncated:
+                break
+        if truncated:
+            break
+    return {"matches": matches, "truncated": truncated}
+
+
+def search_filenames(pattern: str, path: str,
+                     max_results: int = MAX_SEARCH_RESULTS) -> dict:
+    """Find files by name glob under a directory. Respects the
+    profile-root restriction via _check_path."""
+    root = _check_path(path)
+    if not root.is_dir():
+        raise ValueError("not a directory")
+    files = []
+    truncated = False
+    for fpath in sorted(root.rglob(pattern)):
+        if not fpath.is_file():
+            continue
+        try:
+            st = fpath.stat()
+            files.append({
+                "path": str(fpath),
+                "size": st.st_size,
+                "modified": st.st_mtime,
+            })
+        except OSError:
+            continue
+        if len(files) >= max_results:
+            truncated = True
+            break
+    return {"files": files, "truncated": truncated}
+
+
+def read_file_range(path: str, start_line: int,
+                    end_line: int = 0) -> dict:
+    """Read 1-indexed line ranges from a UTF-8 text file. end_line=0
+    (default) means start_line+50. Respects the profile-root restriction
+    and the 1MB cap, like read_file."""
+    p = _check_path(path)
+    if not p.is_file():
+        raise ValueError("not a file")
+    if p.stat().st_size > MAX_READ_BYTES:
+        raise ValueError("file too large (>1MB)")
+    if start_line < 1:
+        raise ValueError("start_line must be >= 1")
+    if end_line and end_line < start_line:
+        raise ValueError("end_line must be >= start_line")
+    if not end_line:
+        end_line = start_line + 50
+    data = p.read_bytes()
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        raise ValueError("not a UTF-8 text file")
+    lines = text.splitlines()
+    total = len(lines)
+    # Clamp: start past EOF yields empty content, not an error.
+    chunk = lines[start_line - 1:end_line] if start_line <= total else []
+    return {
+        "path": str(p),
+        "start_line": start_line,
+        "end_line": end_line,
+        "total_lines": total,
+        "content": "\n".join(chunk),
+    }

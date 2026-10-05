@@ -66,8 +66,16 @@ def write_file(path: str, content: str, dry_run: bool = False) -> dict:
 
 
 def edit_file(path: str, old_text: str, new_text: str,
-              dry_run: bool = False) -> dict:
-    """Replace the first occurrence of old_text with new_text in a file.
+              dry_run: bool = False, require_unique: bool = True,
+              read_before: bool = True) -> dict:
+    """Replace old_text with new_text in a file.
+
+    require_unique=True (default): fail if old_text matches more than
+    once — the caller must be more specific instead of replacing all.
+    require_unique=False: replace only the first occurrence (legacy).
+
+    read_before=True (default): the result always includes the before/after
+    context and a unified diff, so the caller sees what changed.
 
     dry_run=True: show the diff without modifying.
     """
@@ -78,16 +86,40 @@ def edit_file(path: str, old_text: str, new_text: str,
     if not p.is_file():
         raise FileNotFoundError(f"not a file: {p}")
     text = p.read_bytes().decode("utf-8")
-    if old_text not in text:
+    matches = text.count(old_text)
+    if matches == 0:
         raise ValueError("old_text not found in file")
+    if require_unique and matches > 1:
+        raise ValueError(
+            f"multiple matches found ({matches} occurrences of old_text), "
+            "be more specific — include surrounding context to make the "
+            "match unique, or pass require_unique=False to replace only "
+            "the first occurrence")
     new = text.replace(old_text, new_text, 1)
+    diff = _diff(text, new, str(p))
+    before_ctx, after_ctx = _context_snippets(text, new, old_text, new_text)
+    result = {"path": str(p), "replacements": 1, "matches_found": matches,
+              "diff": diff, "before": before_ctx, "after": after_ctx}
     if dry_run:
-        return {"dry_run": True, "would": "edit", "path": str(p),
-                "diff": _diff(text, new, str(p))}
+        result.update({"dry_run": True, "would": "edit"})
+        return result
     _approved("edit_file",
               f"Edit file:\n{p}\nreplace:\n{old_text[:300]}\nwith:\n{new_text[:300]}")
     p.write_bytes(new.encode("utf-8"))
-    return {"path": str(p), "replacements": 1}
+    return result
+
+
+def _context_snippets(old: str, new: str, old_text: str, new_text: str,
+                      radius: int = 3) -> tuple[str, str]:
+    """Return (before, after) snippets around the edit, radius lines."""
+    old_lines = old.splitlines()
+    new_lines = new.splitlines()
+    idx = next((i for i, line in enumerate(old_lines) if old_text in line), 0)
+    lo, hi = max(0, idx - radius), idx + radius + 1
+    before = "\n".join(old_lines[lo:hi])
+    after = "\n".join(new_lines[lo:hi + (new_text.count("\n")
+                                         - old_text.count("\n"))])
+    return before, after
 
 
 def delete_file(path: str, dry_run: bool = False) -> dict:

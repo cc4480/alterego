@@ -2,7 +2,7 @@
 provider — hooks -> plan-mode -> execute -> typed events (the primary
 record since the Phase 5 cutover; the legacy audit.log is gone).
 
-Covers: result_keys contract for all 50 tools, hook allow/deny/modify,
+Covers: result_keys contract for all 56 tools, hook allow/deny/modify,
 plan-mode dry-run, approval tiers, and the expected event chain per call.
 """
 import pytest
@@ -28,8 +28,8 @@ ARGS = {
     "kill_process": {"pid": 1234}, "clipboard_set": {"text": "abc"},
     "paste_text": {"text": "abc"},
     "write_file": {"path": "t.txt", "content": "x"},
-    "edit_file": {"path": "seed.txt", "old_text": "seed",
-                  "new_text": "SEED"},
+    "edit_file": {"path": "seed.txt", "old_text": "seed content",
+                  "new_text": "SEED CONTENT"},
     "delete_file": {"path": "todelete.txt"}, "create_dir": {"path": "nd"},
     "copy_file": {"src": "seed.txt", "dst": "copy.txt"},
     "move_file": {"src": "tomove.txt", "dst": "moved.txt"},
@@ -53,12 +53,18 @@ ARGS = {
     "arbitrate": {"trajectories": [["screenshot"], ["shell_exec"]]},
     "query_events": {},
     "replay_session": {"session_id": "sess_no_such_session"},
+    "search_files": {"pattern": "seed", "path": ""},
+    "search_filenames": {"pattern": "*.txt", "path": ""},
+    "read_file_range": {"path": "seed.txt", "start_line": 1},
+    "exec_background": {"command": "echo hi"},
+    "exec_status": {"job_id": "no_such_job"},
+    "exec_cancel": {"job_id": "no_such_job"},
 }
 
 ALL_NAMES = [d.name for d in definitions.ALL_DEFS]
 PARAM_NAMES = [n for n in ALL_NAMES
                if n not in ("task_checkpoint", "task_status")]
-assert len(PARAM_NAMES) == 50, len(PARAM_NAMES)
+assert len(PARAM_NAMES) == 56, len(PARAM_NAMES)
 
 
 def _write_flag(name):
@@ -167,8 +173,10 @@ def test_write_call_event_chain_with_approval_preview():
     toolcall.call("shell_exec", {"command": "echo hi"}, write=True)
     evts = read_events()  # ApprovalRequested has no "tool" key in data
     types = [e["type"] for e in evts]
-    assert types == ["ToolCalled", "ApprovalRequested", "ToolCompleted"]
-    appr = evts[1]
+    # HookEvaluated from the command_rules PreToolUse hook (allow)
+    assert types == ["ToolCalled", "HookEvaluated",
+                     "ApprovalRequested", "ToolCompleted"]
+    appr = evts[2]
     assert appr["data"]["tier"] == "always_ask"
     assert appr["data"]["dialog_shown"] is False
     assert appr["data"]["skipped_reason"] == "dontAsk"

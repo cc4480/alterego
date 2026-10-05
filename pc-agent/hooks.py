@@ -232,3 +232,14 @@ def log_shell_commands(tool_name: str, args: dict, result: dict):
     except OSError:
         pass
     return None
+
+
+# ---- command-level allow/deny rules (auto-registered) -----------------------
+# command_rules.py enforces per-command allow/deny patterns on shell_exec
+# and shell_pwsh via a PreToolUse hook. Registered automatically on import
+# so the protection is always on; if the module is missing, hooks still work.
+try:
+    import command_rules
+    command_rules.register()
+except ImportError:
+    pass

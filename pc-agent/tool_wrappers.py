@@ -9,30 +9,10 @@ import toolcall
 import arbitrate as _arb
 import tools_tasks  # shim -> seams.providers.windows.tasks (MCP wrappers)
 
-# ---- read tools -----------------------------------------------------------
-def screenshot() -> dict:
-    """Capture the primary monitor as PNG (base64)."""
-    return toolcall.call("screenshot", {})
-
-def list_windows() -> dict:
-    """List visible windows: handle, pid, title."""
-    return toolcall.call("list_windows", {})
-
-def system_info() -> dict:
-    """OS, host, user, CPU/memory."""
-    return toolcall.call("system_info", {})
-
-def list_dir(path: str = "") -> dict:
-    """List a directory. Restricted to the user's profile."""
-    return toolcall.call("list_dir", {"path": path})
-
-def read_file(path: str) -> dict:
-    """Read a UTF-8 text file (<=1MB). Restricted to the user's profile."""
-    return toolcall.call("read_file", {"path": path})
-
-def clipboard_get() -> dict:
-    """Read text from the Windows clipboard (no approval)."""
-    return toolcall.call("clipboard_get", {})
+# ---- read tools (in tool_wrappers_read.py, file size limit) ---------------
+from tool_wrappers_read import (  # noqa: E402
+    screenshot, list_windows, system_info, list_dir, read_file,
+    clipboard_get, search_files, search_filenames, read_file_range)
 
 # ---- write tools (each pops a native approval dialog on the PC) -----------
 def focus_window(hwnd: int) -> dict:
@@ -111,9 +91,14 @@ def write_file(path: str, content: str, dry_run: bool = False) -> dict:
     return toolcall.call("write_file", a, write=not dry_run)
 
 
-def edit_file(path: str, old_text: str, new_text: str, dry_run: bool = False) -> dict:
-    """Replace first old_text with new_text. Approval unless dry_run."""
-    a = {"path": path, "old_text": old_text, "new_text": new_text, "dry_run": dry_run}
+def edit_file(path: str, old_text: str, new_text: str, dry_run: bool = False,
+              require_unique: bool = True, read_before: bool = True) -> dict:
+    """Replace old_text with new_text. Fails on multiple matches unless
+    require_unique=False. Always returns a diff preview.
+    Approval unless dry_run."""
+    a = {"path": path, "old_text": old_text, "new_text": new_text,
+         "dry_run": dry_run, "require_unique": require_unique,
+         "read_before": read_before}
     return toolcall.call("edit_file", a, write=not dry_run)
 
 
@@ -160,6 +145,11 @@ def shell_pwsh(script: str, timeout_s: int = 60) -> dict:
 def batch(calls: list) -> dict:
     """Run up to 20 tool calls in one roundtrip. One approval covers all writes."""
     return toolcall.call("batch", {"calls": calls}, write=True)
+
+
+# Background tools live in tool_wrappers_background (file size limit).
+from tool_wrappers_background import (  # noqa: E402
+    exec_background, exec_status, exec_cancel)
 
 
 def http_headers(url: str, timeout_s: int = 20) -> dict:
@@ -281,6 +271,7 @@ def browser_eval(js: str, url_contains: str = "") -> dict:
 ALL_TOOLS = [
     screenshot, list_windows, system_info, list_dir, read_file,
     clipboard_get, memory_recall,
+    search_files, search_filenames, read_file_range,
     focus_window, close_window, type_text, shell_exec,
     hotkey, mouse_move, mouse_click, mouse_scroll,
     minimize_window, maximize_window, kill_process, clipboard_set,
@@ -290,6 +281,7 @@ ALL_TOOLS = [
     browser_snapshot, browser_navigate, browser_click, browser_fill,
     browser_eval,
     shell_pwsh, batch,
+    exec_background, exec_status, exec_cancel,
     http_headers, dns_query, tls_info, tcp_check,
     active_window, idle_seconds, list_processes,
     notify, speak, set_volume, power, tools_tasks.task_create,

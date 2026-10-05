@@ -29,11 +29,18 @@ WRITE_FILE = ToolDef(
 EDIT_FILE = ToolDef(
     name="edit_file",
     group="files",
-    doc="Replace first old_text with new_text. Approval unless dry_run.",
+    doc="Replace old_text with new_text. Fails on multiple matches unless "
+        "require_unique=False. Always returns a diff preview. "
+        "Approval unless dry_run.",
     args={"path": {"type": "str", "required": True},
           "old_text": {"type": "str", "required": True},
-          "new_text": {"type": "str", "required": True}, **_DRY},
-    result_keys=["path", "replacements", "dry_run", "would", "diff"],
+          "new_text": {"type": "str", "required": True},
+          "require_unique": {"type": "bool", "required": False,
+                             "default": True},
+          "read_before": {"type": "bool", "required": False,
+                          "default": True}, **_DRY},
+    result_keys=["path", "replacements", "matches_found", "dry_run", "would",
+                 "diff", "before", "after"],
     approval_tier="ask",
     side_effects="local-fs",
     supports_dry_run=True,

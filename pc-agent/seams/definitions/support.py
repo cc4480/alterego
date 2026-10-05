@@ -37,4 +37,45 @@ BATCH = ToolDef(
                    "concern, not a platform one.",
 )
 
-ALL_SUPPORT_DEFS = [SHELL_PWSH, BATCH]
+EXEC_BACKGROUND = ToolDef(
+    name="exec_background",
+    group="support",
+    doc="Start a long-running shell command in the background. "
+        "Returns a job_id for polling with exec_status or killing "
+        "with exec_cancel. Requires approval.",
+    args={"command": {"type": "str", "required": True},
+          "timeout_s": {"type": "int", "default": 300, "required": False}},
+    result_keys=["job_id", "status", "pid"],
+    approval_tier="always_ask",
+    side_effects="system",
+    platform_notes="subprocess.Popen is cross-platform. Windows: runs via "
+                   "cmd.exe. Timeout enforced by polling loop.",
+)
+
+EXEC_STATUS = ToolDef(
+    name="exec_status",
+    group="support",
+    doc="Check on a background job started with exec_background.",
+    args={"job_id": {"type": "str", "required": True}},
+    result_keys=["job_id", "status", "returncode", "output_tail",
+                 "output_full_path"],
+    approval_tier="silent",
+    side_effects="none",
+    platform_notes="Pure bookkeeping over the in-memory job table. "
+                   "Fully portable.",
+)
+
+EXEC_CANCEL = ToolDef(
+    name="exec_cancel",
+    group="support",
+    doc="Kill a running background job started with exec_background.",
+    args={"job_id": {"type": "str", "required": True}},
+    result_keys=["job_id", "status"],
+    approval_tier="routine",
+    side_effects="system",
+    platform_notes="Process termination is cross-platform "
+                   "(Popen.kill). Fully portable.",
+)
+
+ALL_SUPPORT_DEFS = [SHELL_PWSH, BATCH, EXEC_BACKGROUND, EXEC_STATUS,
+                    EXEC_CANCEL]
