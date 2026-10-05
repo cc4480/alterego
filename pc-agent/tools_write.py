@@ -4,6 +4,7 @@ import os
 import subprocess
 from ctypes import wintypes  # pure type aliases; windll itself is Windows-only
 
+import subproc
 from approval import request_approval
 
 MAX_OUTPUT = 65536  # truncate captured output at 64 KB
@@ -110,27 +111,20 @@ def shell_exec(command: str, timeout_s: int = 60) -> dict:
         raise ValueError("command must be 1-4000 chars")
     timeout_s = max(1, min(int(timeout_s), 300))
     _approved("shell_exec", f"Run in cmd.exe (timeout {timeout_s}s):\n{command}")
-    try:
-        proc = subprocess.run(
-            command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            errors="replace",
-            timeout=timeout_s,
-        )
-    except subprocess.TimeoutExpired as e:
+    returncode, stdout, stderr, timed_out = subproc.run_noinherit(
+        command, timeout_s, shell=True)
+    if timed_out:
         return {
             "command": command,
             "timed_out": True,
-            "stdout": (e.stdout or "")[-MAX_OUTPUT:],
-            "stderr": (e.stderr or "")[-MAX_OUTPUT:],
+            "stdout": stdout[-MAX_OUTPUT:],
+            "stderr": stderr[-MAX_OUTPUT:],
         }
     return {
         "command": command,
-        "returncode": proc.returncode,
-        "stdout": proc.stdout[-MAX_OUTPUT:],
-        "stderr": proc.stderr[-MAX_OUTPUT:],
+        "returncode": returncode,
+        "stdout": stdout[-MAX_OUTPUT:],
+        "stderr": stderr[-MAX_OUTPUT:],
     }
 
 

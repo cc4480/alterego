@@ -8,6 +8,7 @@
 """
 import subprocess
 
+import subproc
 import toolcall
 import tools_browser
 import tools_files
@@ -44,19 +45,19 @@ def shell_pwsh(script: str, timeout_s: int = 60) -> dict:
     timeout_s = max(1, min(int(timeout_s), 300))
     _approved("shell_pwsh", f"Run PowerShell (timeout {timeout_s}s):\n{script[:500]}")
     try:
-        proc = subprocess.run(
+        returncode, stdout, stderr, timed_out = subproc.run_noinherit(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
-            capture_output=True, text=True, errors="replace", timeout=timeout_s,
+            timeout_s,
         )
-    except subprocess.TimeoutExpired as e:
-        return {"timed_out": True,
-                "stdout": (e.stdout or "")[-MAX_OUTPUT:],
-                "stderr": (e.stderr or "")[-MAX_OUTPUT:]}
     except FileNotFoundError:
         raise RuntimeError("powershell not found on this machine")
-    return {"returncode": proc.returncode,
-            "stdout": proc.stdout[-MAX_OUTPUT:],
-            "stderr": proc.stderr[-MAX_OUTPUT:]}
+    if timed_out:
+        return {"timed_out": True,
+                "stdout": stdout[-MAX_OUTPUT:],
+                "stderr": stderr[-MAX_OUTPUT:]}
+    return {"returncode": returncode,
+            "stdout": stdout[-MAX_OUTPUT:],
+            "stderr": stderr[-MAX_OUTPUT:]}
 
 
 def batch(calls: list) -> dict:
