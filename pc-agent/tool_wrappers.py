@@ -125,41 +125,40 @@ def paste_text(text: str) -> dict:
 
 
 # ---- file tools (absolute paths anywhere; each needs approval) ------------
-def write_file(path: str, content: str) -> dict:
-    """Create/overwrite a UTF-8 text file (parents created). Requires approval."""
-    return toolcall.call("write_file", tools_files.write_file,
-                         {"path": path, "content": content}, write=True)
+def write_file(path: str, content: str, dry_run: bool = False) -> dict:
+    """Create/overwrite a UTF-8 text file. Approval unless dry_run."""
+    a = {"path": path, "content": content, "dry_run": dry_run}
+    return toolcall.call("write_file", tools_files.write_file, a, write=not dry_run)
 
 
-def edit_file(path: str, old_text: str, new_text: str) -> dict:
-    """Replace first occurrence of old_text with new_text. Requires approval."""
-    return toolcall.call("edit_file", tools_files.edit_file,
-                         {"path": path, "old_text": old_text,
-                          "new_text": new_text}, write=True)
+def edit_file(path: str, old_text: str, new_text: str, dry_run: bool = False) -> dict:
+    """Replace first old_text with new_text. Approval unless dry_run."""
+    a = {"path": path, "old_text": old_text, "new_text": new_text, "dry_run": dry_run}
+    return toolcall.call("edit_file", tools_files.edit_file, a, write=not dry_run)
 
 
-def delete_file(path: str) -> dict:
-    """Permanently delete a file. Requires on-PC approval."""
-    return toolcall.call("delete_file", tools_files.delete_file,
-                         {"path": path}, write=True)
+def delete_file(path: str, dry_run: bool = False) -> dict:
+    """Permanently delete a file. Approval unless dry_run."""
+    a = {"path": path, "dry_run": dry_run}
+    return toolcall.call("delete_file", tools_files.delete_file, a, write=not dry_run)
 
 
-def create_dir(path: str) -> dict:
-    """Create a directory (parents too). Requires on-PC approval."""
-    return toolcall.call("create_dir", tools_files.create_dir,
-                         {"path": path}, write=True)
+def create_dir(path: str, dry_run: bool = False) -> dict:
+    """Create a directory (parents too). Approval unless dry_run."""
+    a = {"path": path, "dry_run": dry_run}
+    return toolcall.call("create_dir", tools_files.create_dir, a, write=not dry_run)
 
 
-def copy_file(src: str, dst: str) -> dict:
-    """Copy a file (metadata preserved). Requires on-PC approval."""
-    return toolcall.call("copy_file", tools_files.copy_file,
-                         {"src": src, "dst": dst}, write=True)
+def copy_file(src: str, dst: str, dry_run: bool = False) -> dict:
+    """Copy a file (metadata preserved). Approval unless dry_run."""
+    a = {"src": src, "dst": dst, "dry_run": dry_run}
+    return toolcall.call("copy_file", tools_files.copy_file, a, write=not dry_run)
 
 
-def move_file(src: str, dst: str) -> dict:
-    """Move/rename a file. Requires on-PC approval."""
-    return toolcall.call("move_file", tools_files.move_file,
-                         {"src": src, "dst": dst}, write=True)
+def move_file(src: str, dst: str, dry_run: bool = False) -> dict:
+    """Move/rename a file. Approval unless dry_run."""
+    a = {"src": src, "dst": dst, "dry_run": dry_run}
+    return toolcall.call("move_file", tools_files.move_file, a, write=not dry_run)
 
 
 def file_info(path: str) -> dict:
