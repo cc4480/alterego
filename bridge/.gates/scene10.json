@@ -1,0 +1,1 @@
+{"scene": 10, "name": "finale", "fails": 0, "results": [{"tool": "notify", "ok": true, "note": "", "result": {"notified": true, "title": "Bridge demo"}}, {"tool": "speak", "ok": true, "note": "", "result": {"spoken_chars": 45}}, {"tool": "set_volume", "ok": true, "note": "", "result": {"volume": 40}}, {"tool": "power", "ok": true, "note": "", "result": {"power": "lock"}}]}
