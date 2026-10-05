@@ -49,7 +49,8 @@ if ($listening) {
     if (Test-Path $hbFile) {
         try {
             $hbTime = [int](Get-Content $hbFile -Raw)
-            $ageSec = [int](Get-Date -UFormat "%s") - $hbTime
+            $nowSec = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+            $ageSec = $nowSec - $hbTime
             if ($ageSec -lt 180) { $serverOk = $true }
             else { WLog "server heartbeat STALE (${ageSec}s) - hung, will restart" }
         } catch { }
