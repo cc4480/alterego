@@ -27,6 +27,7 @@ PROFILES = {
     "task_create": _p("none", 10, ("task record created",)),
     "task_checkpoint": _p("none", 10, ("checkpoint appended",)),
     "task_status": _p("none", 10),
+    "arbitrate": _p("none", 10, ("trajectories scored",)),
     "browser_snapshot": _p("none", 10),
     "active_window": _p("none", 10),
     "idle_seconds": _p("none", 10),

@@ -11,6 +11,7 @@ import tools_memory
 import tools_support
 import tools_recon
 import tools_pc, tools_tasks
+import arbitrate as _arb
 
 
 # ---- read tools -----------------------------------------------------------
@@ -295,5 +296,5 @@ ALL_TOOLS = [
     http_headers, dns_query, tls_info, tcp_check,
     active_window, idle_seconds, list_processes,
     notify, speak, set_volume, power, tools_tasks.task_create,
-    tools_tasks.task_checkpoint, tools_tasks.task_status,
+    tools_tasks.task_checkpoint, tools_tasks.task_status, _arb.arbitrate_tool,
 ]
