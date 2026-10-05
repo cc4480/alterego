@@ -187,6 +187,15 @@ def check_defender_exclusions():
             "Run PowerShell as Administrator and check "
             "(Get-MpPreference).ExclusionPath")
     excluded = out.stdout.lower()
+    if "must be an administrator" in excluded or "n/a" in excluded:
+        # Non-elevated shell cannot read exclusions at all — the exclusion
+        # may or may not be present. Report unknown, not fail.
+        return _unknown(
+            "defender_exclusions",
+            "could not verify Defender exclusions "
+            "(needs an elevated shell to read)",
+            "Run PowerShell as Administrator and check "
+            "(Get-MpPreference).ExclusionPath")
     if str(repo).lower() in excluded:
         return _ok("defender_exclusions",
                    f"Defender excludes {repo}")
