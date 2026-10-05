@@ -6,6 +6,9 @@ the pipeline never pops a dialog for these tools.
 """
 from seams.definitions.base import ToolDef
 
+_PURE_PYTHON = ("Pure Python (stdlib) — fully portable, already "
+                "platform-independent. No known gaps.")
+
 HTTP_HEADERS = ToolDef(
     name="http_headers",
     group="recon",
@@ -15,6 +18,7 @@ HTTP_HEADERS = ToolDef(
     result_keys=["url", "status", "headers"],
     approval_tier="ask",
     side_effects="network",
+    platform_notes=_PURE_PYTHON,
 )
 
 DNS_QUERY = ToolDef(
@@ -26,6 +30,8 @@ DNS_QUERY = ToolDef(
     result_keys=["domain", "type", "records", "note"],
     approval_tier="ask",
     side_effects="network",
+    platform_notes="Pure Python (hand-rolled DNS-over-UDP client) — fully "
+                   "portable. No known gaps.",
 )
 
 TLS_INFO = ToolDef(
@@ -40,6 +46,7 @@ TLS_INFO = ToolDef(
                  "error"],
     approval_tier="ask",
     side_effects="network",
+    platform_notes=_PURE_PYTHON,
 )
 
 TCP_CHECK = ToolDef(
@@ -52,6 +59,7 @@ TCP_CHECK = ToolDef(
     result_keys=["host", "ports"],
     approval_tier="ask",
     side_effects="network",
+    platform_notes=_PURE_PYTHON,
 )
 
 ALL_RECON_DEFS = [HTTP_HEADERS, DNS_QUERY, TLS_INFO, TCP_CHECK]

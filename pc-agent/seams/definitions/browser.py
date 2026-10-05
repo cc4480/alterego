@@ -2,8 +2,19 @@
 
 Driven via the Chrome DevTools Protocol; snapshot is a read, everything
 else needs approval.
+
+CDP is a protocol, not a Windows API: these definitions are
+browser-agnostic. Any platform running a Chromium-based browser with
+--remote-debugging-port works; only the browser binary differs (Edge on
+Windows, Chromium/Chrome on Linux/macOS) plus the --user-data-dir launch
+pattern. The snapshot/click/fill/eval logic has zero OS coupling.
 """
 from seams.definitions.base import ToolDef
+
+_CDP_NOTE = ("Browser-agnostic: driven over the Chrome DevTools Protocol, "
+             "not a Windows API. Ports to any OS with a Chromium-based "
+             "browser on --remote-debugging-port; only the browser binary "
+             "and launch flags differ.")
 
 _URL_CONTAINS = {"url_contains": {"type": "str", "default": "",
                                   "required": False}}
@@ -17,6 +28,7 @@ BROWSER_SNAPSHOT = ToolDef(
                  "cross_origin_iframes"],
     approval_tier="silent",
     side_effects="none",
+    platform_notes=_CDP_NOTE,
 )
 
 BROWSER_NAVIGATE = ToolDef(
@@ -27,6 +39,7 @@ BROWSER_NAVIGATE = ToolDef(
     result_keys=["page_url", "result"],
     approval_tier="routine",
     side_effects="session",
+    platform_notes=_CDP_NOTE,
 )
 
 BROWSER_CLICK = ToolDef(
@@ -37,6 +50,7 @@ BROWSER_CLICK = ToolDef(
     result_keys=["page_url", "result"],
     approval_tier="ask",
     side_effects="session",
+    platform_notes=_CDP_NOTE,
 )
 
 BROWSER_FILL = ToolDef(
@@ -48,6 +62,7 @@ BROWSER_FILL = ToolDef(
     result_keys=["page_url", "result"],
     approval_tier="ask",
     side_effects="session",
+    platform_notes=_CDP_NOTE,
 )
 
 BROWSER_EVAL = ToolDef(
@@ -58,6 +73,7 @@ BROWSER_EVAL = ToolDef(
     result_keys=["page_url", "type", "value"],
     approval_tier="always_ask",
     side_effects="session",
+    platform_notes=_CDP_NOTE,
 )
 
 ALL_BROWSER_DEFS = [BROWSER_SNAPSHOT, BROWSER_NAVIGATE, BROWSER_CLICK,

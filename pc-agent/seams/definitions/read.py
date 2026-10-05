@@ -9,6 +9,10 @@ SCREENSHOT = ToolDef(
     result_keys=["png_base64", "width", "height"],
     approval_tier="silent",
     side_effects="none",
+    platform_notes="mss is cross-platform (Windows/macOS/Linux) — a Linux "
+                   "provider can reuse the same code. macOS needs "
+                   "screen-recording permission; headless servers have no "
+                   "display to capture.",
 )
 
 LIST_WINDOWS = ToolDef(
@@ -19,6 +23,10 @@ LIST_WINDOWS = ToolDef(
     result_keys=["windows"],
     approval_tier="silent",
     side_effects="none",
+    platform_notes="Windows: win32gui EnumWindows. Linux/X11: ewmh or "
+                   "wmctrl. Wayland: no standard window-management API — "
+                   "honest gap, omit rather than fake. macOS: "
+                   "CGWindowListCopyWindowInfo (accessibility permission).",
 )
 
 SYSTEM_INFO = ToolDef(
@@ -30,6 +38,8 @@ SYSTEM_INFO = ToolDef(
                  "user", "cpu_percent", "mem_percent"],
     approval_tier="silent",
     side_effects="none",
+    platform_notes="Fully portable: platform.uname() is stdlib, psutil is "
+                   "cross-platform. No known gaps.",
 )
 
 LIST_DIR = ToolDef(
@@ -40,6 +50,9 @@ LIST_DIR = ToolDef(
     result_keys=["path", "items"],
     approval_tier="silent",
     side_effects="none",
+    platform_notes="Fully portable: pathlib. The profile-root constant is a "
+                   "provider-level setting (%USERPROFILE% vs $HOME), not a "
+                   "gap.",
 )
 
 READ_FILE = ToolDef(
@@ -50,6 +63,8 @@ READ_FILE = ToolDef(
     result_keys=["path", "content"],
     approval_tier="silent",
     side_effects="none",
+    platform_notes="Fully portable: pathlib. Same profile-root note as "
+                   "list_dir; the 1MB cap is a contract detail that ports.",
 )
 
 CLIPBOARD_GET = ToolDef(
@@ -60,6 +75,10 @@ CLIPBOARD_GET = ToolDef(
     result_keys=["text", "note"],
     approval_tier="silent",
     side_effects="none",
+    platform_notes="Windows: win32 clipboard. Linux: xclip/xsel (X11) or "
+                   "wl-clipboard (Wayland) — new dep; clipboard access on "
+                   "Wayland is per-app sandboxed, fail loud if unavailable. "
+                   "macOS: pbpaste.",
 )
 
 ALL_READ_DEFS = [SCREENSHOT, LIST_WINDOWS, SYSTEM_INFO, LIST_DIR,

@@ -1,6 +1,10 @@
 """Service Definitions for signed task records (group: tasks)."""
 from seams.definitions.base import ToolDef
 
+_PORTABLE = ("Pure Python (JSONL + HMAC, stdlib) — fully portable. The "
+             "app-data dir differs per OS (%APPDATA% vs ~/.config); a "
+             "provider-level detail, not a gap.")
+
 TASK_CREATE = ToolDef(
     name="task_create",
     group="tasks",
@@ -10,6 +14,7 @@ TASK_CREATE = ToolDef(
     result_keys=["task_id", "goal", "steps"],
     approval_tier="silent",
     side_effects="local-fs",
+    platform_notes=_PORTABLE,
 )
 
 TASK_CHECKPOINT = ToolDef(
@@ -23,6 +28,7 @@ TASK_CHECKPOINT = ToolDef(
     result_keys=["task_id", "step", "done"],
     approval_tier="silent",
     side_effects="local-fs",
+    platform_notes=_PORTABLE,
 )
 
 TASK_STATUS = ToolDef(
@@ -34,6 +40,7 @@ TASK_STATUS = ToolDef(
                  "done_steps", "tasks"],
     approval_tier="silent",
     side_effects="none",
+    platform_notes=_PORTABLE,
 )
 
 ALL_TASKS_DEFS = [TASK_CREATE, TASK_CHECKPOINT, TASK_STATUS]

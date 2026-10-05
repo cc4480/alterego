@@ -1,6 +1,10 @@
 """Service Definitions for support tools (group: support)."""
 from seams.definitions.base import ToolDef
 
+# Branch shapes (provider returns one or the other, never both):
+#   success -> {returncode, stdout, stderr}
+#   timeout -> {timed_out, stdout, stderr}
+# result_keys is the union of the branches.
 SHELL_PWSH = ToolDef(
     name="shell_pwsh",
     group="support",
@@ -11,6 +15,11 @@ SHELL_PWSH = ToolDef(
     result_keys=["timed_out", "stdout", "stderr", "returncode"],
     approval_tier="always_ask",
     side_effects="system",
+    platform_notes="PowerShell is cross-platform via `pwsh` — but only if "
+                   "installed. The Windows provider shells out to "
+                   "powershell.exe. A Linux provider maps to `pwsh` when "
+                   "present; when absent this tool is unimplemented "
+                   "(honest gap — never fake it with bash).",
 )
 
 BATCH = ToolDef(
@@ -22,6 +31,10 @@ BATCH = ToolDef(
     result_keys=["calls", "results"],
     approval_tier="always_ask",
     side_effects="system",
+    platform_notes="Pure orchestration over the provider registry: fully "
+                   "portable, zero platform coupling. Muting sub-call "
+                   "approvals for the batch duration is a pipeline "
+                   "concern, not a platform one.",
 )
 
 ALL_SUPPORT_DEFS = [SHELL_PWSH, BATCH]

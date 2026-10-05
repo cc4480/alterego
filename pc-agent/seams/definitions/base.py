@@ -17,6 +17,7 @@ class ToolDef:
     approval_tier: str             # "silent" | "routine" | "ask" | "always_ask"
     side_effects: str              # "none" | "local-fs" | "session" | "system" | "network"
     supports_dry_run: bool = False
+    platform_notes: str = ""      # cross-platform implementability + honest gaps
 
     def __post_init__(self):
         # Fail loud on malformed definitions: a bad contract is worse
