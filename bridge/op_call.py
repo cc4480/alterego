@@ -81,6 +81,40 @@ def main():
         path = token_store.save_token(token)
         print(f"paired — token saved to {path}")
         return
+    if cmd == "health":
+        import time
+        ua = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                            "AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/126.0.0.0 Safari/537.36"}
+        # Layer 1: tunnel — can we reach the PC at all?
+        t0 = time.time()
+        try:
+            req = urllib.request.Request(URL + "/health", headers=ua)
+            with urllib.request.urlopen(req, timeout=15) as r:
+                body = json.load(r)
+            ms = int((time.time() - t0) * 1000)
+            assert body.get("ok") and body.get("service") == "pc-bridge"
+            print(f"tunnel: UP ({ms}ms) — reached pc-bridge via {URL}")
+        except Exception as e:
+            print(f"tunnel: DOWN — {type(e).__name__}: {e}")
+            print("diagnosis: PC off, tunnel not running, or network issue. "
+                  "Server/token checks skipped.")
+            return
+        # Layer 2: token — is our session still valid?
+        if not TOKEN:
+            print("token: NONE — pair first: python3 op_call.py pair <code>")
+            return
+        try:
+            post("/mcp", {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                           "clientInfo": {"name": "op-call", "version": "0.2.0"}}})
+            print("server: UP — MCP initialize ok")
+            print("token: VALID")
+        except SystemExit as e:
+            print(f"token: {e}")
+        except Exception as e:
+            print(f"server: ERROR — {type(e).__name__}: {e}")
+        return
     if not TOKEN:
         raise SystemExit(
             "no session token: pair first — "
