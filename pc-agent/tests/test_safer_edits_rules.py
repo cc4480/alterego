@@ -12,13 +12,6 @@ import command_rules
 
 
 @pytest.fixture(autouse=True)
-def _reset_mock():
-    mock_state.reset()
-    yield
-    mock_state.reset()
-
-
-@pytest.fixture(autouse=True)
 def _isolate_rules(tmp_path, monkeypatch):
     """Point APPDATA at a temp dir so tests don't touch real rules."""
     monkeypatch.setenv("APPDATA", str(tmp_path))

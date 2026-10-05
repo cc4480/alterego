@@ -80,3 +80,22 @@ def batch(calls: list) -> dict:
         "failed": failed,
     }, caused_by=batch_id, session_id=_session_id())
     return {"calls": len(plan), "results": results}
+
+
+def exec_background(command: str, timeout_s: int = 300) -> dict:
+    """Mock: pretend to start a background job."""
+    record("exec_background", {"command": command, "timeout_s": timeout_s})
+    return {"job_id": "mock-job-001", "status": "started", "pid": 4242}
+
+
+def exec_status(job_id: str) -> dict:
+    """Mock: pretend the job completed."""
+    record("exec_status", {"job_id": job_id})
+    return {"job_id": job_id, "status": "completed", "returncode": 0,
+            "output_tail": "mock output", "output_full_path": "/mock/job.log"}
+
+
+def exec_cancel(job_id: str) -> dict:
+    """Mock: pretend to cancel the job."""
+    record("exec_cancel", {"job_id": job_id})
+    return {"job_id": job_id, "status": "cancelled"}

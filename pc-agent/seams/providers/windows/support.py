@@ -26,7 +26,7 @@ WRITE_TOOLS = {
     "write_file", "edit_file", "delete_file", "create_dir",
     "copy_file", "move_file",
     "browser_navigate", "browser_click", "browser_fill", "browser_eval",
-    "shell_pwsh", "batch",
+    "shell_pwsh", "batch", "exec_background", "exec_cancel",
 }
 
 # Modules whose _approved gate is muted for the duration of a batch
@@ -124,3 +124,123 @@ def batch(calls: list) -> dict:
         "failed": failed,
     }, caused_by=batch_id, session_id=toolcall._session_id())
     return {"calls": len(plan), "results": results}
+
+
+# ---- background command execution -----------------------------------------
+import tempfile
+import threading
+import time
+import uuid
+
+_JOBS: dict = {}  # job_id -> {proc, output_path, started, timeout_s, done}
+_JOBS_LOCK = threading.Lock()
+_JOB_TTL_S = 3600  # completed jobs kept for 1 hour
+
+
+def _cleanup_jobs():
+    """Remove completed jobs older than _JOB_TTL_S."""
+    now = time.time()
+    with _JOBS_LOCK:
+        for jid in [k for k, v in _JOBS.items()
+                    if v.get("done") and now - v["done"] > _JOB_TTL_S]:
+            try:
+                import os as _os
+                _os.unlink(_JOBS[jid]["output_path"])
+            except OSError:
+                pass
+            del _JOBS[jid]
+
+
+def exec_background(command: str, timeout_s: int = 300) -> dict:
+    """Start a shell command in the background. Requires approval."""
+    if not isinstance(command, str) or not command.strip():
+        raise ValueError("command must be a non-empty string")
+    timeout_s = max(1, min(int(timeout_s), 3600))
+    _approved("exec_background",
+              f"Run in background (timeout {timeout_s}s):\n{command[:500]}")
+    _cleanup_jobs()
+    job_id = uuid.uuid4().hex[:12]
+    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".log",
+                                      delete=False, encoding="utf-8",
+                                      errors="replace")
+    tmp_path = tmp.name
+    tmp.close()
+    out = open(tmp_path, "w", encoding="utf-8", errors="replace")
+    proc = subprocess.Popen(
+        command, shell=True,
+        stdout=out, stderr=subprocess.STDOUT,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    with _JOBS_LOCK:
+        _JOBS[job_id] = {
+            "proc": proc, "output_path": tmp_path,
+            "started": time.time(), "timeout_s": timeout_s,
+            "done": None, "returncode": None, "cancelled": False,
+        }
+    events.append("BackgroundJobStarted", {
+        "job_id": job_id, "pid": proc.pid,
+        "command": command[:200], "timeout_s": timeout_s,
+    }, session_id=toolcall._session_id())
+    return {"job_id": job_id, "status": "started", "pid": proc.pid}
+
+
+def _job_status(job: dict) -> tuple[str, int | None]:
+    """Return (status, returncode). Updates job dict on completion."""
+    if job.get("cancelled"):
+        return "cancelled", job["returncode"]
+    proc = job["proc"]
+    rc = proc.poll()
+    if rc is None:
+        if time.time() - job["started"] > job["timeout_s"]:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+            job["done"] = time.time()
+            job["returncode"] = -1
+            return "timeout", -1
+        return "running", None
+    if job["done"] is None:
+        job["done"] = time.time()
+        job["returncode"] = rc
+    return ("completed" if rc == 0 else "failed"), rc
+
+
+def exec_status(job_id: str) -> dict:
+    """Check on a background job."""
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+    if job is None:
+        raise ValueError(f"unknown job_id: {job_id}")
+    status, rc = _job_status(job)
+    try:
+        with open(job["output_path"], encoding="utf-8",
+                   errors="replace") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - 2000))
+            tail = f.read()
+    except OSError:
+        tail = ""
+    return {"job_id": job_id, "status": status, "returncode": rc,
+            "output_tail": tail, "output_full_path": job["output_path"]}
+
+
+def exec_cancel(job_id: str) -> dict:
+    """Kill a running background job."""
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+    if job is None:
+        raise ValueError(f"unknown job_id: {job_id}")
+    proc = job["proc"]
+    if proc.poll() is None:
+        try:
+            proc.kill()
+        except OSError:
+            pass
+        job["done"] = time.time()
+        job["returncode"] = -9
+        job["cancelled"] = True
+    events.append("BackgroundJobCancelled", {"job_id": job_id},
+                  session_id=toolcall._session_id())
+    return {"job_id": job_id, "status": "cancelled"}
