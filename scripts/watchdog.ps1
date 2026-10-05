@@ -14,56 +14,70 @@ function WLog($msg) {
     "$ts $msg" | Out-File $Log -Append
 }
 
-# --- 1. Tunnel: is cloudflared running AND connected? ---
-$tunnelProc = Get-Process cloudflared -ErrorAction SilentlyContinue
-$tunnelOk = $false
-if ($tunnelProc) {
-    # Check the metrics endpoint for live HA connections
+function Test-Tunnel() {
+    $p = Get-Process cloudflared -ErrorAction SilentlyContinue
+    if (-not $p) { return $false }
     try {
         $m = Invoke-WebRequest -Uri "http://127.0.0.1:20241/metrics" -TimeoutSec 5 -UseBasicParsing
         if ($m.Content -match 'cloudflared_tunnel_ha_connections (\d+)') {
-            if ([int]$Matches[1] -gt 0) { $tunnelOk = $true }
+            return ([int]$Matches[1] -gt 0)
         }
     } catch { }
+    return $false
 }
 
-if (-not $tunnelOk) {
-    if ($tunnelProc) {
+function Test-Server() {
+    $listening = Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue
+    if (-not $listening) { return $false }
+    $hbFile = "$env:APPDATA\pc-mcp-bridge\heartbeat.txt"
+    if (-not (Test-Path $hbFile)) { return $false }
+    try {
+        $hbTime = [int](Get-Content $hbFile -Raw)
+        $ageSec = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - $hbTime
+        return ($ageSec -lt 180)
+    } catch { return $false }
+}
+
+# --- 1. Tunnel ---
+if (-not (Test-Tunnel)) {
+    $tp = Get-Process cloudflared -ErrorAction SilentlyContinue
+    if ($tp) {
         WLog "tunnel process alive but 0 connections - killing"
-        $tunnelProc | Stop-Process -Force
+        $tp | Stop-Process -Force
         Start-Sleep 3
     } else {
         WLog "tunnel DOWN - restarting"
     }
     Start-Process cloudflared -ArgumentList "tunnel run pc-bridge" -WindowStyle Hidden
-    WLog "tunnel restart launched"
-}
-
-# --- 2. Server: is 8765 listening AND is the heartbeat fresh? ---
-# A hung server can still hold the port, so check heartbeat.txt too.
-# Stale = no heartbeat in 3+ minutes = hung, kill it.
-$serverOk = $false
-$listening = Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue
-if ($listening) {
-    $hbFile = "$env:APPDATA\pc-mcp-bridge\heartbeat.txt"
-    if (Test-Path $hbFile) {
-        try {
-            $hbTime = [int](Get-Content $hbFile -Raw)
-            $nowSec = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-            $ageSec = $nowSec - $hbTime
-            if ($ageSec -lt 180) { $serverOk = $true }
-            else { WLog "server heartbeat STALE (${ageSec}s) - hung, will restart" }
-        } catch { }
+    WLog "tunnel restart launched, verifying reconnect..."
+    $reconnected = $false
+    for ($i = 1; $i -le 3; $i++) {
+        Start-Sleep 15
+        if (Test-Tunnel) { $reconnected = $true; break }
+        WLog "tunnel reconnect attempt $i/3 not yet connected"
     }
+    if ($reconnected) { WLog "tunnel RECONNECTED and verified" }
+    else { WLog "tunnel FAILED to reconnect after 3 attempts - retry next cycle" }
 }
 
-if (-not $serverOk) {
-    if ($listening) { WLog "server HUNG (port held, heartbeat stale) - killing and restarting" }
-    else { WLog "server DOWN (port not listening) - restarting via start_bridge.ps1" }
-    # Kill orphans first
+# --- 2. Server ---
+if (-not (Test-Server)) {
+    $wasListening = Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue
+    if ($wasListening) { WLog "server HUNG (port held, heartbeat stale) - killing" }
+    else { WLog "server DOWN (port not listening) - restarting" }
     Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
         Where-Object { $_.CommandLine -like "*pc-agent\server.py*" } |
         ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    Start-Sleep 2
     Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$Repo\scripts\start_bridge.ps1`"" -WindowStyle Normal
-    WLog "server restart launched"
+    WLog "server restart launched, verifying..."
+    $serverUp = $false
+    for ($i = 1; $i -le 3; $i++) {
+        Start-Sleep 20
+        $portUp = Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue
+        if ($portUp) { $serverUp = $true; break }
+        WLog "server restart attempt $i/3 port not yet listening"
+    }
+    if ($serverUp) { WLog "server RESTARTED and port listening" }
+    else { WLog "server FAILED to restart after 3 attempts - retry next cycle" }
 }
