@@ -11,6 +11,12 @@ human gate entirely. Pairing/bearer authentication is NOT affected; the
 operator still needs a valid session token. The server prints a loud
 warning banner in this mode and the audit log marks every auto-approved
 call. Restart without the env var to restore dialogs.
+
+TIERS (from tool_profiles.approval_tier):
+- silent: read-only tools; no dialog, callers skip approval entirely.
+- routine / ask: dialog shown; skipped in auto-approve mode.
+- always_ask: dialog ALWAYS shown, even in auto-approve mode, with a
+  DESTRUCTIVE title. Fail closed on timeout/error as usual.
 """
 import os
 import threading
@@ -29,16 +35,30 @@ def is_auto_approve() -> bool:
     return AUTO_APPROVE
 
 
-def request_approval(summary: str, timeout_s: int = 30) -> bool:
+def request_approval(summary: str, timeout_s: int = 30,
+                     tier: str = "routine") -> bool:
     """Show the dialog; return True only on an explicit Yes click.
 
-    In auto-approve mode the dialog is skipped and this returns True.
+    In auto-approve mode the dialog is skipped and this returns True —
+    unless tier is "always_ask" (destructive tools), which always shows
+    the dialog with a DESTRUCTIVE title.
     """
+    if tier == "always_ask":
+        return _show_dialog(summary, timeout_s, destructive=True)
     if AUTO_APPROVE:
         return True
+    return _show_dialog(summary, timeout_s, destructive=False)
+
+
+def _show_dialog(summary: str, timeout_s: int, destructive: bool) -> bool:
     import ctypes  # Windows-only; imported lazily
 
-    user32 = ctypes.windll.user32
+    try:
+        user32 = ctypes.windll.user32
+    except AttributeError:
+        return False  # no Win32 dialog available: fail closed
+    title = ("pc-mcp-bridge: DESTRUCTIVE ACTION - approve?"
+             if destructive else TITLE)
     text = (
         "A remote operator is requesting this action on your PC:\n\n"
         + summary
@@ -49,7 +69,7 @@ def request_approval(summary: str, timeout_s: int = 30) -> bool:
     def _show():
         try:
             rc = user32.MessageBoxW(
-                None, text, TITLE, MB_YESNO | MB_ICONWARNING | MB_SYSTEMMODAL
+                None, text, title, MB_YESNO | MB_ICONWARNING | MB_SYSTEMMODAL
             )
         except Exception as exc:  # no interactive desktop, etc.
             outcome["error"] = str(exc)
@@ -61,7 +81,7 @@ def request_approval(summary: str, timeout_s: int = 30) -> bool:
     t.join(timeout_s)
     if t.is_alive():
         # Timed out: close the dialog, then treat as denied.
-        hwnd = user32.FindWindowW(None, TITLE)
+        hwnd = user32.FindWindowW(None, title)
         if hwnd:
             user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
         t.join(5)
