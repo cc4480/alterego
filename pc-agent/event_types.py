@@ -28,6 +28,10 @@ def _v_session_revoked(d):
                                   "server_restart"}))
 
 
+def _v_pairing_denied(d):
+    return _req(d, "reason")
+
+
 def _v_tool_called(d):
     return _req(d, "tool", "args", "args_hash", "risk", "permission_mode")
 
@@ -90,6 +94,7 @@ def _v_doctor_run(d):
 VALIDATORS = {
     "SessionPaired": _v_session_paired,
     "SessionRevoked": _v_session_revoked,
+    "PairingDenied": _v_pairing_denied,
     "ToolCalled": _v_tool_called,
     "HookEvaluated": _v_hook_evaluated,
     "ApprovalRequested": _v_approval_requested,
