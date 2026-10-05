@@ -1,8 +1,6 @@
 """MCP tool wrappers: public signatures + docstrings for the SDK schema.
-
 Each wrapper delegates to toolcall.call for audit logging. server.py
-registers ALL_TOOLS with mcp.tool(); adding a tool means adding a wrapper
-here and (if new logic) a function in the matching tools_* module.
+registers ALL_TOOLS with mcp.tool().
 """
 import toolcall
 import tools_read
@@ -12,7 +10,7 @@ import tools_files
 import tools_memory
 import tools_support
 import tools_recon
-import tools_pc
+import tools_pc, tools_tasks
 
 
 # ---- read tools -----------------------------------------------------------
@@ -297,5 +295,6 @@ ALL_TOOLS = [
     shell_pwsh, batch,
     http_headers, dns_query, tls_info, tcp_check,
     active_window, idle_seconds, list_processes,
-    notify, speak, set_volume, power,
+    notify, speak, set_volume, power, tools_tasks.task_create,
+    tools_tasks.task_checkpoint, tools_tasks.task_status,
 ]
