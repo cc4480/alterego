@@ -224,6 +224,24 @@ def check_tunnel_config():
                      "not Windows: cloudflared config check not applicable")
     cfg = Path(os.path.expanduser("~")) / ".cloudflared" / "config.yml"
     if not cfg.exists():
+        # Tunnel may be running via token args without a config file
+        # (e.g. manual launch after a fresh install). Check for that
+        # before failing.
+        try:
+            out = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq cloudflared.exe"],
+                capture_output=True, text=True, timeout=10)
+            if "cloudflared.exe" in out.stdout:
+                return _warn(
+                    "tunnel_config",
+                    f"missing {cfg}, but cloudflared.exe is running "
+                    "(likely token-launched, no config file)",
+                    "For persistence across reboots, set up the named "
+                    "tunnel: cloudflared tunnel login, then cloudflared "
+                    "tunnel create pc-bridge, then route pc.secscan.info "
+                    "and install the service")
+        except Exception:
+            pass
         return _fail("tunnel_config", f"missing {cfg}",
                      "Re-run: cloudflared tunnel login, then "
                      "cloudflared tunnel create pc-bridge, then route "
