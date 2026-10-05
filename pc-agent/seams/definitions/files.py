@@ -5,6 +5,8 @@ Writes need approval unless dry_run=True (plan posture runs dry).
 from seams.definitions.base import ToolDef
 
 _DRY = {"dry_run": {"type": "bool", "default": False, "required": False}}
+_STALE = {"expected_sha256": {"type": "str", "default": None,
+                              "required": False}}
 
 # All file tools are pathlib-based: fully portable. Windows drive-letter
 # roots vs POSIX roots are a provider detail, not a gap. dry_run shapes
@@ -15,9 +17,12 @@ _PORTABLE = ("Fully portable: pathlib + os/shutil. No known gaps; drive "
 WRITE_FILE = ToolDef(
     name="write_file",
     group="files",
-    doc="Create/overwrite a UTF-8 text file. Approval unless dry_run.",
+    doc="Create/overwrite a UTF-8 text file. Approval unless dry_run. "
+        "expected_sha256 (from a read) fails the write if the file "
+        "changed since it was read.",
     args={"path": {"type": "str", "required": True},
-          "content": {"type": "str", "required": True}, **_DRY},
+          "content": {"type": "str", "required": True},
+          **_DRY, **_STALE},
     result_keys=["path", "bytes_written", "dry_run", "would", "old_bytes",
                  "new_bytes", "diff"],
     approval_tier="always_ask",
@@ -31,14 +36,15 @@ EDIT_FILE = ToolDef(
     group="files",
     doc="Replace old_text with new_text. Fails on multiple matches unless "
         "require_unique=False. Always returns a diff preview. "
-        "Approval unless dry_run.",
+        "expected_sha256 (from a read) fails the edit if the file "
+        "changed since it was read. Approval unless dry_run.",
     args={"path": {"type": "str", "required": True},
           "old_text": {"type": "str", "required": True},
           "new_text": {"type": "str", "required": True},
           "require_unique": {"type": "bool", "required": False,
                              "default": True},
           "read_before": {"type": "bool", "required": False,
-                          "default": True}, **_DRY},
+                          "default": True}, **_DRY, **_STALE},
     result_keys=["path", "replacements", "matches_found", "dry_run", "would",
                  "diff", "before", "after"],
     approval_tier="ask",

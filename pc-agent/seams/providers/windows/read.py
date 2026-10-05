@@ -7,6 +7,7 @@ provider). Unset = Windows behavior, unchanged.
 import base64
 import fnmatch
 import getpass
+import hashlib
 import os
 import platform
 import re
@@ -179,7 +180,8 @@ def read_file(path: str) -> dict:
         text = data.decode("utf-8")
     except UnicodeDecodeError:
         raise ValueError("not a UTF-8 text file")
-    return {"path": str(p), "content": text}
+    return {"path": str(p), "content": text,
+            "sha256": hashlib.sha256(data).hexdigest()}
 
 
 def clipboard_get() -> dict:
@@ -290,9 +292,7 @@ def read_file_range(path: str, start_line: int,
     # Clamp: start past EOF yields empty content, not an error.
     chunk = lines[start_line - 1:end_line] if start_line <= total else []
     return {
-        "path": str(p),
-        "start_line": start_line,
-        "end_line": end_line,
-        "total_lines": total,
-        "content": "\n".join(chunk),
+        "path": str(p), "start_line": start_line, "end_line": end_line,
+        "total_lines": total, "content": "\n".join(chunk),
+        "sha256": hashlib.sha256(data).hexdigest(),
     }

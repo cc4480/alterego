@@ -64,9 +64,10 @@ LIST_DIR = ToolDef(
 READ_FILE = ToolDef(
     name="read_file",
     group="read",
-    doc="Read a UTF-8 text file (<=1MB). Restricted to the user's profile.",
+    doc="Read a UTF-8 text file (<=1MB). Restricted to the user's profile. "
+        "Returns sha256 of the content for staleness-checked writes.",
     args={"path": {"type": "str", "required": True}},
-    result_keys=["path", "content"],
+    result_keys=["path", "content", "sha256"],
     approval_tier="silent",
     side_effects="none",
     platform_notes="Fully portable: pathlib. Same profile-root note as "
@@ -128,14 +129,15 @@ READ_FILE_RANGE = ToolDef(
     name="read_file_range",
     group="read",
     doc="Read specific 1-indexed line ranges from a UTF-8 text file. "
-        "Restricted to the user's profile.",
+        "Restricted to the user's profile. Returns sha256 of the whole "
+        "file content for staleness-checked writes.",
     args={
         "path": {"type": "str", "required": True},
         "start_line": {"type": "int", "required": True},
         "end_line": {"type": "int", "required": False, "default": 0},
     },
     result_keys=["path", "start_line", "end_line", "total_lines",
-                 "content"],
+                 "content", "sha256"],
     approval_tier="silent",
     side_effects="none",
     platform_notes="Fully portable: pathlib. end_line=0 (or omitted) "

@@ -85,20 +85,25 @@ def paste_text(text: str) -> dict:
 
 
 # ---- file tools (absolute paths anywhere; each needs approval) ------------
-def write_file(path: str, content: str, dry_run: bool = False) -> dict:
-    """Create/overwrite a UTF-8 text file. Approval unless dry_run."""
-    a = {"path": path, "content": content, "dry_run": dry_run}
+def write_file(path: str, content: str, dry_run: bool = False,
+               expected_sha256: str | None = None) -> dict:
+    """Create/overwrite a UTF-8 text file. Approval unless dry_run.
+    expected_sha256 fails the write if the file changed since read."""
+    a = {"path": path, "content": content, "dry_run": dry_run,
+         "expected_sha256": expected_sha256}
     return toolcall.call("write_file", a, write=not dry_run)
 
 
 def edit_file(path: str, old_text: str, new_text: str, dry_run: bool = False,
-              require_unique: bool = True, read_before: bool = True) -> dict:
+              require_unique: bool = True, read_before: bool = True,
+              expected_sha256: str | None = None) -> dict:
     """Replace old_text with new_text. Fails on multiple matches unless
     require_unique=False. Always returns a diff preview.
+    expected_sha256 fails the edit if the file changed since read.
     Approval unless dry_run."""
     a = {"path": path, "old_text": old_text, "new_text": new_text,
          "dry_run": dry_run, "require_unique": require_unique,
-         "read_before": read_before}
+         "read_before": read_before, "expected_sha256": expected_sha256}
     return toolcall.call("edit_file", a, write=not dry_run)
 
 
