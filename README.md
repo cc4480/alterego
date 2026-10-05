@@ -28,7 +28,8 @@ against a real Windows PC through a live Cloudflare tunnel.
 ## Layout
 
 - `pc-agent/` — Windows side. FastMCP server on `127.0.0.1:8765`, bearer-token
-  auth, native Yes/No approval dialogs for every write tool, local audit log.
+  auth, native Yes/No approval dialogs for every write tool, event-sourced
+  operation log.
 - `bridge/` — operator side. `pc_bridge.py`: minimal MCP client CLI
   (`pair`, `tools`, `call`, `screenshot`); `mock_mcp_server.py`: stdlib-only
   fake PC for testing the client without a PC or tunnel.
@@ -52,10 +53,12 @@ against a real Windows PC through a live Cloudflare tunnel.
 - Write tools (`focus_window`, `type_text`, `shell_exec`) each pop a native
   Windows approval dialog showing the exact action; 30s timeout = deny; no
   interactive session = fail closed. Every call (read and write) is appended
-  to a local audit log at `%APPDATA%\pc-mcp-bridge\audit.log`.
+  as a typed event to the event-sourced operation log at
+  `%APPDATA%\pc-mcp-bridge\events\` (one JSONL file per day, replayable via
+  `query_events` / `replay_session`).
   (The PC owner can start the server with `PC_BRIDGE_AUTO_APPROVE=1` to
   skip the dialogs for their own testing — the server prints a loud warning
-  banner, the audit log marks every auto-approved call, and bearer auth is
+  banner, the event log marks every auto-approved call, and bearer auth is
   still required. Restart without the env var to restore dialogs.)
 
 ### Permission postures (`PC_BRIDGE_PERMISSION_MODE`)

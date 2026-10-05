@@ -43,7 +43,7 @@ tunnel:  cloudflared tunnel --url http://127.0.0.1:8765
 
 PAIRING CODE: 279416
 (single-use, expires in 30 minutes — the operator POSTs it to /pair to receive a session token)
-audit: %APPDATA%/pc-mcp-bridge/audit.log
+audit: %APPDATA%/pc-mcp-bridge/events/ (one JSONL file per day)
 ```
 
 - It listens on **loopback only** — unreachable from the network except
@@ -52,8 +52,9 @@ audit: %APPDATA%/pc-mcp-bridge/audit.log
   share (paste it in chat): it's cryptographically random, single-use,
   expires 30 minutes after the server starts, and locks after 5 wrong
   guesses. No long-term secret is ever distributed.
-- Every tool call (read and write) is appended to the audit log at
-  `%APPDATA%\pc-mcp-bridge\audit.log`.
+- Every tool call (read and write) is appended as a typed event to the
+  event-sourced operation log at `%APPDATA%\pc-mcp-bridge\events\`.
+  Query with `query_events`, replay sessions with `replay_session`.
 
 ## 3. Open the tunnel (second terminal)
 
@@ -131,7 +132,7 @@ $env:PC_BRIDGE_AUTO_APPROVE=1; python pc-agent\server.py
 
 - The server prints a loud warning banner so you know dialogs are off.
 - Every auto-approved call is marked `AUTO-APPROVED, no dialog shown` in
-  the audit log.
+  the event log.
 - Pairing and the bearer token are **still required** — this only skips
   the per-action prompts, it doesn't open the server to anyone.
 - Restart normally (without the env var) to bring the dialogs back.
