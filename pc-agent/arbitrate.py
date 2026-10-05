@@ -96,4 +96,4 @@ def arbitrate(trajectories):
 
 def arbitrate_tool(trajectories: list) -> dict:
     """Rank candidate tool sequences by risk. No approval."""
-    return toolcall.call("arbitrate", arbitrate, {"trajectories": trajectories})
+    return toolcall.call("arbitrate", {"trajectories": trajectories})

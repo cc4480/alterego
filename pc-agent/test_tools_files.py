@@ -7,9 +7,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tools_files
 import tools_write
 import tool_wrappers
+from seams.providers.windows import files as _files_impl
+from seams.providers.windows import write as _write_impl
 
-tools_files.request_approval = lambda *a, **k: True
-tools_write.request_approval = lambda *a, **k: True
+# Patch the provider modules: the tool functions resolve request_approval
+# from their own module globals (they moved from tools_* to the provider).
+_files_impl.request_approval = lambda *a, **k: True
+_write_impl.request_approval = lambda *a, **k: True
 
 
 def test_write_and_overwrite(tmp_path):
@@ -92,7 +96,7 @@ def test_create_dir(tmp_path):
 
 
 def test_denied_raises(tmp_path):
-    tools_files.request_approval = lambda *a, **k: False
+    _files_impl.request_approval = lambda *a, **k: False
     try:
         tools_files.write_file(str(tmp_path / "f.txt"), "x")
     except PermissionError:
@@ -100,13 +104,13 @@ def test_denied_raises(tmp_path):
     else:
         raise AssertionError("should have raised")
     finally:
-        tools_files.request_approval = lambda *a, **k: True
+        _files_impl.request_approval = lambda *a, **k: True
 
 
 def test_wrappers_register_all():
     names = [f.__name__ for f in tool_wrappers.ALL_TOOLS]
-    assert len(names) == 45, names
-    assert len(set(names)) == 45, "duplicate tool names"
+    assert len(names) == 50, names
+    assert len(set(names)) == 50, "duplicate tool names"
     for n in ("write_file", "edit_file", "delete_file", "create_dir",
               "close_window", "hotkey", "mouse_move", "mouse_click",
               "mouse_scroll", "minimize_window", "maximize_window",
@@ -117,7 +121,7 @@ def test_wrappers_register_all():
               "active_window", "idle_seconds", "list_processes",
               "notify", "speak", "set_volume", "power"):
         assert n in names, n
-    print("PASS wrappers: 45 tools registered")
+    print("PASS wrappers: 50 tools registered")
 
 
 def test_hotkey_parse():
