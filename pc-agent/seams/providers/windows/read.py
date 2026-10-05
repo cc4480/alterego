@@ -46,6 +46,14 @@ def _check_path(raw: str) -> Path:
     return p
 
 
+def _resolve_cwd(cwd: str | None) -> str | None:
+    """Validate optional working dir vs profile root; None passes through."""
+    p = _check_path(cwd) if cwd is not None else None
+    if p is not None and not p.is_dir():
+        raise ValueError(f"cwd is not a directory: {cwd}")
+    return str(p) if p else None
+
+
 def screenshot(region: dict | None = None, scale: float = 1.0) -> dict:
     """Capture the primary monitor as PNG (base64).
 

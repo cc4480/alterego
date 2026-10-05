@@ -16,10 +16,12 @@ def _session_id():
     return sid()
 
 
-def shell_pwsh(script: str, timeout_s: int = 60) -> dict:
+def shell_pwsh(script: str, timeout_s: int = 60,
+               cwd: str | None = None) -> dict:
     """Mock PowerShell: never executes anything. `echo <text>` returns the
     text; anything else returns canned output."""
-    record("shell_pwsh", {"script": script, "timeout_s": timeout_s})
+    record("shell_pwsh", {"script": script, "timeout_s": timeout_s,
+                          "cwd": cwd})
     stripped = script.strip()
     if stripped == "echo":
         stdout = ""
@@ -82,17 +84,25 @@ def batch(calls: list) -> dict:
     return {"calls": len(plan), "results": results}
 
 
-def exec_background(command: str, timeout_s: int = 300) -> dict:
+_MOCK_OUTPUT = "mock output line 1\nmock output line 2\n"
+
+
+def exec_background(command: str, timeout_s: int = 300,
+                    cwd: str | None = None) -> dict:
     """Mock: pretend to start a background job."""
-    record("exec_background", {"command": command, "timeout_s": timeout_s})
+    record("exec_background", {"command": command, "timeout_s": timeout_s,
+                               "cwd": cwd})
     return {"job_id": "mock-job-001", "status": "started", "pid": 4242}
 
 
-def exec_status(job_id: str) -> dict:
-    """Mock: pretend the job completed."""
-    record("exec_status", {"job_id": job_id})
+def exec_status(job_id: str, offset: int = 0) -> dict:
+    """Mock: pretend the job completed; honors offset for parity."""
+    record("exec_status", {"job_id": job_id, "offset": offset})
+    size = len(_MOCK_OUTPUT.encode("utf-8"))
     return {"job_id": job_id, "status": "completed", "returncode": 0,
-            "output_tail": "mock output", "output_full_path": "/mock/job.log"}
+            "output_tail": _MOCK_OUTPUT, "output_full_path": "/mock/job.log",
+            "output_from_offset": _MOCK_OUTPUT[max(0, int(offset)):],
+            "output_size": size}
 
 
 def exec_cancel(job_id: str) -> dict:

@@ -6,6 +6,7 @@ from ctypes import wintypes  # pure type aliases; windll itself is Windows-only
 
 import subproc
 from approval import request_approval
+from seams.providers.windows.read import _check_path, _resolve_cwd
 
 MAX_OUTPUT = 65536  # truncate captured output at 64 KB
 
@@ -108,26 +109,25 @@ def _send_unicode(text: str) -> None:
                 raise OSError("SendInput failed")
 
 
-def shell_exec(command: str, timeout_s: int = 60) -> dict:
+def shell_exec(command: str, timeout_s: int = 60,
+               cwd: str | None = None) -> dict:
+    """Run a command in cmd.exe. cwd: optional dir inside the user profile."""
     if not command or len(command) > 4000:
         raise ValueError("command must be 1-4000 chars")
     timeout_s = max(1, min(int(timeout_s), 300))
-    _approved("shell_exec", f"Run in cmd.exe (timeout {timeout_s}s):\n{command}")
+    run_cwd = _resolve_cwd(cwd)  # None ok; validates profile root + is_dir
+    where = f" in {run_cwd}" if run_cwd else ""
+    _approved("shell_exec",
+              f"Run in cmd.exe (timeout {timeout_s}s){where}:\n{command}")
     returncode, stdout, stderr, timed_out = subproc.run_noinherit(
-        command, timeout_s, shell=True)
+        command, timeout_s, shell=True, cwd=run_cwd)
+    out = {"command": command, "stdout": stdout[-MAX_OUTPUT:],
+           "stderr": stderr[-MAX_OUTPUT:]}
     if timed_out:
-        return {
-            "command": command,
-            "timed_out": True,
-            "stdout": stdout[-MAX_OUTPUT:],
-            "stderr": stderr[-MAX_OUTPUT:],
-        }
-    return {
-        "command": command,
-        "returncode": returncode,
-        "stdout": stdout[-MAX_OUTPUT:],
-        "stderr": stderr[-MAX_OUTPUT:],
-    }
+        out["timed_out"] = True
+    else:
+        out["returncode"] = returncode
+    return out
 
 
 # ---- keyboard / mouse / window / process / clipboard ----------------------

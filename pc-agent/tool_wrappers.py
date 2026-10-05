@@ -29,10 +29,13 @@ def type_text(text: str) -> dict:
     return toolcall.call("type_text", {"text": text}, write=True)
 
 
-def shell_exec(command: str, timeout_s: int = 60) -> dict:
-    """Run a command in cmd.exe. Requires on-PC approval."""
+def shell_exec(command: str, timeout_s: int = 60,
+               cwd: str | None = None) -> dict:
+    """Run a command in cmd.exe. Optional cwd must be inside the user
+    profile. Requires on-PC approval."""
     return toolcall.call("shell_exec",
-                         {"command": command, "timeout_s": timeout_s},
+                         {"command": command, "timeout_s": timeout_s,
+                          "cwd": cwd},
                          write=True)
 
 
@@ -141,10 +144,13 @@ def memory_recall(query: str, limit: int = 5) -> dict:
     return toolcall.call("memory_recall", {"query": query, "limit": limit})
 
 
-def shell_pwsh(script: str, timeout_s: int = 60) -> dict:
-    """Run a PowerShell script directly (no cmd.exe wrapping). Requires approval."""
+def shell_pwsh(script: str, timeout_s: int = 60,
+               cwd: str | None = None) -> dict:
+    """Run a PowerShell script directly (no cmd.exe wrapping). Optional cwd
+    must be inside the user profile. Requires approval."""
     return toolcall.call("shell_pwsh",
-                         {"script": script, "timeout_s": timeout_s}, write=True)
+                         {"script": script, "timeout_s": timeout_s,
+                          "cwd": cwd}, write=True)
 
 
 def batch(calls: list) -> dict:

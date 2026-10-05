@@ -14,6 +14,7 @@ import toolcall
 from seams.providers.windows import browser as _browser_mod
 from seams.providers.windows import files as _files_mod
 from seams.providers.windows import write as _write_mod
+from seams.providers.windows.read import _resolve_cwd
 from approval import request_approval
 
 MAX_OUTPUT = 4000
@@ -42,18 +43,25 @@ def _approved(tool: str, summary: str) -> None:
         raise PermissionError("denied by local approval (or timed out)")
 
 
-def shell_pwsh(script: str, timeout_s: int = 60) -> dict:
-    """Run a PowerShell script directly (no cmd.exe). Requires approval."""
+def shell_pwsh(script: str, timeout_s: int = 60,
+               cwd: str | None = None) -> dict:
+    """Run a PowerShell script directly (no cmd.exe). Requires approval.
+
+    cwd: optional working directory, must be inside the user profile.
+    """
     if not isinstance(script, str) or not script.strip():
         raise ValueError("script must be a non-empty string")
     if len(script) > 8000:
         raise ValueError("script must be 1-8000 chars")
     timeout_s = max(1, min(int(timeout_s), 300))
-    _approved("shell_pwsh", f"Run PowerShell (timeout {timeout_s}s):\n{script[:500]}")
+    run_cwd = _resolve_cwd(cwd)
+    where = f" in {run_cwd}" if run_cwd else ""
+    _approved("shell_pwsh",
+              f"Run PowerShell (timeout {timeout_s}s){where}:\n{script[:500]}")
     try:
         returncode, stdout, stderr, timed_out = subproc.run_noinherit(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
-            timeout_s,
+            timeout_s, cwd=run_cwd,
         )
     except FileNotFoundError:
         raise RuntimeError("powershell not found on this machine")
@@ -151,13 +159,19 @@ def _cleanup_jobs():
             del _JOBS[jid]
 
 
-def exec_background(command: str, timeout_s: int = 300) -> dict:
-    """Start a shell command in the background. Requires approval."""
+def exec_background(command: str, timeout_s: int = 300,
+                    cwd: str | None = None) -> dict:
+    """Start a shell command in the background. Requires approval.
+
+    cwd: optional working directory, must be inside the user profile.
+    """
     if not isinstance(command, str) or not command.strip():
         raise ValueError("command must be a non-empty string")
     timeout_s = max(1, min(int(timeout_s), 3600))
+    run_cwd = _resolve_cwd(cwd)
+    where = f" in {run_cwd}" if run_cwd else ""
     _approved("exec_background",
-              f"Run in background (timeout {timeout_s}s):\n{command[:500]}")
+              f"Run in background (timeout {timeout_s}s){where}:\n{command[:500]}")
     _cleanup_jobs()
     job_id = uuid.uuid4().hex[:12]
     tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".log",
@@ -167,7 +181,7 @@ def exec_background(command: str, timeout_s: int = 300) -> dict:
     tmp.close()
     out = open(tmp_path, "w", encoding="utf-8", errors="replace")
     proc = subprocess.Popen(
-        command, shell=True,
+        command, shell=True, cwd=run_cwd,
         stdout=out, stderr=subprocess.STDOUT,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
@@ -176,10 +190,12 @@ def exec_background(command: str, timeout_s: int = 300) -> dict:
             "proc": proc, "output_path": tmp_path,
             "started": time.time(), "timeout_s": timeout_s,
             "done": None, "returncode": None, "cancelled": False,
+            "cwd": run_cwd,
         }
     events.append("BackgroundJobStarted", {
         "job_id": job_id, "pid": proc.pid,
         "command": command[:200], "timeout_s": timeout_s,
+        "cwd": run_cwd,
     }, session_id=toolcall._session_id())
     return {"job_id": job_id, "status": "started", "pid": proc.pid}
 
@@ -206,13 +222,16 @@ def _job_status(job: dict) -> tuple[str, int | None]:
     return ("completed" if rc == 0 else "failed"), rc
 
 
-def exec_status(job_id: str) -> dict:
-    """Check on a background job."""
+def exec_status(job_id: str, offset: int = 0) -> dict:
+    """Check on a background job. offset (bytes, default 0) enables
+    incremental polling: output_from_offset holds bytes from offset
+    onward, output_size the total — pass it back as the next offset."""
     with _JOBS_LOCK:
         job = _JOBS.get(job_id)
     if job is None:
         raise ValueError(f"unknown job_id: {job_id}")
     status, rc = _job_status(job)
+    offset = max(0, int(offset))
     try:
         with open(job["output_path"], encoding="utf-8",
                    errors="replace") as f:
@@ -220,24 +239,40 @@ def exec_status(job_id: str) -> dict:
             size = f.tell()
             f.seek(max(0, size - 2000))
             tail = f.read()
+            f.seek(min(offset, size))
+            from_offset = f.read()
     except OSError:
-        tail = ""
+        tail, from_offset, size = "", "", 0
     return {"job_id": job_id, "status": status, "returncode": rc,
-            "output_tail": tail, "output_full_path": job["output_path"]}
+            "output_tail": tail, "output_full_path": job["output_path"],
+            "output_from_offset": from_offset, "output_size": size}
+
+
+def _kill_tree(proc) -> None:
+    """Kill a process and its whole child tree. On Windows, Popen.kill
+    only kills the cmd.exe wrapper, leaving orphans; taskkill /T kills
+    the tree. Falls back to Popen.kill when taskkill fails."""
+    try:
+        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                       capture_output=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        proc.kill()  # ensure the direct child is gone regardless
+    except OSError:
+        pass
 
 
 def exec_cancel(job_id: str) -> dict:
-    """Kill a running background job."""
+    """Kill a running background job and its whole process tree."""
     with _JOBS_LOCK:
         job = _JOBS.get(job_id)
     if job is None:
         raise ValueError(f"unknown job_id: {job_id}")
     proc = job["proc"]
     if proc.poll() is None:
-        try:
-            proc.kill()
-        except OSError:
-            pass
+        _kill_tree(proc)
+        proc.wait()
         job["done"] = time.time()
         job["returncode"] = -9
         job["cancelled"] = True
