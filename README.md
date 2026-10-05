@@ -1,6 +1,7 @@
-# pc-mcp-bridge
+# AlterEgo
 
-An MCP bridge that lets an AI operator interact with a Windows PC: the PC
+An MCP bridge that lets an AI operator interact with a Windows PC — the AI's
+other self on that machine: the PC
 runs an MCP server (read tools + approval-gated write tools), the PC dials
 out through a Cloudflare quick tunnel, and the operator talks MCP
 (Streamable HTTP) through it.
