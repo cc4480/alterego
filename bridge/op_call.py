@@ -11,10 +11,13 @@ Usage:
 import json
 import os
 import sys
+import urllib.error
 import urllib.request
 
+import token_store
+
 URL = os.environ["PC_BRIDGE_URL"].rstrip("/")
-TOKEN = os.environ["PC_BRIDGE_TOKEN"]
+TOKEN = token_store.resolve_token()  # None until paired; pair cmd handles it
 
 
 def post(path, body, session_id=None):
@@ -34,9 +37,17 @@ def post(path, body, session_id=None):
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=120) as r:
-        raw = r.read().decode()
-        sid = r.headers.get("Mcp-Session-Id") or r.headers.get("mcp-session-id")
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            raw = r.read().decode()
+            sid = r.headers.get("Mcp-Session-Id") or r.headers.get("mcp-session-id")
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            token_store.clear_token()
+            raise SystemExit(
+                "session token rejected (401) — cleared; re-pair: "
+                "python3 op_call.py pair <6-digit-code>")
+        raise
     payload = None
     for line in raw.splitlines():
         if line.startswith("data:"):
@@ -57,6 +68,26 @@ def main():
     except Exception:
         pass
     cmd = sys.argv[1]
+    if cmd == "pair":
+        code = sys.argv[2] if len(sys.argv) > 2 else ""
+        if not code.isdigit():
+            raise SystemExit("usage: op_call.py pair <6-digit-code>")
+        req = urllib.request.Request(
+            URL + "/pair", data=json.dumps({"code": code}).encode(),
+            headers={"Content-Type": "application/json",
+                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                                   "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                   "Chrome/126.0.0.0 Safari/537.36"},
+            method="POST")
+        with urllib.request.urlopen(req, timeout=120) as r:
+            token = json.load(r)["token"]
+        path = token_store.save_token(token)
+        print(f"paired — token saved to {path}")
+        return
+    if not TOKEN:
+        raise SystemExit(
+            "no session token: pair first — "
+            "python3 op_call.py pair <6-digit-code>")
     if cmd == "tools":
         res, _ = post("/mcp", {"jsonrpc": "2.0", "id": 2,
                                "method": "tools/list", "params": {}}, sid)
