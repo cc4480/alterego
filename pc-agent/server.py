@@ -16,6 +16,7 @@ distribute, and nothing sensitive ever needs to travel through chat.
 
 Run:  python pc-agent/server.py   (from the repo root)
 """
+import ipaddress
 import os
 import secrets
 import sys
@@ -142,6 +143,42 @@ class BearerAuth(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+def _pair_ip_allowed(request: Request) -> bool:
+    """Optional IP allowlist for /pair (defense in depth).
+
+    Reads PAIR_IP_ALLOWLIST env var: comma-separated IPs or CIDR ranges.
+    Client IP comes from CF-Connecting-IP (Cloudflare), falling back to
+    X-Forwarded-For, then the direct peer. Empty/unset allowlist means
+    no restriction (safe default — never locks anyone out on deploy).
+    """
+    raw = (os.environ.get("PAIR_IP_ALLOWLIST") or "").strip()
+    if not raw:
+        return True
+    # Real client IP through Cloudflare tunnel.
+    ip_str = (request.headers.get("cf-connecting-ip")
+              or (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+              or (request.client.host if request.client else ""))
+    if not ip_str:
+        return False
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        try:
+            if "/" in entry:
+                if ip in ipaddress.ip_network(entry, strict=False):
+                    return True
+            elif ip == ipaddress.ip_address(entry):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
 async def _pair(request: Request):
     """POST /pair {"code": "482913"} -> {"token": "<session bearer token>"}.
 
@@ -153,6 +190,9 @@ async def _pair(request: Request):
     previous token is rotated out. Lasts until POST /logout or the token
     file is deleted.
     """
+    if not _pair_ip_allowed(request):
+        events.append("PairingDenied", {"reason": "ip not allowlisted"})
+        return JSONResponse({"error": "pairing unavailable"}, status_code=403)
     try:
         body = await request.json()
     except Exception:
