@@ -60,13 +60,6 @@ def post(path, body, session_id=None):
 
 
 def main():
-    res, sid = post("/mcp", {"jsonrpc": "2.0", "id": 1, "method": "initialize",
-        "params": {"protocolVersion": "2025-06-18", "capabilities": {},
-                   "clientInfo": {"name": "op-call", "version": "0.2.0"}}})
-    try:
-        post("/mcp", {"jsonrpc": "2.0", "method": "notifications/initialized"}, sid)
-    except Exception:
-        pass
     cmd = sys.argv[1]
     if cmd == "pair":
         code = sys.argv[2] if len(sys.argv) > 2 else ""
@@ -79,8 +72,12 @@ def main():
                                    "AppleWebKit/537.36 (KHTML, like Gecko) "
                                    "Chrome/126.0.0.0 Safari/537.36"},
             method="POST")
-        with urllib.request.urlopen(req, timeout=120) as r:
-            token = json.load(r)["token"]
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                token = json.load(r)["token"]
+        except urllib.error.HTTPError as e:
+            body = e.read().decode()[:200]
+            raise SystemExit(f"pairing failed ({e.code}): {body}")
         path = token_store.save_token(token)
         print(f"paired — token saved to {path}")
         return
@@ -88,6 +85,13 @@ def main():
         raise SystemExit(
             "no session token: pair first — "
             "python3 op_call.py pair <6-digit-code>")
+    res, sid = post("/mcp", {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                   "clientInfo": {"name": "op-call", "version": "0.2.0"}}})
+    try:
+        post("/mcp", {"jsonrpc": "2.0", "method": "notifications/initialized"}, sid)
+    except Exception:
+        pass
     if cmd == "tools":
         res, _ = post("/mcp", {"jsonrpc": "2.0", "id": 2,
                                "method": "tools/list", "params": {}}, sid)
