@@ -16,10 +16,14 @@ Every hook has a configurable timeout (default 5s). Timeouts fail safe:
   PreToolUse timeout  -> deny ("hook '<name>' timed out")
   PostToolUse timeout -> logged, original result kept.
 
+Every evaluated hook appends one HookEvaluated event (events.py) with its
+own name, decision, and latency — one event per hook, not per phase.
+caused_by links the event to the tool call that triggered it.
+
 API:
   register_hook(event, tool_pattern, fn, timeout_s=5.0, name=None)
-  run_pre_hooks(tool_name, args)  -> (allowed: bool, args_or_reason)
-  run_post_hooks(tool_name, args, result) -> result
+  run_pre_hooks(tool_name, args, caused_by=None)  -> (allowed, args_or_reason)
+  run_post_hooks(tool_name, args, result, caused_by=None) -> result
 
 tool_pattern is an exact tool name or "*" for all tools.
 
@@ -27,7 +31,9 @@ Built-in examples (defined here, NOT registered by default — see HOOKS.md):
   deny_delete_on_drive, log_shell_commands
 """
 import threading
+import time
 from audit import log_event
+import events
 
 PRE_TOOL_USE = "PreToolUse"
 POST_TOOL_USE = "PostToolUse"
@@ -82,67 +88,115 @@ def _run_with_timeout(fn, args: tuple, timeout_s: float):
     return True, outcome.get("result")
 
 
-def run_pre_hooks(tool_name: str, args: dict) -> tuple[bool, object]:
+def _emit_hook(phase: str, hook_name: str, decision: str, reason,
+               latency_ms: int, timed_out: bool, caused_by=None) -> None:
+    """Append one HookEvaluated event for a single hook evaluation.
+
+    Never raises: events.append is write-only-safe, so a broken event log
+    can never break a tool call (dual-write guarantee)."""
+    events.append("HookEvaluated", {
+        "phase": phase,
+        "hook_name": hook_name,
+        "decision": decision,
+        "reason": reason,
+        "latency_ms": latency_ms,
+        "timed_out": timed_out,
+    }, caused_by=caused_by)
+
+
+def run_pre_hooks(tool_name: str, args: dict,
+                  caused_by=None) -> tuple[bool, object]:
     """Run all matching PreToolUse hooks.
 
     Returns (True, final_args) if allowed, (False, reason) if denied.
+    One HookEvaluated event is appended per hook evaluated.
     """
     current_args = dict(args)
     for h in _hooks[PRE_TOOL_USE]:
         if not _matches(h["pattern"], tool_name):
             continue
+        t0 = time.perf_counter()
         completed, out = _run_with_timeout(
             h["fn"], (tool_name, current_args), h["timeout"])
+        ms = int((time.perf_counter() - t0) * 1000)
         if not completed:
             reason = f"PreToolUse hook '{h['name']}' timed out"
+            _emit_hook(PRE_TOOL_USE, h["name"], "deny", reason, ms,
+                       True, caused_by)
             log_event("hook", {"tool": tool_name, "hook": h["name"]},
                       f"deny: {reason}")
             return False, reason
         if isinstance(out, Exception):
             reason = f"PreToolUse hook '{h['name']}' errored: {out}"
+            _emit_hook(PRE_TOOL_USE, h["name"], "deny", reason, ms,
+                       False, caused_by)
             log_event("hook", {"tool": tool_name, "hook": h["name"]},
                       f"deny: {reason}")
             return False, reason
         if out is None or out == "allow":
+            _emit_hook(PRE_TOOL_USE, h["name"], "allow", None, ms,
+                       False, caused_by)
             continue
         if isinstance(out, tuple) and len(out) == 2:
             action, payload = out
             if action == "deny":
                 reason = str(payload)
+                _emit_hook(PRE_TOOL_USE, h["name"], "deny", reason, ms,
+                           False, caused_by)
                 log_event("hook", {"tool": tool_name, "hook": h["name"]},
                           f"deny: {reason}")
                 return False, reason
             if action == "modify" and isinstance(payload, dict):
+                _emit_hook(PRE_TOOL_USE, h["name"], "modify", None, ms,
+                           False, caused_by)
                 current_args = payload
                 continue
         # Unrecognized return: fail safe (deny)
         reason = (f"PreToolUse hook '{h['name']}' returned unrecognized "
                   f"value: {out!r}")
+        _emit_hook(PRE_TOOL_USE, h["name"], "deny", reason, ms,
+                   False, caused_by)
         log_event("hook", {"tool": tool_name, "hook": h["name"]},
                   f"deny: {reason}")
         return False, reason
     return True, current_args
 
 
-def run_post_hooks(tool_name: str, args: dict, result: dict) -> dict:
+def run_post_hooks(tool_name: str, args: dict, result: dict,
+                   caused_by=None) -> dict:
     """Run all matching PostToolUse hooks. Timeouts/errors are logged;
-    the original result is kept."""
+    the original result is kept. One HookEvaluated event per hook."""
     current = result
     for h in _hooks[POST_TOOL_USE]:
         if not _matches(h["pattern"], tool_name):
             continue
+        t0 = time.perf_counter()
         completed, out = _run_with_timeout(
             h["fn"], (tool_name, args, current), h["timeout"])
+        ms = int((time.perf_counter() - t0) * 1000)
         if not completed:
+            reason = (f"PostToolUse hook '{h['name']}' timed out, "
+                      "result kept")
+            _emit_hook(POST_TOOL_USE, h["name"], "allow", reason, ms,
+                       True, caused_by)
             log_event("hook", {"tool": tool_name, "hook": h["name"]},
                       "warning: PostToolUse hook timed out, result kept")
             continue
         if isinstance(out, Exception):
+            reason = (f"PostToolUse hook '{h['name']}' errored ({out}), "
+                      "result kept")
+            _emit_hook(POST_TOOL_USE, h["name"], "allow", reason, ms,
+                       False, caused_by)
             log_event("hook", {"tool": tool_name, "hook": h["name"]},
                       f"warning: PostToolUse hook errored ({out}), result kept")
             continue
         if isinstance(out, dict):
+            _emit_hook(POST_TOOL_USE, h["name"], "modify",
+                       "hook replaced the result", ms, False, caused_by)
             current = out  # hook replaced the result
+        else:
+            _emit_hook(POST_TOOL_USE, h["name"], "allow", None, ms,
+                       False, caused_by)
     return current
 
 

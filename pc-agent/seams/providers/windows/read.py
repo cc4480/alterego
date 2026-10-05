@@ -1,4 +1,9 @@
-"""Read-only tools. File access is restricted to the user's own profile."""
+"""Read-only tools. File access is restricted to the user's own profile.
+
+The profile root is %USERPROFILE% by default; set PC_BRIDGE_PROFILE_ROOT
+to jail reads under a different root (e.g. $HOME for a future Linux
+provider). Unset = Windows behavior, unchanged.
+"""
 import base64
 import getpass
 import os
@@ -9,6 +14,11 @@ MAX_READ_BYTES = 1_000_000  # 1 MB cap on read_file
 
 
 def _user_profile() -> Path:
+    # Provider-level constant with an env override: a future non-Windows
+    # provider overrides this root instead of touching _check_path.
+    override = os.environ.get("PC_BRIDGE_PROFILE_ROOT")
+    if override:
+        return Path(override).resolve()
     return Path(os.environ.get("USERPROFILE", str(Path.home()))).resolve()
 
 

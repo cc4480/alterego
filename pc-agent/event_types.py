@@ -33,8 +33,9 @@ def _v_tool_called(d):
 
 
 def _v_hook_evaluated(d):
-    # hook_name may be null when no hooks matched the tool (aggregate
-    # per-phase event; per-hook granularity needs hooks.py wiring).
+    # One event per hook evaluated (emitted by hooks.py); hook_name is
+    # always set on current events. Null hook_name survives in the schema
+    # only for legacy (pre-Phase-2) aggregate per-phase events.
     return (_req(d, "phase", "decision", "latency_ms", "timed_out")
             + _enum(d, "phase", {"PreToolUse", "PostToolUse"})
             + _enum(d, "decision", {"allow", "deny", "modify"}))

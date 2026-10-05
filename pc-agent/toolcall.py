@@ -5,20 +5,18 @@ event-sourced operation log (events.py) ALONGSIDE the legacy flat
 audit.log entry. The event write can never break the tool call — _emit()
 swallows all errors (stderr + continue) and events.append() never raises.
 
-Pipeline: resolve -> ToolCalled -> PreToolUse hooks -> HookEvaluated ->
-[plan-mode short-circuit] -> [ApprovalRequested] -> execute ->
-PostToolUse hooks -> HookEvaluated -> ToolCompleted | ToolDenied | ToolFailed.
+Pipeline: resolve -> ToolCalled -> PreToolUse hooks -> HookEvaluated
+(per hook) -> [plan-mode short-circuit] -> [ApprovalRequested] ->
+execute -> PostToolUse hooks -> HookEvaluated (per hook) ->
+ToolCompleted | ToolDenied | ToolFailed.
 
 Causality: every stage event carries caused_by = the ToolCalled event_id.
 
-Two honest Phase-1 limitations (hooks.py and the providers are frozen
-this phase, so these are best-effort observations from toolcall.py):
-- HookEvaluated is one aggregate event per phase (hook_name lists the
-  matching hooks); per-hook decisions need hooks.py instrumentation.
-- ApprovalRequested's dialog_shown/skipped_reason is a prediction from
-  approval.request_approval's skip logic, and dialog_result is inferred
-  from the outcome (the tool ran => "yes"; PermissionError => "no" or
-  "timeout"). The provider shows the actual dialog.
+Honest Phase-2 note (carried over from Phase 1): ApprovalRequested's
+dialog_shown/skipped_reason is a prediction from approval.request_approval's
+skip logic, and dialog_result is inferred from the outcome (the tool ran =>
+"yes"; PermissionError => "no" or "timeout"). The provider shows the actual
+dialog.
 """
 import hashlib
 import json
@@ -100,26 +98,6 @@ def _content_hash(obj):
     ).hexdigest())
 
 
-def _matching_hooks(phase, tool):
-    """Names of hooks registered for `phase` that match `tool`
-    (inspection only — no hook code runs here)."""
-    return [h.get("name") for h in hooks.list_hooks().get(phase, [])
-            if h.get("pattern") in ("*", tool)]
-
-
-def _emit_hook_evaluated(phase, tool, allowed, reason, latency_ms, caused_by):
-    names = _matching_hooks(phase, tool)
-    timed_out = bool(reason) and "timed out" in str(reason)
-    return _emit("HookEvaluated", {
-        "phase": phase,
-        "hook_name": ", ".join(names) if names else None,
-        "decision": "allow" if allowed else "deny",
-        "reason": str(reason) if reason else None,
-        "latency_ms": latency_ms,
-        "timed_out": timed_out,
-    }, caused_by=caused_by)
-
-
 def _approval_preview(tool):
     """Predict the approval gate outcome WITHOUT showing anything.
 
@@ -179,32 +157,27 @@ def call(name, args, write=False, rationale=None):
         "rationale": rationale,
     })
 
-    # 1. PreToolUse hooks (may deny or rewrite args).
-    t0 = time.perf_counter()
+    # 1. PreToolUse hooks (may deny or rewrite args). Each evaluated
+    # hook appends its own HookEvaluated event (hooks.py); toolcall only
+    # records the phase outcome here.
     hook_error = None
     try:
-        allowed, args_or_reason = hooks.run_pre_hooks(name, dict(args))
+        allowed, args_or_reason = hooks.run_pre_hooks(
+            name, dict(args), caused_by=called_id)
     except Exception as e:  # noqa: BLE001 - hook infra must fail safe
         allowed, args_or_reason, hook_error = False, None, e
-    pre_ms = int((time.perf_counter() - t0) * 1000)
-    hook_eval_id = _emit_hook_evaluated(
-        hooks.PRE_TOOL_USE, name, allowed,
-        ("hook infra error: %s" % hook_error) if hook_error is not None
-        else (None if allowed else args_or_reason),
-        pre_ms, called_id)
     if hook_error is not None:
         _emit("ToolDenied", {
             "tool": name, "denied_by": "hook_infra",
-            "reason": "hook infra error: %s" % hook_error,
-            "hook_event_id": hook_eval_id}, caused_by=called_id)
+            "reason": "hook infra error: %s" % hook_error}, caused_by=called_id)
         log_event(name, args, "denied: hook infra error: %s" % hook_error,
                   approved=False, rationale=rationale, risk=risk)
         return {"error": "denied by hook infrastructure: %s" % hook_error}
     if not allowed:
         reason = str(args_or_reason)
         _emit("ToolDenied", {
-            "tool": name, "denied_by": "hook", "reason": reason,
-            "hook_event_id": hook_eval_id}, caused_by=called_id)
+            "tool": name, "denied_by": "hook", "reason": reason},
+            caused_by=called_id)
         log_event(name, args, "denied: %s" % reason,
                   approved=False, rationale=rationale, risk=risk)
         return {"error": "denied by hook: %s" % reason}
@@ -231,17 +204,13 @@ def call(name, args, write=False, rationale=None):
             # so approval was granted (dialog Yes, or posture-skipped).
             _emit_approval_requested(name, risk, "yes", called_id)
         # 3. PostToolUse hooks (may log, verify, or replace result).
-        t0 = time.perf_counter()
-        post_warning = None
+        # Per-hook HookEvaluated events are appended by hooks.py.
         try:
-            result = hooks.run_post_hooks(name, args, result)
+            result = hooks.run_post_hooks(name, args, result,
+                                          caused_by=called_id)
         except Exception as e:  # noqa: BLE001 - never lose the result
-            post_warning = "post-hook infra error: %s" % e
             log_event(name, args, "warning: post-hook infra error: %s" % e,
                       rationale=rationale, risk=risk)
-        _emit_hook_evaluated(hooks.POST_TOOL_USE, name, True, post_warning,
-                             int((time.perf_counter() - t0) * 1000),
-                             called_id)
         log_event(name, args, status, approved=True if write else None,
                   rationale=rationale, risk=risk)
         _emit("ToolCompleted", {
