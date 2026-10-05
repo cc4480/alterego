@@ -1,8 +1,9 @@
-"""CDP browser tools: drive the user's Edge via Chrome DevTools Protocol.
+"""CDP browser tools: drive Edge via Chrome DevTools Protocol.
 
-Edge must run with --remote-debugging-port=9222 --user-data-dir=<fresh dir>
---remote-allow-origins=* (all three are required on Edge 154+). The bridge
-attaches to the live tab and gets full DOM access: buttons, inputs, open
+If no Edge CDP endpoint is reachable on 127.0.0.1:9222, a headless Edge
+is launched automatically (--headless=new) with an isolated profile, so
+browser tools never pop a visible window on the user's screen.
+Attaches to the live tab and gets full DOM access: buttons, inputs, open
 shadow roots, and same-origin iframes that UI Automation cannot see.
 
 Requires: pip install websocket-client
@@ -14,6 +15,57 @@ import urllib.error
 
 CDP_HOST = "127.0.0.1"
 CDP_PORT = 9222
+
+
+def _ensure_edge_headless(timeout_s: float = 15.0) -> None:
+    """Launch headless Edge with CDP if none is reachable.
+
+    Uses --headless=new so no window ever appears on the user's screen.
+    A fresh user-data-dir keeps it isolated from the user's real Edge
+    profile. Called automatically before any CDP operation.
+    """
+    import subprocess
+    import tempfile
+    import os
+
+    # Already up? Nothing to do.
+    try:
+        _targets()
+        return
+    except CDPError:
+        pass
+
+    # Find Edge.
+    candidates = [
+        os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+        os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
+        os.path.expandvars(r"%LocalAppData%\Microsoft\Edge\Application\msedge.exe"),
+    ]
+    edge = next((c for c in candidates if os.path.isfile(c)), None)
+    if not edge:
+        raise CDPError("Microsoft Edge not found; cannot start headless CDP")
+
+    profile_dir = tempfile.mkdtemp(prefix="pc-bridge-edge-cdp-")
+    subprocess.Popen(
+        [edge, "--headless=new",
+         f"--remote-debugging-port={CDP_PORT}",
+         f"--user-data-dir={profile_dir}",
+         "--remote-allow-origins=*",
+         "--no-first-run", "--no-default-browser-check",
+         "about:blank"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "DETACHED_PROCESS", 0),
+    )
+
+    # Wait for the CDP endpoint.
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        try:
+            _targets()
+            return
+        except CDPError:
+            time.sleep(0.5)
+    raise CDPError(f"headless Edge did not expose CDP on {CDP_PORT} in time")
 
 
 class CDPError(Exception):
@@ -57,6 +109,7 @@ class Browser:
                 "pip install websocket-client"
             ) from exc
 
+        _ensure_edge_headless()
         ws_url, self.page_url = _ws_url(url_contains)
         self.ws = websocket.create_connection(ws_url, timeout=30)
         self._id = 0
