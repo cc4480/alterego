@@ -1,5 +1,6 @@
 """Full-pipeline tests: every tool through toolcall.call() with the mock
-provider — hooks -> plan-mode -> execute -> audit + typed events.
+provider — hooks -> plan-mode -> execute -> typed events (the primary
+record since the Phase 5 cutover; the legacy audit.log is gone).
 
 Covers: result_keys contract for all 50 tools, hook allow/deny/modify,
 plan-mode dry-run, approval tiers, and the expected event chain per call.
@@ -50,19 +51,21 @@ ARGS = {
     "task_create": {"goal": "g", "plan": ["a", "b"]},
     "memory_recall": {"query": "x"}, "doctor": {},
     "arbitrate": {"trajectories": [["screenshot"], ["shell_exec"]]},
+    "query_events": {},
+    "replay_session": {"session_id": "sess_no_such_session"},
 }
 
 ALL_NAMES = [d.name for d in definitions.ALL_DEFS]
 PARAM_NAMES = [n for n in ALL_NAMES
                if n not in ("task_checkpoint", "task_status")]
-assert len(PARAM_NAMES) == 48, len(PARAM_NAMES)
+assert len(PARAM_NAMES) == 50, len(PARAM_NAMES)
 
 
 def _write_flag(name):
     return definitions.by_name(name).approval_tier != "silent"
 
 
-def test_all_50_tools_resolve():
+def test_all_52_tools_resolve():
     """Gate 1: every definition resolves to a callable in the mock."""
     for name in ALL_NAMES:
         assert callable(registry.resolve(name)), name
@@ -190,10 +193,12 @@ def test_lenient_mode_returns_generic_mock(monkeypatch):
         registry._ACTIVE, registry._PROVIDERS = saved_active, saved_map
 
 
-def test_audit_log_written(tmp_path):
+def test_event_log_primary(tmp_path):
     toolcall.call("idle_seconds", {})
     from auth import app_dir
-    lines = (app_dir() / "audit.log").read_text(
-        encoding="utf-8").splitlines()
-    entry = [l for l in lines if '"tool": "idle_seconds"' in l]
-    assert entry, "audit.log has no idle_seconds entry"
+    # The event log is the primary record: no audit.log is written.
+    assert not (app_dir() / "audit.log").exists()
+    done = [e for e in read_events()
+            if e["type"] == "ToolCompleted"
+            and e["data"].get("tool") == "idle_seconds"]
+    assert done, "event log has no ToolCompleted for idle_seconds"

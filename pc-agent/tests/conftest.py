@@ -1,9 +1,8 @@
 """Shared fixtures for the mock-provider pipeline suite.
 
 Env is pinned BEFORE any pc-agent import (approval.py reads its env at
-import time). APPDATA points at a per-test tmp dir so events/audit.log
-never touch the real machine. The mock provider + hooks are reset for
-every test.
+import time). APPDATA points at a per-test tmp dir so events never touch
+the real machine. The mock provider + hooks are reset for every test.
 """
 import json
 import os
@@ -29,7 +28,7 @@ assert approval.get_permission_mode() == "dontask", \
 
 @pytest.fixture(autouse=True)
 def _isolated_appdata(tmp_path, monkeypatch):
-    """Events + audit.log go to a per-test tmp dir."""
+    """Events go to a per-test tmp dir (never the real machine)."""
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
 
 

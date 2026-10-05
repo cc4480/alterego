@@ -228,6 +228,23 @@ def doctor() -> dict:
     return toolcall.call("doctor", {})
 
 
+def query_events(tool: str = None, type: str = None, since: str = "7d",
+                 session_id: str = None, limit: int = 50) -> dict:
+    """Search the event-sourced operation log: filter by tool name, event
+    type, session, and time window (5m/1h/24h/7d/30d or ISO). Read-only,
+    no approval."""
+    return toolcall.call("query_events",
+                         {"tool": tool, "type": type, "since": since,
+                          "session_id": session_id, "limit": limit})
+
+
+def replay_session(session_id: str, format: str = "human") -> dict:
+    """Full causal transcript of one operator session — verify reported
+    operations against the log. Read-only, no approval."""
+    return toolcall.call("replay_session",
+                         {"session_id": session_id, "format": format})
+
+
 # ---- browser tools (CDP; Edge needs --remote-debugging-port=9222) ----------
 def browser_snapshot(url_contains: str = "") -> dict:
     """List interactive elements of the live Edge tab (no approval)."""
@@ -277,5 +294,5 @@ ALL_TOOLS = [
     active_window, idle_seconds, list_processes,
     notify, speak, set_volume, power, tools_tasks.task_create,
     tools_tasks.task_checkpoint, tools_tasks.task_status, _arb.arbitrate_tool,
-    doctor,
+    doctor, query_events, replay_session,
 ]

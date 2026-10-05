@@ -8,6 +8,7 @@
 """
 import subprocess
 
+import events
 import subproc
 import toolcall
 from seams.providers.windows import browser as _browser_mod
@@ -91,6 +92,11 @@ def batch(calls: list) -> dict:
                   f"{len(plan)} calls, {len(writes)} write:\n"
                   + "\n".join(f"- {n}" for n in writes[:12]))
     originals = {m: m._approved for m in _GATED_MODULES}
+    batch_id = events.append("BatchStarted", {
+        "tool_count": len(plan),
+        "tools": [n for n, _ in plan],
+    }, session_id=toolcall._session_id())
+    completed = denied = failed = 0
     try:
         for m in _GATED_MODULES:
             m._approved = lambda tool, summary: None
@@ -98,11 +104,23 @@ def batch(calls: list) -> dict:
         for name, args in plan:
             if name not in registry:
                 results.append({"tool": name, "error": f"unknown tool: {name}"})
+                failed += 1
                 continue
-            results.append({"tool": name,
-                            "result": toolcall.call(name, args,
-                                                    write=False)})
+            r = toolcall.call(name, args, write=False, caused_by=batch_id)
+            err = r.get("error") if isinstance(r, dict) else None
+            if err is None:
+                completed += 1
+            elif "denied" in str(err).lower():
+                denied += 1
+            else:
+                failed += 1
+            results.append({"tool": name, "result": r})
     finally:
         for m, fn in originals.items():
             m._approved = fn
+    events.append("BatchCompleted", {
+        "completed": completed,
+        "denied": denied,
+        "failed": failed,
+    }, caused_by=batch_id, session_id=toolcall._session_id())
     return {"calls": len(plan), "results": results}

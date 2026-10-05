@@ -1,16 +1,20 @@
 """Event-sourced operation log: typed, append-only, replayable.
 
-Phase 1 dual-write companion to audit.py: toolcall.call() appends here
-AND to the legacy flat audit.log. The event log is write-only in this
-phase (nothing queries it yet).
+PRIMARY record of bridge operations (Phase 5 cutover): toolcall.call()
+appends here, and this is what event_query.py / the query_events and
+replay_session tools read. The legacy flat audit.log is gone.
 
 The write path NEVER raises: append() catches everything, reports to
 stderr, and returns None — a broken event pipeline can never break a
-tool call. (This is the dual-write guarantee from design §7.)
+tool call.
+
+Emergency rollback: EVENT_LOG_ENABLED=0 makes toolcall skip event writes
+(the append path itself stays total).
 
 Layout: %APPDATA%/pc-mcp-bridge/events/YYYY-MM-DD.jsonl (UTC day).
 """
 import json
+import hashlib
 import secrets
 import sys
 import time
@@ -25,6 +29,18 @@ EVENTS_DIR_NAME = "events"
 
 _CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
+_REDACT_KEYS = ("token", "secret", "password", "passwd", "pwd", "key")
+
+
+def _redact(args):
+    """Redact secret-looking keys before an event reaches disk."""
+    if not isinstance(args, dict):
+        return args
+    return {
+        k: ("<redacted>" if any(s in k.lower() for s in _REDACT_KEYS) else v)
+        for k, v in args.items()
+    }
+
 
 def new_event_id(prefix="evt_"):
     """ULID: 48-bit millisecond timestamp + 80-bit randomness, Crockford
@@ -37,6 +53,19 @@ def new_event_id(prefix="evt_"):
 
 def utc_now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+def new_session(token):
+    """Derive session identity for a fresh pairing token.
+
+    Returns (session_id, SessionPaired data): the 'sess_'-prefixed id
+    (same shape as toolcall._session_id) plus the token fingerprint.
+    The token itself never leaves this function.
+    """
+    fp = hashlib.sha256(token.encode()).hexdigest()
+    return ("sess_" + fp[:12],
+            {"token_fingerprint": "sha256:" + fp,
+             "pairing_method": "code"})
 
 
 def events_dir():
@@ -144,3 +173,60 @@ def replay(path=None, from_ts=None, to_ts=None, filter_type=None):
                 continue
             found.append(ev)
     return found, {"lines": lines, "parsed": len(found), "corrupt": corrupt}
+
+
+def check_event_log():
+    """Doctor check: the event log is writable and current.
+
+    Today's file must exist and accept writes, and the last event must
+    be <5 minutes old. A doctor run itself appends events, so a stale
+    tail means the pipeline is broken — that is a fail, not a silent
+    gap (design §6.5).
+
+    Returns a {check, status, message, fix} dict; status is one of
+    ok/warning/fail/unknown, where "unknown" means the check could not
+    run (never a misleading "fail").
+    """
+    day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    path = events_dir() / f"{day}.jsonl"
+    if not path.exists():
+        return {"check": "event_log", "status": "fail",
+                "message": f"missing {path} — the event pipeline is "
+                           "not writing",
+                "fix": "Check EVENT_LOG_ENABLED is not 0 and the server "
+                       "can write to %APPDATA%/pc-mcp-bridge/events/"}
+    try:
+        with path.open("a", encoding="utf-8"):
+            pass
+    except OSError as e:
+        return {"check": "event_log", "status": "fail",
+                "message": f"event file not writable: {e}",
+                "fix": f"Fix permissions on {path}"}
+    found, stats = replay(str(path))
+    if stats["corrupt"]:
+        return {"check": "event_log", "status": "warning",
+                "message": f"{stats['corrupt']} corrupt lines in today's "
+                           "file (skipped by the reader)",
+                "fix": f"Inspect {path} for torn writes"}
+    if not found:
+        return {"check": "event_log", "status": "fail",
+                "message": "today's event file is empty — the event "
+                           "pipeline is not writing",
+                "fix": "Check EVENT_LOG_ENABLED is not 0, restart the "
+                       "server, and re-run doctor"}
+    try:
+        age = (datetime.now(timezone.utc)
+               - datetime.fromisoformat(found[-1]["ts"])).total_seconds()
+    except (ValueError, KeyError):
+        return {"check": "event_log", "status": "unknown",
+                "message": "last event has an unparsable timestamp",
+                "fix": f"Inspect the tail of {path}"}
+    if age > 300:
+        return {"check": "event_log", "status": "fail",
+                "message": f"last event {int(age)}s ago — the event "
+                           "pipeline may be stalled",
+                "fix": "Restart the server and re-run doctor; if this "
+                       "persists, check stderr for [events] write errors"}
+    return {"check": "event_log", "status": "ok",
+            "message": f"{len(found)} events today, last {int(age)}s ago",
+            "fix": None}

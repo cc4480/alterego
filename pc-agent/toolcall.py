@@ -1,9 +1,9 @@
-"""Audit-logged tool invocation, shared by server.py and tool_wrappers.py.
+"""Tool invocation pipeline, shared by server.py and tool_wrappers.py.
 
-Phase 1 dual-write: every pipeline stage appends a typed event to the
-event-sourced operation log (events.py) ALONGSIDE the legacy flat
-audit.log entry. The event write can never break the tool call — _emit()
-swallows all errors (stderr + continue) and events.append() never raises.
+The typed event-sourced operation log (events.py) is the PRIMARY record:
+every pipeline stage appends an event and nothing else is written. The
+event write can never break the tool call — _emit() swallows all errors
+(stderr + continue) and events.append() never raises.
 
 Pipeline: resolve -> ToolCalled -> PreToolUse hooks -> HookEvaluated
 (per hook) -> [plan-mode short-circuit] -> [ApprovalRequested] ->
@@ -11,8 +11,12 @@ execute -> PostToolUse hooks -> HookEvaluated (per hook) ->
 ToolCompleted | ToolDenied | ToolFailed.
 
 Causality: every stage event carries caused_by = the ToolCalled event_id.
+call() accepts an optional caused_by (used by the batch tool so each
+sub-call's chain points at the BatchStarted event).
 
-Honest Phase-2 note (carried over from Phase 1): ApprovalRequested's
+Emergency rollback: EVENT_LOG_ENABLED=0 skips all event writes.
+
+Honest Phase-2 note (carried over): ApprovalRequested's
 dialog_shown/skipped_reason is a prediction from approval.request_approval's
 skip logic, and dialog_result is inferred from the outcome (the tool ran =>
 "yes"; PermissionError => "no" or "timeout"). The provider shows the actual
@@ -25,10 +29,10 @@ import sys
 import time
 from pathlib import Path
 
-from audit import log_event, _redact
 import approval
 import blob_store
 import events
+from events import _redact
 import hooks
 from tool_profiles import approval_tier, get_profile
 from seams import registry
@@ -74,7 +78,12 @@ def _session_id():
 
 def _emit(type, data, caused_by=None):
     """Append a typed event. NEVER raises: on failure logs to stderr and
-    returns None so the tool pipeline continues (dual-write guarantee)."""
+    returns None so the tool pipeline continues.
+
+    EVENT_LOG_ENABLED=0 skips event writes entirely (emergency rollback).
+    """
+    if os.environ.get("EVENT_LOG_ENABLED", "1") == "0":
+        return None
     try:
         return events.append(type, data, caused_by=caused_by,
                              session_id=_session_id())
@@ -128,8 +137,10 @@ def _emit_approval_requested(name, risk, dialog_result, caused_by):
     }, caused_by=caused_by)
 
 
-def call(name, args, write=False, rationale=None):
-    """Run a tool with audit logging; errors become {error} payloads.
+def call(name, args, write=False, rationale=None, caused_by=None):
+    """Run a tool; errors become {error} payloads. The event log is the
+    primary record — ToolCalled/ToolCompleted/ToolDenied/ToolFailed (plus
+    HookEvaluated and ApprovalRequested stage events) are the whole story.
 
     The implementation function is resolved from the active provider via
     seams.registry (selected by PC_BRIDGE_PROVIDER) — callers name the
@@ -139,8 +150,12 @@ def call(name, args, write=False, rationale=None):
     Every entry also carries the tool's risk snapshot (tier, blast radius,
     recoverability) — the decision rationale for the approval gate.
 
+    caused_by: optional parent event_id for composite calls (the batch
+    tool passes its BatchStarted event_id so each sub-call's chain links
+    up). Root calls leave it None.
+
     Pipeline: resolve -> PreToolUse hooks -> [plan-mode short-circuit] ->
-    execute -> PostToolUse hooks -> audit log + typed events.
+    execute -> PostToolUse hooks -> typed events.
     """
     fn = registry.resolve(name)  # THE SEAM: was passed in by the caller.
     risk = _risk_snapshot(name)
@@ -155,7 +170,7 @@ def call(name, args, write=False, rationale=None):
         "risk": risk,
         "permission_mode": approval.get_permission_mode(),
         "rationale": rationale,
-    })
+    }, caused_by=caused_by)
 
     # 1. PreToolUse hooks (may deny or rewrite args). Each evaluated
     # hook appends its own HookEvaluated event (hooks.py); toolcall only
@@ -170,16 +185,12 @@ def call(name, args, write=False, rationale=None):
         _emit("ToolDenied", {
             "tool": name, "denied_by": "hook_infra",
             "reason": "hook infra error: %s" % hook_error}, caused_by=called_id)
-        log_event(name, args, "denied: hook infra error: %s" % hook_error,
-                  approved=False, rationale=rationale, risk=risk)
         return {"error": "denied by hook infrastructure: %s" % hook_error}
     if not allowed:
         reason = str(args_or_reason)
         _emit("ToolDenied", {
             "tool": name, "denied_by": "hook", "reason": reason},
             caused_by=called_id)
-        log_event(name, args, "denied: %s" % reason,
-                  approved=False, rationale=rationale, risk=risk)
         return {"error": "denied by hook: %s" % reason}
     args = args_or_reason
 
@@ -194,11 +205,6 @@ def call(name, args, write=False, rationale=None):
         t_fn = time.perf_counter()
         result = plan_stub if plan_stub is not None else fn(**args)
         fn_ms = int((time.perf_counter() - t_fn) * 1000)
-        status = "ok"
-        if write and approval.is_auto_approve():
-            status = "ok (AUTO-APPROVED, no dialog shown)"
-        if in_plan_mode:
-            status = "ok (PLAN MODE, no side effects)"
         if write and not in_plan_mode:
             # The provider ran the approval gate and the tool executed,
             # so approval was granted (dialog Yes, or posture-skipped).
@@ -209,10 +215,8 @@ def call(name, args, write=False, rationale=None):
             result = hooks.run_post_hooks(name, args, result,
                                           caused_by=called_id)
         except Exception as e:  # noqa: BLE001 - never lose the result
-            log_event(name, args, "warning: post-hook infra error: %s" % e,
-                      rationale=rationale, risk=risk)
-        log_event(name, args, status, approved=True if write else None,
-                  rationale=rationale, risk=risk)
+            print(f"[events] post-hook infra error ({name}): {e}",
+                  file=sys.stderr)
         _emit("ToolCompleted", {
             "tool": name,
             "result_summary": str(result)[:200],
@@ -221,6 +225,15 @@ def call(name, args, write=False, rationale=None):
             "latency_ms": fn_ms,
             "plan_mode": in_plan_mode,
         }, caused_by=called_id)
+        if name == "doctor" and isinstance(result, dict) \
+                and "checks" in result and "summary" in result:
+            # DoctorRun: the health-check outcome as a typed event,
+            # caused_by the doctor ToolCalled event. Emitted here (not in
+            # the provider) so it carries the session and the causal link.
+            _emit("DoctorRun", {
+                "checks": result["checks"],
+                "summary": result["summary"],
+            }, caused_by=called_id)
         return result
     except PermissionError as e:
         msg = str(e)
@@ -238,8 +251,6 @@ def call(name, args, write=False, rationale=None):
         _emit("ToolDenied", {
             "tool": name, "denied_by": denied_by, "reason": msg,
             "hook_event_id": None}, caused_by=called_id)
-        log_event(name, args, "denied: %s" % e, approved=False,
-                  rationale=rationale, risk=risk)
         return {"error": str(e)}
     except Exception as e:  # noqa: BLE001 - surface as tool error, never crash
         _emit("ToolFailed", {
@@ -248,6 +259,4 @@ def call(name, args, write=False, rationale=None):
             "error_message": str(e)[:500],
             "latency_ms": int((time.perf_counter() - t_fn) * 1000),
         }, caused_by=called_id)
-        log_event(name, args, "error: %s: %s" % (type(e).__name__, e),
-                  rationale=rationale, risk=risk)
         return {"error": "%s: %s" % (type(e).__name__, e)}

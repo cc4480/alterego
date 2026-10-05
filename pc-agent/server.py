@@ -35,7 +35,6 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 import uvicorn
 
-from audit import log_event
 import approval
 import events
 import hooks
@@ -167,7 +166,6 @@ async def _pair(request: Request):
         return JSONResponse({"error": "pairing code expired"}, status_code=403)
     if not secrets.compare_digest(code, _pairing_code):
         _pairing_failures += 1
-        log_event("pair", {}, "denied: wrong code")
         remaining = MAX_PAIRING_ATTEMPTS - _pairing_failures
         return JSONResponse(
             {"error": "wrong code", "attempts_remaining": remaining},
@@ -177,14 +175,17 @@ async def _pair(request: Request):
     _pairing_consumed = True
     token = secrets.token_hex(32)
     _save_session_token(token)
-    log_event("pair", {}, "ok: session paired (token persisted)")
+    sid, data = events.new_session(token)
+    events.append("SessionPaired", data, session_id=sid)
     return JSONResponse({"token": token})
 
 
 async def _logout(request: Request):
     """POST /logout (bearer token required) -> revokes the session now."""
+    token = _load_session_token()
     _clear_session_token()
-    log_event("logout", {}, "ok: session revoked by operator")
+    sid = events.new_session(token)[0] if token else None
+    events.append("SessionRevoked", {"reason": "logout"}, session_id=sid)
     return JSONResponse({"ok": True})
 
 
@@ -208,8 +209,9 @@ def _server_version():
 
 
 def _emit_server_started():
-    """Append the ServerStarted lifecycle event (session_id=null: this is
-    infrastructure, not an operator action). Best-effort: never raises."""
+    """ServerStarted lifecycle event (session_id=null: infrastructure).
+    Best-effort: never raises."""
+    started = time.time()
     try:
         import platform
         hook_lists = hooks.list_hooks()
@@ -223,6 +225,7 @@ def _emit_server_started():
         }, session_id=None)
     except Exception as e:  # noqa: BLE001 - startup must never fail on this
         print(f"[events] ServerStarted emit failed: {e}")
+    return started
 
 
 def main():
@@ -254,7 +257,7 @@ def main():
         print("!" * 68)
         print("!!!  DON'T-ASK MODE — ALL DIALOGS OFF                          !!!")
         print("!!!  Every tool executes WITHOUT asking, including destructive  !!!")
-        print("!!!  actions. Audit log still records everything.               !!!")
+        print("!!!  actions. The event log still records everything.        !!!")
         print("!" * 68)
         print()
     elif mode == "plan":
@@ -282,10 +285,14 @@ def main():
         print("session: no operator paired yet")
     print("logout: POST /logout with the bearer token, or delete")
     print("        %APPDATA%/pc-mcp-bridge/session_token (revokes instantly)")
-    print("audit: %APPDATA%/pc-mcp-bridge/audit.log")
-    print("events: %APPDATA%/pc-mcp-bridge/events/")
-    _emit_server_started()
-    uvicorn.run(app, host=HOST, port=PORT, log_level="warning")
+    print("events: %APPDATA%/pc-mcp-bridge/events/  (primary operation log)")
+    started = _emit_server_started()
+    try:
+        uvicorn.run(app, host=HOST, port=PORT, log_level="warning")
+    finally:  # ServerStopping on clean shutdown (events.append never raises)
+        events.append("ServerStopping", {
+            "reason": "shutdown",
+            "uptime_s": int(time.time() - started)}, session_id=None)
 
 
 if __name__ == "__main__":

@@ -147,8 +147,9 @@ def test_browser_canned():
     assert n["page_url"] == "https://example.com"
 
 
-def test_events_dual_write(tmp_path):
+def test_events_single_write(tmp_path):
     toolcall.call("idle_seconds", {})
     assert read_events(), "no events written"
     from auth import app_dir
-    assert (app_dir() / "audit.log").exists()
+    assert not (app_dir() / "audit.log").exists(), \
+        "legacy audit.log must not be written (event log is primary)"

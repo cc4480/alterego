@@ -3,9 +3,17 @@
 batch() executes sub-tools by resolving the active provider's function
 directly (registry.resolve) — NOT through toolcall.call — so a batch does
 not nest pipeline events. Sub-tool exceptions become {"tool","error"}
-results, mirroring the Windows provider's behavior.
+results, mirroring the Windows provider's behavior. The composite
+BatchStarted/BatchCompleted events ARE emitted (they describe the batch
+itself, not the sub-calls).
 """
+import events
 from seams.providers.mock import record
+
+
+def _session_id():
+    from toolcall import _session_id as sid  # lazy: avoids import cycle
+    return sid()
 
 
 def shell_pwsh(script: str, timeout_s: int = 60) -> dict:
@@ -39,6 +47,11 @@ def batch(calls: list) -> dict:
             raise ValueError("args must be an object")
         plan.append((name, args))
     record("batch", {"calls": [n for n, _ in plan]})
+    batch_id = events.append("BatchStarted", {
+        "tool_count": len(plan),
+        "tools": [n for n, _ in plan],
+    }, session_id=_session_id())
+    completed = denied = failed = 0
     results = []
     for name, args in plan:
         # Unknown tool -> per-call error envelope (mirrors the Windows
@@ -48,10 +61,22 @@ def batch(calls: list) -> dict:
         except Exception as e:  # noqa: BLE001 - unknown tool -> error result
             results.append({"tool": name,
                             "error": f"unknown tool: {name}"})
+            failed += 1
             continue
         try:
-            results.append({"tool": name, "result": fn(**args)})
+            r = fn(**args)
+            completed += 1
+            results.append({"tool": name, "result": r})
         except Exception as e:  # noqa: BLE001 - per-call error envelope
-            results.append({"tool": name,
-                            "error": f"{type(e).__name__}: {e}"})
+            err = f"{type(e).__name__}: {e}"
+            if "denied" in err.lower():
+                denied += 1
+            else:
+                failed += 1
+            results.append({"tool": name, "error": err})
+    events.append("BatchCompleted", {
+        "completed": completed,
+        "denied": denied,
+        "failed": failed,
+    }, caused_by=batch_id, session_id=_session_id())
     return {"calls": len(plan), "results": results}

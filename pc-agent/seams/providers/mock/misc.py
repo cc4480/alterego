@@ -45,3 +45,9 @@ def arbitrate(trajectories: list) -> dict:
     from arbitrate import arbitrate as real_arbitrate  # lazy: cycle guard
     record("arbitrate", {"trajectories": trajectories})
     return real_arbitrate(trajectories)
+
+
+# Event-log query tools (design §8; read-only, silent tier). The query
+# engine is platform-independent — re-export the shared implementation
+# so the mock behaves exactly like the Windows provider here.
+from event_query import query_events, replay_session  # noqa: E402

@@ -10,6 +10,7 @@ from seams.providers.windows.misc import (
     WIN,
     check_defender_exclusions,
     check_disk_space,
+    check_event_log,
     check_port_listener,
     check_python_version,
     check_startup_entry,

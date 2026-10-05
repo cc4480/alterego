@@ -4,12 +4,14 @@
   Layout under %APPDATA%\\pc-mcp-bridge\\memory\\ (override:
   PC_BRIDGE_MEMORY_DIR).
 - doctor: bridge health checks with specific fix commands. Each check
-  returns ok/warning/fail + a fix command. Windows-only checks degrade
-  gracefully on other platforms (warning, not fail).
+  returns ok/warning/fail/unknown + a fix command. Windows-only checks
+  degrade gracefully on other platforms (warning, not fail). Checks that
+  cannot run without admin report "unknown", never a misleading "fail".
 - arbitrate: re-exported from the top-level arbitrate module (pure
   risk-scoring logic; no platform coupling).
 
-Bodies moved verbatim from tools_memory.py / tools_doctor.py.
+Bodies moved from tools_memory.py / tools_doctor.py; the doctor gained
+the event_log check and the unknown status in Phase 5.
 """
 import os
 import re
@@ -100,6 +102,16 @@ def _fail(name, message, fix=None):
     return {"check": name, "status": "fail", "message": message, "fix": fix}
 
 
+def _unknown(name, message, fix=None):
+    """Could not run the check (e.g. needs admin) — NOT a failure.
+
+    "unknown" means "could not verify"; "fail" means "checked and it is
+    broken". Reporting fail when we never got an answer is a false
+    alarm (the Defender check used to do exactly that)."""
+    return {"check": name, "status": "unknown", "message": message,
+            "fix": fix}
+
+
 def check_python_version():
     v = sys.version_info
     if v >= MIN_PYTHON:
@@ -156,19 +168,31 @@ def check_defender_exclusions():
             ["powershell", "-NoProfile", "-Command",
              "(Get-MpPreference).ExclusionPath -join \"`n\""],
             capture_output=True, text=True, timeout=30)
-        excluded = out.stdout.lower()
-        if str(repo).lower() in excluded:
-            return _ok("defender_exclusions",
-                       f"Defender excludes {repo}")
-        return _fail("defender_exclusions",
-                     f"Defender does NOT exclude {repo}",
-                     f'Add-MpPreference -ExclusionPath "{repo}"  '
-                     "(run PowerShell as Administrator)")
     except Exception as e:  # noqa: BLE001 - report, don't crash
-        return _warn("defender_exclusions",
-                     f"could not query Defender exclusions: {e}",
-                     "Run PowerShell as Administrator and check "
-                     "(Get-MpPreference).ExclusionPath")
+        return _unknown("defender_exclusions",
+                        f"could not query Defender exclusions: {e}",
+                        "Run PowerShell as Administrator and check "
+                        "(Get-MpPreference).ExclusionPath")
+    stderr = (out.stderr or "").lower()
+    if out.returncode != 0 or "denied" in stderr \
+            or "unauthorized" in stderr:
+        # The query itself failed (usually needs an elevated shell) — we
+        # could not verify, so report unknown, not fail. Failing here was
+        # a false alarm: "not excluded" was never actually established.
+        return _unknown(
+            "defender_exclusions",
+            f"could not query Defender exclusions "
+            f"(exit {out.returncode}): {(out.stderr or '').strip()[:200]}",
+            "Run PowerShell as Administrator and check "
+            "(Get-MpPreference).ExclusionPath")
+    excluded = out.stdout.lower()
+    if str(repo).lower() in excluded:
+        return _ok("defender_exclusions",
+                   f"Defender excludes {repo}")
+    return _fail("defender_exclusions",
+                 f"Defender does NOT exclude {repo}",
+                 f'Add-MpPreference -ExclusionPath "{repo}"  '
+                 "(run PowerShell as Administrator)")
 
 
 def check_startup_entry():
@@ -227,9 +251,21 @@ def check_disk_space():
                  "Free disk space: empty Recycle Bin, run Disk Cleanup")
 
 
+def check_event_log():
+    """The event-sourced operation log must be writable and current.
+
+    Implemented in events.py (the module that owns the log); wrapped
+    here so it appears in the doctor's CHECKS list. A doctor run itself
+    appends events, so a stale tail means the pipeline is broken — that
+    is a fail, not a silent gap (design §6.5).
+    """
+    from events import check_event_log as _check
+    return _check()
+
+
 CHECKS = [check_python_version, check_port_listener,
           check_defender_exclusions, check_startup_entry,
-          check_tunnel_config, check_disk_space]
+          check_tunnel_config, check_disk_space, check_event_log]
 
 
 def doctor() -> dict:
@@ -240,10 +276,21 @@ def doctor() -> dict:
             results.append(check())
         except Exception as e:  # noqa: BLE001 - a check must never crash doctor
             results.append(_fail(check.__name__, f"check crashed: {e}"))
-    counts = {"ok": 0, "warning": 0, "fail": 0}
+    counts = {"ok": 0, "warning": 0, "fail": 0, "unknown": 0}
     for r in results:
         counts[r["status"]] = counts.get(r["status"], 0) + 1
-    summary = ("all checks passed" if counts["fail"] == 0
-               and counts["warning"] == 0 else
-               f"{counts['fail']} failed, {counts['warning']} warnings")
+    parts = []
+    if counts["fail"]:
+        parts.append(f"{counts['fail']} failed")
+    if counts["warning"]:
+        parts.append(f"{counts['warning']} warnings")
+    if counts["unknown"]:
+        parts.append(f"{counts['unknown']} unknown")
+    summary = "all checks passed" if not parts else ", ".join(parts)
     return {"checks": results, "summary": summary, "counts": counts}
+
+
+# ---- event-log query tools (design §8; read-only, silent tier) -----------
+# The query engine is platform-independent, so both providers re-export
+# the shared implementation from event_query.py (single source of truth).
+from event_query import query_events, replay_session  # noqa: E402

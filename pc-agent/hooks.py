@@ -32,7 +32,6 @@ Built-in examples (defined here, NOT registered by default — see HOOKS.md):
 """
 import threading
 import time
-from audit import log_event
 import events
 
 PRE_TOOL_USE = "PreToolUse"
@@ -123,15 +122,11 @@ def run_pre_hooks(tool_name: str, args: dict,
             reason = f"PreToolUse hook '{h['name']}' timed out"
             _emit_hook(PRE_TOOL_USE, h["name"], "deny", reason, ms,
                        True, caused_by)
-            log_event("hook", {"tool": tool_name, "hook": h["name"]},
-                      f"deny: {reason}")
             return False, reason
         if isinstance(out, Exception):
             reason = f"PreToolUse hook '{h['name']}' errored: {out}"
             _emit_hook(PRE_TOOL_USE, h["name"], "deny", reason, ms,
                        False, caused_by)
-            log_event("hook", {"tool": tool_name, "hook": h["name"]},
-                      f"deny: {reason}")
             return False, reason
         if out is None or out == "allow":
             _emit_hook(PRE_TOOL_USE, h["name"], "allow", None, ms,
@@ -143,8 +138,6 @@ def run_pre_hooks(tool_name: str, args: dict,
                 reason = str(payload)
                 _emit_hook(PRE_TOOL_USE, h["name"], "deny", reason, ms,
                            False, caused_by)
-                log_event("hook", {"tool": tool_name, "hook": h["name"]},
-                          f"deny: {reason}")
                 return False, reason
             if action == "modify" and isinstance(payload, dict):
                 _emit_hook(PRE_TOOL_USE, h["name"], "modify", None, ms,
@@ -156,8 +149,6 @@ def run_pre_hooks(tool_name: str, args: dict,
                   f"value: {out!r}")
         _emit_hook(PRE_TOOL_USE, h["name"], "deny", reason, ms,
                    False, caused_by)
-        log_event("hook", {"tool": tool_name, "hook": h["name"]},
-                  f"deny: {reason}")
         return False, reason
     return True, current_args
 
@@ -179,16 +170,12 @@ def run_post_hooks(tool_name: str, args: dict, result: dict,
                       "result kept")
             _emit_hook(POST_TOOL_USE, h["name"], "allow", reason, ms,
                        True, caused_by)
-            log_event("hook", {"tool": tool_name, "hook": h["name"]},
-                      "warning: PostToolUse hook timed out, result kept")
             continue
         if isinstance(out, Exception):
             reason = (f"PostToolUse hook '{h['name']}' errored ({out}), "
                       "result kept")
             _emit_hook(POST_TOOL_USE, h["name"], "allow", reason, ms,
                        False, caused_by)
-            log_event("hook", {"tool": tool_name, "hook": h["name"]},
-                      f"warning: PostToolUse hook errored ({out}), result kept")
             continue
         if isinstance(out, dict):
             _emit_hook(POST_TOOL_USE, h["name"], "modify",
