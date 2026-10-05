@@ -3,8 +3,10 @@
 #
 #   PCBridgeServer — at user logon, interactive session (approval dialogs
 #                    visible), visible console so the pairing code is readable.
-#   PCBridgeTunnel — at system startup, headless cloudflared named tunnel.
+#   PCBridgeTunnel — at user logon, headless cloudflared named tunnel.
 # Both restart automatically on failure.
+# Note: both use HighestAvailable, so they only enumerate from an
+# elevated shell — this is expected, not a problem.
 
 $ErrorActionPreference = "Stop"
 
