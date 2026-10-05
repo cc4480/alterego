@@ -1,12 +1,12 @@
 # Installs Windows Scheduled Tasks so the bridge survives reboots.
 # Run once from an elevated PowerShell (approval dialog will appear).
 #
-#   PCBridgeServer — at user logon, interactive session (approval dialogs
+#   PCBridgeServer - at user logon, interactive session (approval dialogs
 #                    visible), visible console so the pairing code is readable.
-#   PCBridgeTunnel — at user logon, headless cloudflared named tunnel.
+#   PCBridgeTunnel - at user logon, headless cloudflared named tunnel.
 # Both restart automatically on failure.
 # Note: both use HighestAvailable, so they only enumerate from an
-# elevated shell — this is expected, not a problem.
+# elevated shell - this is expected, not a problem.
 
 $ErrorActionPreference = "Stop"
 
@@ -30,7 +30,7 @@ Register-ScheduledTask -TaskName "PCBridgeServer" -Action $serverAction `
 Write-Host "PCBridgeServer task installed (at logon, interactive)."
 
 # --- PCBridgeTunnel: logon trigger, headless ---
-# Runs as the user at logon (same session as the server). Headless — no
+# Runs as the user at logon (same session as the server). Headless - no
 # console window. cloudflared is in the user's WinGet package dir, so the
 # task runs in his context where that path resolves.
 $tunnelAction = New-ScheduledTaskAction -Execute $Cloudflared `

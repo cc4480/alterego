@@ -8,7 +8,7 @@ $Repo = "C:\Users\celos\.copilot\chats\2026-10-04\stunning-waffle-8502e108\pc-mc
 # Don't stack servers: if 127.0.0.1:8765 is already listening, exit quietly.
 $inUse = Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue
 if ($inUse) {
-    Write-Host "Bridge already listening on 8765 (PID $($inUse.OwningProcess)) — not starting another."
+    Write-Host "Bridge already listening on 8765 (PID $($inUse.OwningProcess)) - not starting another."
     exit 0
 }
 
