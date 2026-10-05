@@ -80,4 +80,23 @@ WEB_FETCH = ToolDef(
     platform_notes=_PURE_PYTHON,
 )
 
-ALL_RECON_DEFS = [HTTP_HEADERS, DNS_QUERY, TLS_INFO, TCP_CHECK, WEB_FETCH]
+WEB_SEARCH = ToolDef(
+    name="web_search",
+    group="recon",
+    doc="Search the web without an API key. Backends: DuckDuckGo HTML "
+        "scrape (default), Bing HTML fallback, optional self-hosted "
+        "SearXNG (SEARXNG_URL env or backend='searxng'). Returns "
+        "title/url/snippet per result, deduplicated by URL.",
+    args={"query": {"type": "str", "required": True},
+          "max_results": {"type": "int", "default": 10,
+                          "required": False},
+          "backend": {"type": "str", "default": "auto",
+                      "required": False}},
+    result_keys=["query", "backend_used", "results", "total"],
+    approval_tier="routine",
+    side_effects="network",
+    platform_notes=_PURE_PYTHON,
+)
+
+ALL_RECON_DEFS = [HTTP_HEADERS, DNS_QUERY, TLS_INFO, TCP_CHECK, WEB_FETCH,
+                 WEB_SEARCH]
