@@ -199,7 +199,15 @@ def main():
     print(f"pc-mcp-bridge listening on http://{HOST}:{PORT} (loopback only)")
     print("tunnel:  cloudflared tunnel --url http://127.0.0.1:8765")
     print()
-    if approval.is_auto_approve():
+    if approval.is_full_access():
+        print("!" * 68)
+        print("!!!  FULL ACCESS MODE (PC_BRIDGE_FULL_ACCESS=1) — ALL DIALOGS OFF !!!")
+        print("!!!  Every tool executes WITHOUT asking, including destructive  !!!")
+        print("!!!  actions. Audit log still records everything. Restart        !!!")
+        print("!!!  without the env var to restore approval dialogs.            !!!")
+        print("!" * 68)
+        print()
+    elif approval.is_auto_approve():
         print("!" * 68)
         print("!!!  AUTO-APPROVE MODE (PC_BRIDGE_AUTO_APPROVE=1) — DIALOGS OFF  !!!")
         print("!!!  Every write tool executes WITHOUT asking. For the PC     !!!")

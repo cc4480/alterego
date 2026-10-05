@@ -17,6 +17,6 @@ Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyC
     Where-Object { $_.CommandLine -like "*pc-agent\server.py*" } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
-$env:PC_BRIDGE_AUTO_APPROVE = "1"
+$env:PC_BRIDGE_FULL_ACCESS = "1"
 Set-Location $Repo
 & python pc-agent\server.py

@@ -17,6 +17,11 @@ TIERS (from tool_profiles.approval_tier):
 - routine / ask: dialog shown; skipped in auto-approve mode.
 - always_ask: dialog ALWAYS shown, even in auto-approve mode, with a
   DESTRUCTIVE title. Fail closed on timeout/error as usual.
+
+FULL-ACCESS MODE: if PC_BRIDGE_FULL_ACCESS=1 is set, every dialog is
+skipped unconditionally — including always_ask/DESTRUCTIVE. The audit
+log still records every call with its tier. Restart without the env var
+to restore dialogs.
 """
 import os
 import threading
@@ -29,10 +34,15 @@ IDYES = 6
 WM_CLOSE = 0x0010
 
 AUTO_APPROVE = os.environ.get("PC_BRIDGE_AUTO_APPROVE") == "1"
+FULL_ACCESS = os.environ.get("PC_BRIDGE_FULL_ACCESS") == "1"
 
 
 def is_auto_approve() -> bool:
     return AUTO_APPROVE
+
+
+def is_full_access() -> bool:
+    return FULL_ACCESS
 
 
 def request_approval(summary: str, timeout_s: int = 30,
@@ -42,7 +52,12 @@ def request_approval(summary: str, timeout_s: int = 30,
     In auto-approve mode the dialog is skipped and this returns True —
     unless tier is "always_ask" (destructive tools), which always shows
     the dialog with a DESTRUCTIVE title.
+
+    In full-access mode (PC_BRIDGE_FULL_ACCESS=1) ALL dialogs are skipped,
+    including always_ask. The audit log still records every call.
     """
+    if FULL_ACCESS:
+        return True
     if tier == "always_ask":
         return _show_dialog(summary, timeout_s, destructive=True)
     if AUTO_APPROVE:
