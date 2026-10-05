@@ -65,6 +65,14 @@ def _resolve_permission_mode() -> str:
 PERMISSION_MODE = _resolve_permission_mode()
 
 
+def override_permission_mode(mode: str) -> None:
+    """Override the permission mode at runtime (e.g., after a declined
+    dontask confirmation falls back to default)."""
+    global PERMISSION_MODE
+    if mode in ("plan", "acceptedits", "dontask", "default"):
+        PERMISSION_MODE = mode
+
+
 def get_permission_mode() -> str:
     """One of: plan | acceptEdits | dontAsk | default."""
     return PERMISSION_MODE

@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 """pc-mcp-bridge PC agent (Windows).
-
 MCP server, Streamable HTTP, bound to 127.0.0.1:8765 only.
 
 Authentication: interactive pairing. On startup the server prints a 6-digit
 pairing code (single-use, 30-minute expiry, 5-attempt lockout). A background
-thread keeps a fresh code printed: whenever the current one is consumed,
-expires, or locks out, a new one is minted automatically — no restart
-needed to re-pair. The operator
+thread refreshes the code when consumed or expired — but NOT after lockout,
+which requires manual re-arm (brute-force protection). The operator
 POSTs the code to /pair and receives a session bearer token over TLS, used
 for all subsequent tool calls. The token is persisted to
 %APPDATA%/pc-mcp-bridge/session_token so it survives server restarts, and
@@ -52,26 +50,15 @@ MAX_PAIRING_ATTEMPTS = 5
 APPDATA_DIR = Path(os.environ.get("APPDATA", os.path.expanduser("~")))
 SESSION_TOKEN_FILE = APPDATA_DIR / "pc-mcp-bridge" / "session_token"
 
-_pairing_code: str = ""
-_pairing_expires: float = 0.0
-_pairing_consumed: bool = False
-_pairing_failures: int = 0
-
-
-def _new_pairing_code() -> str:
-    """Cryptographically random 6-digit code, zero-padded."""
-    return f"{secrets.randbelow(1_000_000):06d}"
+from pairing import PairingManager
+_pairing = PairingManager(APPDATA_DIR)
 
 
 def _refresh_pairing_code() -> None:
     """Mint a fresh pairing code and print it for the operator."""
-    global _pairing_code, _pairing_expires, _pairing_consumed, _pairing_failures
-    _pairing_code = _new_pairing_code()
-    _pairing_expires = time.time() + PAIRING_TTL_S
-    _pairing_consumed = False
-    _pairing_failures = 0
-    print(f"PAIRING CODE: {_pairing_code}")
-    print(f"(single-use, expires in {PAIRING_TTL_S // 60:.0f} minutes — "
+    code = _pairing.new_code()
+    print(f"PAIRING CODE: {code}")
+    print(f"(single-use, expires in 30 minutes — "
           "the operator POSTs it to /pair to receive a session token)")
 
 
@@ -90,14 +77,26 @@ def _heartbeat_writer() -> None:
 
 
 def _pairing_refresher() -> None:
-    """Background thread: always keep a usable pairing code printed.
+    """Background thread: keep a usable pairing code printed.
 
-    Whenever the current code is consumed, expires, or locks out, mint a
-    new one so the operator never needs a server restart just to pair."""
+    Refreshes when the current code is consumed or expires. Does NOT
+    refresh after lockout — that would enable brute-forcing.
+    """
     while True:
         time.sleep(30)
-        if (_pairing_consumed or _pairing_failures >= MAX_PAIRING_ATTEMPTS
-                or time.time() > _pairing_expires):
+        if _pairing.is_locked():
+            _pairing.write_lock()
+            print()
+            print("!!! PAIRING LOCKED: 5 failed attempts. "
+                  "Delete %APPDATA%/pc-mcp-bridge/pairing.lock "
+                  "to re-arm, or restart the server.")
+            while _pairing.is_locked():
+                time.sleep(30)
+                if _pairing.try_rearm():
+                    print("--- pairing re-armed manually: new code ---")
+                    _refresh_pairing_code()
+                    break
+        elif _pairing.needs_refresh():
             print()
             print("--- previous pairing code consumed/expired: new code ---")
             _refresh_pairing_code()
@@ -146,33 +145,28 @@ class BearerAuth(BaseHTTPMiddleware):
 async def _pair(request: Request):
     """POST /pair {"code": "482913"} -> {"token": "<session bearer token>"}.
 
-    The code is single-use, expires after PAIRING_TTL_S, and the endpoint
-    locks after MAX_PAIRING_ATTEMPTS wrong guesses; the refresher thread
-    mints a fresh code automatically afterwards.
+    The code is single-use, expires after 30 minutes, and the endpoint
+    locks after 5 wrong guesses. After lockout, pairing stays closed
+    until manual re-arm (delete pairing.lock) or server restart —
+    it does NOT auto-refresh, preventing brute-force attacks.
     The issued token is persisted to disk (survives restarts) and any
     previous token is rotated out. Lasts until POST /logout or the token
     file is deleted.
     """
-    global _pairing_consumed, _pairing_failures
     try:
         body = await request.json()
     except Exception:
         return JSONResponse({"error": "bad request"}, status_code=400)
     code = str(body.get("code", "")).strip()
 
-    if _pairing_consumed or _pairing_failures >= MAX_PAIRING_ATTEMPTS:
-        return JSONResponse({"error": "pairing unavailable"}, status_code=403)
-    if time.time() > _pairing_expires:
-        return JSONResponse({"error": "pairing code expired"}, status_code=403)
-    if not secrets.compare_digest(code, _pairing_code):
-        _pairing_failures += 1
-        remaining = MAX_PAIRING_ATTEMPTS - _pairing_failures
-        return JSONResponse(
-            {"error": "wrong code", "attempts_remaining": remaining},
-            status_code=401,
-        )
+    ok, reason = _pairing.check(code)
+    if not ok:
+        if "wrong code" in reason:
+            from audit import log_event
+            log_event("pair", {}, f"denied: {reason}")
+        status = 403 if "unavailable" in reason or "expired" in reason else 401
+        return JSONResponse({"error": reason}, status_code=status)
 
-    _pairing_consumed = True
     token = secrets.token_hex(32)
     _save_session_token(token)
     sid, data = events.new_session(token)
@@ -232,6 +226,13 @@ def main():
     _refresh_pairing_code()
     threading.Thread(target=_pairing_refresher, daemon=True).start()
     threading.Thread(target=_heartbeat_writer, daemon=True).start()
+    # Gate dontask mode: require explicit confirmation at startup
+    # unless PC_BRIDGE_FULL_ACCESS_CONFIRM=0 (trusted automated startup)
+    if approval.get_permission_mode() == "dontask":
+        from startup_confirm import confirm_dontask_mode
+        if not confirm_dontask_mode():
+            print("dontask: not confirmed, falling back to default mode")
+            approval.override_permission_mode("default")
     # The SDK auto-enables DNS-rebinding protection for localhost servers,
     # which 421s any Host header that isn't localhost — including our
     # Cloudflare tunnel hostname (random per session, can't be allowlisted).
