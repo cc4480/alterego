@@ -4,15 +4,21 @@ from seams.definitions.base import ToolDef
 SCREENSHOT = ToolDef(
     name="screenshot",
     group="read",
-    doc="Capture the primary monitor as PNG (base64).",
-    args={},
+    doc="Capture the primary monitor as PNG (base64). Optional region "
+        "{x, y, width, height} captures part of the screen; optional "
+        "scale (0.1-1.0) downscales the image to save bandwidth.",
+    args={"region": {"type": "dict", "required": False,
+                     "default": None},
+          "scale": {"type": "float", "required": False,
+                    "default": 1.0}},
     result_keys=["png_base64", "width", "height"],
     approval_tier="silent",
     side_effects="none",
     platform_notes="mss is cross-platform (Windows/macOS/Linux) — a Linux "
                    "provider can reuse the same code. macOS needs "
                    "screen-recording permission; headless servers have no "
-                   "display to capture.",
+                   "display to capture. Region/scale are pure "
+                   "post-processing (PIL), fully portable.",
 )
 
 LIST_WINDOWS = ToolDef(
@@ -81,5 +87,62 @@ CLIPBOARD_GET = ToolDef(
                    "macOS: pbpaste.",
 )
 
+SEARCH_FILES = ToolDef(
+    name="search_files",
+    group="read",
+    doc="Search file contents for a regex/plain-text pattern under a "
+        "directory. Restricted to the user's profile.",
+    args={
+        "pattern": {"type": "str", "required": True},
+        "path": {"type": "str", "required": True},
+        "file_pattern": {"type": "str", "required": False,
+                         "default": "*"},
+        "max_results": {"type": "int", "required": False, "default": 50},
+    },
+    result_keys=["matches", "truncated"],
+    approval_tier="silent",
+    side_effects="none",
+    platform_notes="Fully portable: os.walk + re are stdlib. Same "
+                   "profile-root restriction as list_dir; binary files "
+                   "are skipped (UTF-8 decode check).",
+)
+
+SEARCH_FILENAMES = ToolDef(
+    name="search_filenames",
+    group="read",
+    doc="Find files by name glob (e.g. '*.log') under a directory. "
+        "Restricted to the user's profile.",
+    args={
+        "pattern": {"type": "str", "required": True},
+        "path": {"type": "str", "required": True},
+        "max_results": {"type": "int", "required": False, "default": 50},
+    },
+    result_keys=["files", "truncated"],
+    approval_tier="silent",
+    side_effects="none",
+    platform_notes="Fully portable: pathlib rglob. Same profile-root "
+                   "restriction as list_dir.",
+)
+
+READ_FILE_RANGE = ToolDef(
+    name="read_file_range",
+    group="read",
+    doc="Read specific 1-indexed line ranges from a UTF-8 text file. "
+        "Restricted to the user's profile.",
+    args={
+        "path": {"type": "str", "required": True},
+        "start_line": {"type": "int", "required": True},
+        "end_line": {"type": "int", "required": False, "default": 0},
+    },
+    result_keys=["path", "start_line", "end_line", "total_lines",
+                 "content"],
+    approval_tier="silent",
+    side_effects="none",
+    platform_notes="Fully portable: pathlib. end_line=0 (or omitted) "
+                   "means start_line+50. Same profile-root restriction "
+                   "and 1MB cap as read_file.",
+)
+
 ALL_READ_DEFS = [SCREENSHOT, LIST_WINDOWS, SYSTEM_INFO, LIST_DIR,
-                 READ_FILE, CLIPBOARD_GET]
+                 READ_FILE, CLIPBOARD_GET, SEARCH_FILES,
+                 SEARCH_FILENAMES, READ_FILE_RANGE]
