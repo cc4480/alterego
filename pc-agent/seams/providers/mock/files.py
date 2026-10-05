@@ -7,12 +7,43 @@ dry_run=True never mutates the FS. Deletes happen only inside the virtual
 FS — no host file is ever touched.
 """
 from datetime import datetime, timezone
+import hashlib
 
 from seams.providers.mock import (
     FS, diff_text, ensure_parents, is_dir, norm_path,
 )
 
 MAX_WRITE_BYTES = 1024 * 1024
+
+
+def _sha256_hex(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _stale_error(expected: str, actual: str) -> ValueError:
+    return ValueError(
+        f"file changed since read (expected sha256:{expected[:12]}..., "
+        f"got {actual[:12]}...). Re-read the file and retry.")
+
+
+def _content_sha256(content: str | None) -> str:
+    return _sha256_hex((content or "").encode("utf-8"))
+
+
+def _require_fresh(p: str, expected: str | None) -> None:
+    """Fail if the virtual file's current sha256 doesn't match expected.
+
+    expected=None skips the check (backward compat). A missing file has
+    nothing stale to protect — skip.
+    """
+    if expected is None:
+        return
+    entry = FS.get(p)
+    if entry is None or entry.get("is_dir"):
+        return
+    actual = _content_sha256(entry.get("content"))
+    if actual != expected:
+        raise _stale_error(expected, actual)
 
 
 def _iso_now() -> str:
@@ -28,7 +59,8 @@ def _snippets(old: str, new: str, old_text: str,
     return "\n".join(lines[lo:hi]), "\n".join(new.splitlines()[lo:hi])
 
 
-def write_file(path: str, content: str, dry_run: bool = False) -> dict:
+def write_file(path: str, content: str, dry_run: bool = False,
+               expected_sha256: str | None = None) -> dict:
     if not isinstance(content, str):
         raise ValueError("content must be a string")
     data = content.encode("utf-8")
@@ -39,12 +71,15 @@ def write_file(path: str, content: str, dry_run: bool = False) -> dict:
     old_bytes = (len((old_entry.get("content") or "").encode("utf-8"))
                  if old_entry and not old_entry.get("is_dir") else 0)
     if dry_run:
+        _require_fresh(p, expected_sha256)
         would = "overwrite" if old_entry else "create"
         old_text = (old_entry.get("content") or "") if old_entry else ""
         return {"path": p, "bytes_written": 0, "dry_run": True,
                 "would": would, "old_bytes": old_bytes,
                 "new_bytes": len(data),
                 "diff": diff_text(old_text, content, p)}
+    # Staleness check right before the write.
+    _require_fresh(p, expected_sha256)
     ensure_parents(p)
     FS[p] = {"content": content, "is_dir": False, "modified": _iso_now()}
     return {"path": p, "bytes_written": len(data), "dry_run": False,
@@ -54,7 +89,8 @@ def write_file(path: str, content: str, dry_run: bool = False) -> dict:
 
 def edit_file(path: str, old_text: str, new_text: str,
               dry_run: bool = False, require_unique: bool = True,
-              read_before: bool = True) -> dict:
+              read_before: bool = True,
+              expected_sha256: str | None = None) -> dict:
     for name, val in (("old_text", old_text), ("new_text", new_text)):
         if not isinstance(val, str) or not val:
             raise ValueError(f"{name} must be a non-empty string")
@@ -62,6 +98,8 @@ def edit_file(path: str, old_text: str, new_text: str,
     entry = FS.get(p)
     if entry is None or entry.get("is_dir"):
         raise FileNotFoundError(f"not a file: {path!r}")
+    # Staleness check before doing any work on the file.
+    _require_fresh(p, expected_sha256)
     text = entry.get("content") or ""
     matches = text.count(old_text)
     if matches == 0:
@@ -81,6 +119,8 @@ def edit_file(path: str, old_text: str, new_text: str,
     if dry_run:
         result.update({"dry_run": True, "would": "edit"})
         return result
+    # Re-check right before the write (closes any gap since the read).
+    _require_fresh(p, expected_sha256)
     entry["content"] = new
     entry["modified"] = _iso_now()
     return result

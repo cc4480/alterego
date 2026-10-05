@@ -3,6 +3,7 @@
 No platform dependencies, no side effects.
 """
 import fnmatch
+import hashlib
 import re
 
 from seams.providers.mock import (
@@ -50,7 +51,9 @@ def read_file(path: str) -> dict:
     entry = FS.get(p)
     if entry is None or entry.get("is_dir"):
         raise FileNotFoundError(f"not a file: {path!r}")
-    return {"path": p, "content": entry.get("content") or ""}
+    content = entry.get("content") or ""
+    return {"path": p, "content": content,
+            "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest()}
 
 
 def clipboard_get() -> dict:
@@ -135,10 +138,12 @@ def read_file_range(path: str, start_line: int,
     lines = (entry.get("content") or "").splitlines()
     total = len(lines)
     chunk = lines[start_line - 1:end_line] if start_line <= total else []
+    content = entry.get("content") or ""
     return {
         "path": p,
         "start_line": start_line,
         "end_line": end_line,
         "total_lines": total,
         "content": "\n".join(chunk),
+        "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
     }
