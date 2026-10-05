@@ -27,10 +27,12 @@ def type_text(text: str) -> dict:
                {"typed_chars": len(text)})
 
 
-def shell_exec(command: str, timeout_s: int = 60) -> dict:
+def shell_exec(command: str, timeout_s: int = 60,
+               cwd: str | None = None) -> dict:
     """Mock shell: `echo <text>` returns the text; anything else returns
     canned output. NOTHING is ever executed — the command string is data."""
-    record("shell_exec", {"command": command, "timeout_s": timeout_s})
+    record("shell_exec", {"command": command, "timeout_s": timeout_s,
+                          "cwd": cwd})
     stripped = command.strip()
     if stripped == "echo":
         stdout = ""

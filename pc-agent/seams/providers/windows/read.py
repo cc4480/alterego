@@ -45,6 +45,14 @@ def _check_path(raw: str) -> Path:
     return p
 
 
+def _resolve_cwd(cwd: str | None) -> str | None:
+    """Validate optional working dir vs profile root; None passes through."""
+    p = _check_path(cwd) if cwd is not None else None
+    if p is not None and not p.is_dir():
+        raise ValueError(f"cwd is not a directory: {cwd}")
+    return str(p) if p else None
+
+
 def screenshot(region: dict | None = None, scale: float = 1.0) -> dict:
     """Capture the primary monitor as PNG (base64).
 
@@ -156,13 +164,9 @@ def list_dir(path: str = "") -> dict:
     items = []
     for child in sorted(p.iterdir(), key=lambda c: c.name.lower()):
         try:
-            items.append(
-                {
-                    "name": child.name,
-                    "dir": child.is_dir(),
-                    "size": child.stat().st_size if child.is_file() else 0,
-                }
-            )
+            items.append({"name": child.name, "dir": child.is_dir(),
+                          "size": child.stat().st_size if child.is_file()
+                          else 0})
         except OSError:
             continue
     return {"path": str(p), "items": items}
@@ -221,12 +225,9 @@ def search_files(pattern: str, path: str, file_pattern: str = "*",
             for lineno, line in enumerate(text.splitlines(), start=1):
                 m = rx.search(line)
                 if m:
-                    matches.append({
-                        "file": str(fpath),
-                        "line_number": lineno,
-                        "line_content": line[:500],
-                        "match_text": m.group(0)[:200],
-                    })
+                    matches.append({"file": str(fpath), "line_number": lineno,
+                                    "line_content": line[:500],
+                                    "match_text": m.group(0)[:200]})
                     if len(matches) >= max_results:
                         truncated = True
                         break

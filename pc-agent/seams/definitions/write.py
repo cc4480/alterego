@@ -54,9 +54,12 @@ TYPE_TEXT = ToolDef(
 SHELL_EXEC = ToolDef(
     name="shell_exec",
     group="write",
-    doc="Run a command in cmd.exe. Requires on-PC approval.",
+    doc="Run a command in cmd.exe. Optional cwd (must be inside the user "
+        "profile). Requires on-PC approval.",
     args={"command": {"type": "str", "required": True},
-          "timeout_s": {"type": "int", "default": 60, "required": False}},
+          "timeout_s": {"type": "int", "default": 60, "required": False},
+          "cwd": {"type": "str", "required": False,
+                  "default": None}},
     result_keys=["command", "returncode", "stdout", "stderr", "timed_out"],
     approval_tier="always_ask",
     side_effects="system",
