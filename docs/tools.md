@@ -80,6 +80,9 @@ written to the audit log either way.
 | `mouse_move` | `x`, `y` (int) | Moves the cursor to physical screen pixels |
 | `mouse_click` | `x`, `y` (int), `button` (`left`/`right`/`middle`) | Moves to (x, y) and clicks (physical pixels; the bridge is DPI-aware) |
 | `mouse_scroll` | `direction` (`up`/`down`), `clicks` (int) | Scrolls the wheel under the cursor |
+| `uia_find` | `window` (title regex or hwnd), `name_rx`, `control_type`, `max_results` | Finds UI elements via Windows UI Automation — no screenshot needed; returns name, control type, and bounding rect |
+| `uia_click` | `window`, `name_rx`, `control_type`, `index`, `button` | Clicks a UI element by name (InvokePattern, falls back to coordinate click) — no screenshot needed |
+| `uia_set_text` | `window`, `name_rx`, `text`, `control_type`, `index` | Sets text of an edit control by name (ValuePattern, falls back to focus+type) — no screenshot needed |
 | `clipboard_set` | `text` (string) | Puts text on the Windows clipboard |
 | `paste_text` | `text` (string) | Pastes text into the focused window via clipboard (reliable for long text; restores prior clipboard) |
 | `kill_process` | `pid` (int) | Terminates a process (refuses the bridge's own PID) |

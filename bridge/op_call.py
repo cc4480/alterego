@@ -138,6 +138,9 @@ def main():
         res, _ = post("/mcp", {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
                                "params": {"name": name, "arguments": args}}, sid)
         text = res["content"][0]["text"]
+        # Always stash the full response; print is capped for readability.
+        with open("/tmp/op-full.json", "w", encoding="utf-8") as f:
+            f.write(text)
         if name == "screenshot":
             # Screenshots are huge base64 — never truncate, dump to file instead.
             with open("/tmp/shot-full.json", "w") as f:
