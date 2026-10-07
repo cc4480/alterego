@@ -11,13 +11,25 @@ Usage:
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
+import http.client
 
 import token_store
 
 URL = os.environ["PC_BRIDGE_URL"].rstrip("/")
 TOKEN = token_store.resolve_token()  # None until paired; pair cmd handles it
+
+# Transient transport failures worth one more try: the Cloudflare tunnel
+# flaps for a minute or two at a time (home-network micro-outages), and
+# most of these mean the request never completed. NOT retried: HTTP
+# errors (the server answered) — including 401, which clears the token.
+# Caveat: a retry after a lost *response* can double-execute a write;
+# callers driving writes should verify state after a retried call.
+_RETRYABLE = (urllib.error.URLError, TimeoutError, ConnectionError,
+              http.client.RemoteDisconnected, http.client.IncompleteRead)
+_RETRY_BACKOFF_S = (5, 15)
 
 
 def post(path, body, session_id=None):
@@ -37,17 +49,31 @@ def post(path, body, session_id=None):
         },
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(req, timeout=120) as r:
-            raw = r.read().decode()
-            sid = r.headers.get("Mcp-Session-Id") or r.headers.get("mcp-session-id")
-    except urllib.error.HTTPError as e:
-        if e.code == 401:
-            token_store.clear_token()
-            raise SystemExit(
-                "session token rejected (401) — cleared; re-pair: "
-                "python3 op_call.py pair <6-digit-code>")
-        raise
+    last = None
+    for attempt in range(1 + len(_RETRY_BACKOFF_S)):
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                raw = r.read().decode()
+                sid = r.headers.get("Mcp-Session-Id") or r.headers.get("mcp-session-id")
+            break
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                token_store.clear_token()
+                raise SystemExit(
+                    "session token rejected (401) — cleared; re-pair: "
+                    "python3 op_call.py pair <6-digit-code>")
+            raise
+        except _RETRYABLE as e:
+            last = e
+            if attempt < len(_RETRY_BACKOFF_S):
+                wait = _RETRY_BACKOFF_S[attempt]
+                print(f"[retry {attempt + 1}] {type(e).__name__} — "
+                      f"waiting {wait}s", file=sys.stderr)
+                time.sleep(wait)
+                continue
+            raise
+    else:
+        raise last  # pragma: no cover - loop always breaks or raises
     payload = None
     for line in raw.splitlines():
         if line.startswith("data:"):
