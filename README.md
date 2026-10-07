@@ -3,8 +3,8 @@
 An MCP bridge that lets an AI operator interact with a Windows PC — the AI's
 other self on that machine: the PC
 runs an MCP server (read tools + approval-gated write tools), the PC dials
-out through a Cloudflare quick tunnel, and the operator talks MCP
-(Streamable HTTP) through it.
+out through a named Cloudflare tunnel (`pc-bridge`), and the operator talks MCP
+(Streamable HTTP) through it at **https://pc.secscan.info**.
 
 **Auth:** interactive pairing — the server prints a 6-digit code
 (cryptographically random, single-use, 30-minute expiry, 5-attempt
@@ -14,9 +14,10 @@ so it survives server restarts, and lasts until logout (`POST /logout`, or
 deleting the token file — which revokes instantly). No long-term secret to
 distribute, nothing sensitive in chat.
 
-**Status: working prototype, live-tested end-to-end** (2026-10-04) —
-pairing, authenticated MCP session, tool calls, and screenshots verified
-against a real Windows PC through a live Cloudflare tunnel.
+**Status: live** (2026-10-06) —
+pairing, authenticated MCP session, 49 tools, and screenshots verified
+against Carlos's real Windows PC through the named Cloudflare tunnel
+`pc-bridge` at https://pc.secscan.info.
 
 ## Docs
 
@@ -24,18 +25,19 @@ against a real Windows PC through a live Cloudflare tunnel.
   daily use, troubleshooting.
 - [docs/operator.md](docs/operator.md) — operator: pairing, CLI usage,
   token handling, protocol notes.
-- [docs/tools.md](docs/tools.md) — the 8 tools: args, returns, examples.
+- [docs/tools.md](docs/tools.md) — the 49 tools: args, returns, approval tiers.
 
 ## Layout
 
 - `pc-agent/` — Windows side. FastMCP server on `127.0.0.1:8765`, bearer-token
   auth, native Yes/No approval dialogs for every write tool, event-sourced
   operation log.
-- `bridge/` — operator side. `pc_bridge.py`: minimal MCP client CLI
-  (`pair`, `tools`, `call`, `screenshot`); `mock_mcp_server.py`: stdlib-only
-  fake PC for testing the client without a PC or tunnel.
+- `bridge/` — operator side. `op_call.py`: durable stdlib-only MCP client
+  CLI (`health`, `pair`, `tools`, `call`); `pc_bridge.py`: older minimal CLI;
+  `mock_mcp_server.py`: stdlib-only fake PC for testing the client without
+  a PC or tunnel.
 
-## Security model (serious, even for a prototype)
+## Security model
 
 - Server binds **loopback only** (`127.0.0.1`). The only inbound path is the
   outbound Cloudflare tunnel the PC owner starts themselves.

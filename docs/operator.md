@@ -2,10 +2,12 @@
 
 You are the operator: an AI agent (or a human with curl) driving someone
 else's Windows PC through their tunnel. The PC owner runs the server and
-hands you two things in chat — both are safe to share:
+hands you one thing in chat — safe to share:
 
-1. The tunnel URL, e.g. `https://<random>.trycloudflare.com`
-2. A 6-digit pairing code (single-use, 30-minute expiry)
+1. A 6-digit pairing code (single-use, 30-minute expiry)
+
+The tunnel address is permanent: `https://pc.secscan.info` (named
+Cloudflare tunnel `pc-bridge`).
 
 ## 0. Health check (run first, every session)
 
@@ -29,9 +31,8 @@ before retrying blindly.
 Exchange the code for a session bearer token. With the bundled CLI:
 
 ```bash
-export PC_BRIDGE_URL=https://<random>.trycloudflare.com
-python3 bridge/pc_bridge.py pair 279416        # prints the 64-hex session token
-export PC_BRIDGE_TOKEN=<paste the printed token>
+export PC_BRIDGE_URL=https://pc.secscan.info
+python3 bridge/op_call.py pair 279416        # saves the 64-hex session token
 ```
 
 Or raw HTTP:

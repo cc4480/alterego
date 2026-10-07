@@ -91,3 +91,21 @@ def clipboard_set(text: str) -> dict:
 def paste_text(text: str) -> dict:
     return _ui("paste_text", {"text": text},
                {"pasted_chars": len(text)})
+
+
+def uia_click(window: str, name_rx: str, control_type: str = "",
+              index: int = 0, button: str = "left") -> dict:
+    return _ui("uia_click",
+               {"window": window, "name_rx": name_rx,
+                "control_type": control_type, "index": index,
+                "button": button},
+               {"ok": True, "method": "invoke", "name": "mock",
+                "x": 1, "y": 2})
+
+
+def uia_set_text(window: str, name_rx: str, text: str,
+                 control_type: str = "", index: int = 0) -> dict:
+    return _ui("uia_set_text",
+               {"window": window, "name_rx": name_rx, "text": text,
+                "control_type": control_type, "index": index},
+               {"ok": True, "method": "value", "name": "mock"})

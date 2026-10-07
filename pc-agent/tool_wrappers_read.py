@@ -58,3 +58,11 @@ def read_file_range(path: str, start_line: int, end_line: int = 0) -> dict:
     """Read 1-indexed line range (end_line=0 → start+50). Profile-restricted."""
     a = {"path": path, "start_line": start_line, "end_line": end_line}
     return toolcall.call("read_file_range", a)
+
+def uia_find(window: str, name_rx: str = "", control_type: str = "",
+             max_results: int = 50) -> dict:
+    """Find UI elements in a window via UI Automation (no screenshot)."""
+    return toolcall.call("uia_find",
+                         {"window": window, "name_rx": name_rx,
+                          "control_type": control_type,
+                          "max_results": max_results})

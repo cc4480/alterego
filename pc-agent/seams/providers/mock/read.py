@@ -198,3 +198,11 @@ def read_file_range(path: str, start_line: int,
         "content": "\n".join(chunk),
         "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
     }
+
+
+def uia_find(window: str, name_rx: str = "", control_type: str = "",
+             max_results: int = 50) -> dict:
+    return {"ok": True, "count": 1, "elements": [
+        {"name": "mock", "control_type": "ControlType.Button",
+         "automation_id": "mock1", "x": 1, "y": 2,
+         "width": 3, "height": 4}]}

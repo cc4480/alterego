@@ -8,10 +8,15 @@ import base64
 import fnmatch
 import getpass
 import hashlib
+import json
 import os
 import platform
 import re
+import subprocess
+import tempfile
 from pathlib import Path
+
+import subproc
 
 MAX_READ_BYTES = 1_000_000  # 1 MB cap on read_file
 MAX_SEARCH_RESULTS = 50
@@ -254,3 +259,126 @@ def read_file_range(path: str, start_line: int,
         "total_lines": total, "content": "\n".join(chunk),
         "sha256": hashlib.sha256(data).hexdigest(),
     }
+
+
+# ---------------------------------------------------------------------------
+# Windows UI Automation core (shared by uia_find / uia_click / uia_set_text).
+# One PowerShell script, JSON in/out via temp files (no quoting pitfalls).
+# Pure ASCII for PowerShell 5.1.
+# ---------------------------------------------------------------------------
+_UIA_PS = r'''
+param([string]$ReqPath)
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName UIAutomationClient
+$req = Get-Content -LiteralPath $ReqPath -Raw -Encoding UTF8 | ConvertFrom-Json
+$AE = [System.Windows.Automation.AutomationElement]
+$root = $AE::RootElement
+function Find-Window($spec) {
+  $hwnd = 0
+  if ([int]::TryParse($spec, [ref]$hwnd) -and $hwnd -ne 0) {
+    try { return $AE::FromHandle((New-Object IntPtr $hwnd)) } catch { return $null }
+  }
+  $wc = New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::Window)
+  $wins = $root.FindAll([System.Windows.Automation.TreeScope]::Children, $wc)
+  foreach ($w in $wins) {
+    try { $n = $w.Current.Name } catch { continue }
+    if ($n -match $spec) { return $w }
+  }
+  return $null
+}
+$win = Find-Window $req.window
+if (-not $win) { @{ok=$false; error='window not found'} | ConvertTo-Json -Compress; exit 0 }
+$all = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+$elems = @()
+$limit = [int]$req.max_results
+foreach ($el in $all) {
+  try { $n = $el.Current.Name } catch { continue }
+  if ($req.name_rx -ne '' -and ($n -notmatch $req.name_rx)) { continue }
+  try { $ct = $el.Current.ControlType.ProgrammaticName } catch { $ct = '' }
+  if ($req.control_type -ne '' -and ($ct -ne $req.control_type)) { continue }
+  try { $r = $el.Current.BoundingRectangle } catch { continue }
+  try { $aid = $el.Current.AutomationId } catch { $aid = '' }
+  $elems += [pscustomobject]@{el=$el; name=$n; control_type=$ct; automation_id=$aid; x=[int]$r.X; y=[int]$r.Y; width=[int]$r.Width; height=[int]$r.Height}
+  if ($elems.Count -ge $limit) { break }
+}
+$op = $req.op
+if ($op -eq 'find') {
+  $proj = @($elems | ForEach-Object { [pscustomobject]@{name=$_.name; control_type=$_.control_type; automation_id=$_.automation_id; x=$_.x; y=$_.y; width=$_.width; height=$_.height} })
+  @{ok=$true; count=$proj.Count; elements=$proj} | ConvertTo-Json -Compress -Depth 4
+  exit 0
+}
+$idx = [int]$req.index
+if ($idx -lt 0 -or $idx -ge $elems.Count) { @{ok=$false; error='element index out of range'} | ConvertTo-Json -Compress; exit 0 }
+$t = $elems[$idx]
+$cx = $t.x + [int]($t.width / 2)
+$cy = $t.y + [int]($t.height / 2)
+if ($op -eq 'click') {
+  try {
+    $ip = $t.el.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+    $ip.Invoke()
+    @{ok=$true; method='invoke'; name=$t.name; x=$cx; y=$cy} | ConvertTo-Json -Compress; exit 0
+  } catch { }
+  @{ok=$true; method='coord'; name=$t.name; x=$cx; y=$cy} | ConvertTo-Json -Compress; exit 0
+}
+if ($op -eq 'set') {
+  try {
+    $vp = $t.el.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+    if ($vp.Current.IsReadOnly) { throw 'readonly' }
+    $vp.SetValue($req.text)
+    @{ok=$true; method='value'; name=$t.name} | ConvertTo-Json -Compress; exit 0
+  } catch { }
+  try { $t.el.SetFocus(); @{ok=$true; method='focus'; name=$t.name} | ConvertTo-Json -Compress }
+  catch { @{ok=$false; error='set_text failed: no value pattern and focus failed'} | ConvertTo-Json -Compress }
+  exit 0
+}
+@{ok=$false; error='unknown op'} | ConvertTo-Json -Compress
+'''
+
+
+def _uia_invoke(payload: dict, timeout_s: int = 30) -> dict:
+    """Run the UIA PowerShell helper; returns its parsed JSON response."""
+    req_fd, req_path = tempfile.mkstemp(suffix=".json")
+    ps_fd, ps_path = tempfile.mkstemp(suffix=".ps1")
+    try:
+        with os.fdopen(req_fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=True)
+        with os.fdopen(ps_fd, "w", encoding="ascii", errors="strict") as f:
+            f.write(_UIA_PS)
+        rc, out, err, timed_out = subproc.run_noinherit(
+            ["powershell", "-NoProfile", "-NonInteractive",
+             "-ExecutionPolicy", "Bypass", "-File", ps_path,
+             "-ReqPath", req_path], timeout_s)
+    finally:
+        for p in (req_path, ps_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+    if timed_out:
+        raise RuntimeError("UIA query timed out")
+    if rc != 0:
+        raise RuntimeError("UIA helper failed: %s" % err[-500:])
+    try:
+        return json.loads(out.strip())
+    except json.JSONDecodeError:
+        raise RuntimeError("UIA helper returned bad JSON: %s" % out[-300:])
+
+
+def uia_find(window: str, name_rx: str = "", control_type: str = "",
+             max_results: int = 50) -> dict:
+    """Find UI elements in a window via UI Automation (read-only).
+
+    window: window title regex, or hwnd digits. Returns matching elements
+    with name, control type, automation id, and bounding rect.
+    """
+    if not isinstance(window, str) or not window.strip():
+        raise ValueError("window must be a non-empty title regex or hwnd")
+    max_results = max(1, min(int(max_results), 200))
+    res = _uia_invoke({"op": "find", "window": window,
+                       "name_rx": name_rx or "",
+                       "control_type": control_type or "",
+                       "max_results": max_results})
+    if not res.get("ok"):
+        raise RuntimeError(res.get("error", "uia_find failed"))
+    return {"ok": True, "count": int(res.get("count", 0)),
+            "elements": res.get("elements") or []}

@@ -2,7 +2,7 @@
 provider — hooks -> plan-mode -> execute -> typed events (the primary
 record since the Phase 5 cutover; the legacy audit.log is gone).
 
-Covers: result_keys contract for all 58 tools, hook allow/deny/modify,
+Covers: result_keys contract for all 61 tools, hook allow/deny/modify,
 plan-mode dry-run, approval tiers, and the expected event chain per call.
 """
 import pytest
@@ -52,6 +52,9 @@ ARGS = {
     "batch": {"calls": [{"tool": "idle_seconds", "args": {}}]},
     "task_create": {"goal": "g", "plan": ["a", "b"]},
     "memory_recall": {"query": "x"}, "doctor": {},
+    "uia_find": {"window": "mock"},
+    "uia_click": {"window": "mock", "name_rx": "x"},
+    "uia_set_text": {"window": "mock", "name_rx": "x", "text": "hi"},
     "arbitrate": {"trajectories": [["screenshot"], ["shell_exec"]]},
     "query_events": {},
     "replay_session": {"session_id": "sess_no_such_session"},
@@ -66,7 +69,7 @@ ARGS = {
 ALL_NAMES = [d.name for d in definitions.ALL_DEFS]
 PARAM_NAMES = [n for n in ALL_NAMES
                if n not in ("task_checkpoint", "task_status")]
-assert len(PARAM_NAMES) == 58, len(PARAM_NAMES)
+assert len(PARAM_NAMES) == 61, len(PARAM_NAMES)
 
 
 def _write_flag(name):

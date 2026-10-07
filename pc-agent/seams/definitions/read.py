@@ -162,6 +162,24 @@ READ_FILE_RANGE = ToolDef(
                    "and 1MB cap as read_file.",
 )
 
+UIA_FIND = ToolDef(
+    name="uia_find",
+    group="read",
+    doc="Find UI elements in a window via Windows UI Automation — match "
+        "by name regex and/or control type. Returns name, control type, "
+        "automation id, and bounding rect for each match. No screenshots "
+        "needed. window: window title regex (or hwnd digits).",
+    args={"window": {"type": "str", "required": True},
+          "name_rx": {"type": "str", "required": False, "default": ""},
+          "control_type": {"type": "str", "required": False, "default": ""},
+          "max_results": {"type": "int", "required": False, "default": 50}},
+    result_keys=["ok", "count", "elements"],
+    approval_tier="silent",
+    side_effects="none",
+    platform_notes="Windows-only: UIAutomationClient via PowerShell. "
+                   "Honest gap on other platforms — omit rather than fake.",
+)
+
 ALL_READ_DEFS = [SCREENSHOT, LIST_WINDOWS, SYSTEM_INFO, LIST_DIR,
                  READ_FILE, CLIPBOARD_GET, SEARCH_FILES,
-                 SEARCH_FILENAMES, READ_FILE_RANGE]
+                 SEARCH_FILENAMES, READ_FILE_RANGE, UIA_FIND]

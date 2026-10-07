@@ -12,7 +12,8 @@ import tools_tasks  # shim -> seams.providers.windows.tasks (MCP wrappers)
 # ---- read tools (in tool_wrappers_read.py, file size limit) ---------------
 from tool_wrappers_read import (  # noqa: E402
     screenshot, list_windows, system_info, list_dir, read_file,
-    clipboard_get, search_files, search_filenames, read_file_range)
+    clipboard_get, search_files, search_filenames, read_file_range,
+    uia_find)
 
 # ---- write tools (each pops a native approval dialog on the PC) -----------
 def focus_window(hwnd: int) -> dict:
@@ -53,6 +54,24 @@ def mouse_click(x: int, y: int, button: str = "left") -> dict:
     """Click at screen coordinates. Requires on-PC approval."""
     return toolcall.call("mouse_click",
                          {"x": x, "y": y, "button": button}, write=True)
+
+
+def uia_click(window: str, name_rx: str, control_type: str = "",
+              index: int = 0, button: str = "left") -> dict:
+    """Click a UI element by name via UI Automation. Requires on-PC approval."""
+    return toolcall.call("uia_click",
+                         {"window": window, "name_rx": name_rx,
+                          "control_type": control_type, "index": index,
+                          "button": button}, write=True)
+
+
+def uia_set_text(window: str, name_rx: str, text: str,
+                 control_type: str = "", index: int = 0) -> dict:
+    """Set text of a UI element via UI Automation. Requires on-PC approval."""
+    return toolcall.call("uia_set_text",
+                         {"window": window, "name_rx": name_rx, "text": text,
+                          "control_type": control_type, "index": index},
+                         write=True)
 
 
 def mouse_scroll(direction: str = "down", clicks: int = 3) -> dict:
@@ -267,6 +286,7 @@ ALL_TOOLS = [
     search_files, search_filenames, read_file_range,
     focus_window, close_window, type_text, shell_exec,
     hotkey, mouse_move, mouse_click, mouse_scroll,
+    uia_find, uia_click, uia_set_text,
     minimize_window, maximize_window, kill_process, clipboard_set,
     paste_text,
     write_file, edit_file, delete_file, create_dir,

@@ -22,4 +22,6 @@ from seams.providers.windows.write import (
     paste_text,
     shell_exec,
     type_text,
+    uia_click,
+    uia_set_text,
 )

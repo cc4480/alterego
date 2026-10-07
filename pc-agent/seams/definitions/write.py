@@ -195,6 +195,47 @@ PASTE_TEXT = ToolDef(
                    "recipe; inherits the gaps of clipboard_set and hotkey.",
 )
 
+UIA_CLICK = ToolDef(
+    name="uia_click",
+    group="write",
+    doc="Click a UI element found by name regex in a window, via Windows "
+        "UI Automation (InvokePattern; falls back to a coordinate click "
+        "at the element's center). No screenshots needed. Requires on-PC "
+        "approval.",
+    args={"window": {"type": "str", "required": True},
+          "name_rx": {"type": "str", "required": True},
+          "control_type": {"type": "str", "required": False, "default": ""},
+          "index": {"type": "int", "required": False, "default": 0},
+          "button": {"type": "str", "required": False, "default": "left"}},
+    result_keys=["ok", "method", "name", "x", "y"],
+    approval_tier="routine",
+    side_effects="session",
+    platform_notes="Windows-only: UIAutomationClient via PowerShell; "
+                   "coordinate fallback uses SendInput physical pixels. "
+                   "Honest gap on other platforms.",
+)
+
+UIA_SET_TEXT = ToolDef(
+    name="uia_set_text",
+    group="write",
+    doc="Set text of an edit control found by name regex in a window, via "
+        "Windows UI Automation (ValuePattern; falls back to focus + "
+        "keystroke synthesis). No screenshots needed. Requires on-PC "
+        "approval.",
+    args={"window": {"type": "str", "required": True},
+          "name_rx": {"type": "str", "required": True},
+          "text": {"type": "str", "required": True},
+          "control_type": {"type": "str", "required": False, "default": ""},
+          "index": {"type": "int", "required": False, "default": 0}},
+    result_keys=["ok", "method", "name"],
+    approval_tier="ask",
+    side_effects="session",
+    platform_notes="Windows-only: UIAutomationClient via PowerShell; "
+                   "fallback uses SendInput KEYEVENTF_UNICODE. Honest gap "
+                   "on other platforms.",
+)
+
 ALL_WRITE_DEFS = [FOCUS_WINDOW, CLOSE_WINDOW, TYPE_TEXT, SHELL_EXEC, HOTKEY,
                   MOUSE_MOVE, MOUSE_CLICK, MOUSE_SCROLL, MINIMIZE_WINDOW,
-                  MAXIMIZE_WINDOW, KILL_PROCESS, CLIPBOARD_SET, PASTE_TEXT]
+                  MAXIMIZE_WINDOW, KILL_PROCESS, CLIPBOARD_SET, PASTE_TEXT,
+                  UIA_CLICK, UIA_SET_TEXT]

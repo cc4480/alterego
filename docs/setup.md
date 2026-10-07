@@ -4,12 +4,15 @@ You run this on the Windows PC you want the operator to reach. Nothing here
 phones home: the PC only ever dials **out** through a tunnel you start
 yourself, and you approve every write action on your own screen.
 
-You need two terminal windows open while the operator works:
+Day to day you start one thing — the agent — from the Startup folder
+(see below). The named Cloudflare tunnel (`pc-bridge`,
+https://pc.secscan.info) runs alongside it. The old two-terminal setup
+(server + quick tunnel) is gone.
 
 | Terminal | Runs | Command |
 |---|---|---|
 | 1 — agent | the MCP server | `python pc-agent\server.py` |
-| 2 — tunnel | Cloudflare quick tunnel | `cloudflared tunnel --url http://127.0.0.1:8765` |
+| 2 — tunnel | Cloudflare named tunnel | `cloudflared tunnel run pc-bridge` |
 
 ## Prerequisites
 
@@ -20,8 +23,8 @@ You need two terminal windows open while the operator works:
 ## 1. Install
 
 ```powershell
-git clone https://github.com/cc4480/pc-mcp-bridge
-cd pc-mcp-bridge
+git clone https://github.com/cc4480/alterego
+cd alterego
 python -m pip install -r pc-agent\requirements.txt
 ```
 
@@ -38,8 +41,8 @@ python pc-agent\server.py
 It prints something like:
 
 ```
-pc-mcp-bridge listening on http://127.0.0.1:8765 (loopback only)
-tunnel:  cloudflared tunnel --url http://127.0.0.1:8765
+alterego listening on http://127.0.0.1:8765 (loopback only)
+tunnel:  cloudflared tunnel run pc-bridge
 
 PAIRING CODE: 279416
 (single-use, expires in 30 minutes — the operator POSTs it to /pair to receive a session token)
@@ -56,25 +59,26 @@ audit: %APPDATA%/pc-mcp-bridge/events/ (one JSONL file per day)
   event-sourced operation log at `%APPDATA%\pc-mcp-bridge\events\`.
   Query with `query_events`, replay sessions with `replay_session`.
 
-## 3. Open the tunnel (second terminal)
+## 3. Start the named tunnel (second terminal)
 
 ```powershell
-cloudflared tunnel --url http://127.0.0.1:8765
+cloudflared tunnel run pc-bridge
 ```
 
-Copy the `https://<random>.trycloudflare.com` URL it prints. The tunnel URL
-is just an address, not a credential — sharing it is safe.
+This uses your config at `%USERPROFILE%\.cloudflared\config.yml` and serves
+the permanent address **https://pc.secscan.info** — no URL to copy, no
+re-pairing when it restarts. (Quick tunnels — the old
+`https://<random>.trycloudflare.com` flow — are gone.)
 
-## 4. Hand two things to the operator
+## 4. Hand the pairing code to the operator
 
-Both are safe to share in chat:
-
-1. The `https://....trycloudflare.com` tunnel URL.
-2. The 6-digit pairing code from step 2.
+The tunnel address is permanent — **https://pc.secscan.info** — so the
+operator already knows it. The only thing to share in chat is the 6-digit
+pairing code from step 2 (safe to share, as above).
 
 The operator exchanges the code at `POST /pair` and receives a session
-bearer token over TLS. That token never touches chat — it lives only in the
-operator's session memory, and it's persisted on your PC at
+bearer token over TLS. That token never touches chat — it lives in the
+operator's session, and it's persisted on your PC at
 `%APPDATA%\pc-mcp-bridge\session_token` so it **survives server restarts**.
 It lasts until you log the operator out (see below) — restarting the
 server does *not* disconnect them.
@@ -86,14 +90,20 @@ Either of these revokes access immediately:
 1. Delete `%APPDATA%\pc-mcp-bridge\session_token` — the server checks the
    file on every request, so this works even while the server is running.
 2. Ask the operator to `POST /logout` with their token (or run
-   `python3 bridge/pc_bridge.py logout`).
+   `python3 bridge/op_call.py logout`).
 
 Pairing again with a fresh code rotates the token — the old one stops
 working.
 
 ## Daily use
 
-**Starting fresh** (one paste — kills any leftover server, then starts):
+**Autostart (current setup):** the server starts at logon from the Windows
+Startup folder — `start-bridge.bat` → `start_bridge.ps1` in
+`C:\Users\Cho-zen\alterego` — with a visible console window. The port check
+refuses to start a duplicate server, so logging in twice is safe. The old
+`PCBridgeServer` scheduled task may still be listed; it's harmless.
+
+**Starting fresh manually** (one paste — kills any leftover server, then starts):
 
 ```powershell
 $pid8765 = (Get-NetTCPConnection -LocalPort 8765 -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess; if ($pid8765) { Stop-Process -Id $pid8765 -Force; "killed old server ($pid8765)" }; python pc-agent\server.py
@@ -102,15 +112,14 @@ $pid8765 = (Get-NetTCPConnection -LocalPort 8765 -ErrorAction SilentlyContinue |
 **Updating to the latest code:**
 
 ```powershell
-cd <your>\pc-mcp-bridge
+cd C:\Users\Cho-zen\alterego
 git pull
-# then start fresh with the one-paste command above
+# then restart via the Startup batch file
 ```
 
-**Stopping:** close both terminals (or Ctrl+C in each). The tunnel URL dies
-with it. Note: stopping the server does **not** log the operator out — the
-session token persists. See "Logging the operator out" above when you want
-them gone.
+**Stopping:** close both terminals (or Ctrl+C in each). Note: stopping the
+server does **not** log the operator out — the session token persists. See
+"Logging the operator out" above when you want them gone.
 
 ## What to expect while the operator works
 
@@ -148,5 +157,5 @@ $env:PC_BRIDGE_AUTO_APPROVE=1; python pc-agent\server.py
 | Operator gets 401 on everything | The session token was revoked (owner logged you out or re-paired). Ask for a fresh pairing code and re-pair |
 | Pairing code rejected / expired | Codes are single-use and expire after 30 min. Restart the server for a fresh one |
 | `cloudflared` not recognized | `winget install cloudflare.cloudflared`, then open a new terminal |
-| Tunnel URL stopped working | Quick tunnels get a new random URL on every restart — copy the new one to the operator and re-pair |
+| Tunnel address stopped working | The named tunnel (`pc-bridge` → https://pc.secscan.info) is configured in `%USERPROFILE%\.cloudflared\config.yml` — restart with `cloudflared tunnel run pc-bridge` |
 | `pip install` fails on `pywin32` | Run the terminal as Administrator once, or `pip install --only-binary :all: pywin32` |
