@@ -285,9 +285,14 @@ async def _ws_relay(websocket: WebSocket):
     client_name = params.get("client", "").strip().lower()
     token = params.get("token", "").strip()
 
-    # Auth: token must be in the valid list
+    # Auth: localhost (127.0.0.1) bypasses token check — physical access
+    # is trusted. Remote connections must present a valid bearer token.
+    client_host = websocket.client.host if websocket.client else ""
+    is_localhost = client_host in ("127.0.0.1", "::1")
     tokens = _load_session_tokens()
-    valid = any(secrets.compare_digest(token, t) for t in tokens)
+    valid = is_localhost or any(
+        secrets.compare_digest(token, t) for t in tokens
+    )
 
     if not valid or client_name not in ("cosmo", "cho-zen1", "judith"):
         await websocket.close(code=4401, reason="unauthorized")
