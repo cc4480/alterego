@@ -271,7 +271,7 @@ async def _revoke(request: Request):
 # Clients connect to /ws?client=<name>&token=<bearer>
 # Server routes JSON messages between connected clients instantly.
 
-_ws_clients: dict = {}  # name -> WebSocket
+_ws_clients: dict = {}  # name -> set of WebSockets (one name, many sockets)
 
 
 async def _ws_relay(websocket: WebSocket):
@@ -299,23 +299,25 @@ async def _ws_relay(websocket: WebSocket):
         return
 
     await websocket.accept()
-    _ws_clients[client_name] = websocket
+    _ws_clients.setdefault(client_name, set()).add(websocket)
     events.append("WsConnected", {"client": client_name})
     print(f"[ws] {client_name} connected "
-          f"({len(_ws_clients)} clients online)")
+          f"({sum(len(s) for s in _ws_clients.values())} sockets, "
+          f"{len(_ws_clients)} names online)")
 
     # Notify others that someone joined
-    for name, ws in _ws_clients.items():
+    for name, sockets in list(_ws_clients.items()):
         if name != client_name:
-            try:
-                await ws.send_json({
-                    "from": "system",
-                    "text": f"{client_name} joined",
-                    "id": f"sys-{int(time.time()*1000)}",
-                    "ts": time.time(),
-                })
-            except Exception:
-                pass
+            for ws in list(sockets):
+                try:
+                    await ws.send_json({
+                        "from": "system",
+                        "text": f"{client_name} joined",
+                        "id": f"sys-{int(time.time()*1000)}",
+                        "ts": time.time(),
+                    })
+                except Exception:
+                    pass
 
     try:
         while True:
@@ -334,16 +336,20 @@ async def _ws_relay(websocket: WebSocket):
 
             delivered = []
             for t in targets:
-                try:
-                    await _ws_clients[t].send_json({
-                        "from": client_name,
-                        "text": text,
-                        "id": msg_id,
-                        "ts": time.time(),
-                    })
+                sent_one = False
+                for ws in list(_ws_clients.get(t, ())):
+                    try:
+                        await ws.send_json({
+                            "from": client_name,
+                            "text": text,
+                            "id": msg_id,
+                            "ts": time.time(),
+                        })
+                        sent_one = True
+                    except Exception:
+                        pass
+                if sent_one:
                     delivered.append(t)
-                except Exception:
-                    pass
 
             await websocket.send_json({"ok": True,
                                        "delivered_to": delivered,
@@ -351,10 +357,15 @@ async def _ws_relay(websocket: WebSocket):
     except WebSocketDisconnect:
         pass
     finally:
-        _ws_clients.pop(client_name, None)
+        sockets = _ws_clients.get(client_name)
+        if sockets is not None:
+            sockets.discard(websocket)
+            if not sockets:
+                del _ws_clients[client_name]
         events.append("WsDisconnected", {"client": client_name})
         print(f"[ws] {client_name} disconnected "
-              f"({len(_ws_clients)} clients online)")
+              f"({sum(len(s) for s in _ws_clients.values())} sockets, "
+              f"{len(_ws_clients)} names online)")
 
 
 async def _health(request):
