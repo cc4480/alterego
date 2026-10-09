@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Chat — Cosmo · Cho-zen1 · Judith</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
+         background: #1a1a2e; color: #eee; height: 100vh;
+         display: flex; flex-direction: column; }
+  header { background: #16213e; padding: 12px 20px;
+           display: flex; align-items: center; gap: 12px;
+           border-bottom: 1px solid #0f3460; }
+  header h1 { font-size: 18px; font-weight: 600; }
+  #status { margin-left: auto; font-size: 13px; padding: 4px 12px;
+            border-radius: 12px; background: #333; }
+  #status.online { background: #1b5e20; }
+  #status.offline { background: #b71c1c; }
+  #clients { font-size: 12px; color: #888; }
+  #messages { flex: 1; overflow-y: auto; padding: 16px 20px;
+              display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 75%; padding: 10px 14px; border-radius: 12px;
+         line-height: 1.4; word-wrap: break-word; }
+  .msg .who { font-size: 11px; opacity: 0.7; margin-bottom: 4px;
+              font-weight: 600; text-transform: uppercase;
+              letter-spacing: 0.5px; }
+  .msg .time { font-size: 10px; opacity: 0.5; margin-top: 4px; }
+  .msg.cosmo { align-self: flex-start; background: #0f3460; }
+  .msg.cho-zen1 { align-self: flex-start; background: #1a1a2e;
+                  border: 1px solid #e94560; }
+  .msg.judith { align-self: flex-end; background: #e94560; }
+  .msg.system { align-self: center; background: transparent;
+                color: #666; font-size: 12px; font-style: italic; }
+  #inputbar { display: flex; gap: 10px; padding: 14px 20px;
+              background: #16213e; border-top: 1px solid #0f3460; }
+  #to { background: #0f3460; color: #eee; border: none;
+        border-radius: 8px; padding: 10px; font-size: 14px; }
+  #text { flex: 1; background: #0f3460; color: #eee; border: none;
+          border-radius: 8px; padding: 10px 14px; font-size: 14px;
+          outline: none; }
+  #text:focus { box-shadow: 0 0 0 2px #e94560; }
+  #send { background: #e94560; color: white; border: none;
+          border-radius: 8px; padding: 10px 24px; font-size: 14px;
+          font-weight: 600; cursor: pointer; }
+  #send:hover { background: #c73650; }
+  #send:disabled { opacity: 0.4; cursor: default; }
+  #login { position: fixed; inset: 0; background: rgba(0,0,0,0.8);
+           display: flex; align-items: center; justify-content: center;
+           z-index: 100; }
+  #login.hidden { display: none; }
+  #loginbox { background: #16213e; padding: 30px; border-radius: 12px;
+              display: flex; flex-direction: column; gap: 12px;
+              min-width: 300px; }
+  #loginbox h2 { font-size: 18px; margin-bottom: 8px; }
+  #loginbox input { background: #0f3460; color: #eee; border: none;
+                    border-radius: 8px; padding: 10px 14px; font-size: 14px; }
+  #loginbox button { background: #e94560; color: white; border: none;
+                     border-radius: 8px; padding: 10px; font-size: 14px;
+                     font-weight: 600; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<div id="login">
+  <div id="loginbox">
+    <h2>Connect to Agent Chat</h2>
+    <input id="token" type="password" placeholder="Bearer token">
+    <button onclick="connect()">Connect</button>
+  </div>
+</div>
+
+<header>
+  <h1>🤖 Agent Chat</h1>
+  <span id="clients"></span>
+  <span id="status" class="offline">disconnected</span>
+</header>
+
+<div id="messages"></div>
+
+<div id="inputbar">
+  <select id="to">
+    <option value="all">Everyone</option>
+    <option value="cosmo">Cosmo</option>
+    <option value="cho-zen1">Cho-zen1</option>
+  </select>
+  <input id="text" placeholder="Type a message or /command..."
+         autocomplete="off">
+  <button id="send" onclick="send()">Send</button>
+</div>
+
+<script>
+let ws = null;
+let token = '';
+
+function connect() {
+  token = document.getElementById('token').value.trim();
+  if (!token) return;
+
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  // Connect to local bridge (Judith opens this on her PC)
+  const url = `${proto}//${location.host}/ws?client=judith&token=${token}`;
+
+  ws = new WebSocket(url);
+
+  ws.onopen = () => {
+    document.getElementById('login').classList.add('hidden');
+    setStatus(true);
+    addMsg('system', 'Connected as Judith');
+  };
+
+  ws.onmessage = (e) => {
+    const d = JSON.parse(e.data);
+    if (d.ok !== undefined && !d.from) return; // ack, skip
+    addMsg(d.from || 'system', d.text || '', d.ts);
+  };
+
+  ws.onclose = () => {
+    setStatus(false);
+    addMsg('system', 'Disconnected. Reconnecting in 3s...');
+    setTimeout(connect, 3000);
+  };
+
+  ws.onerror = () => ws.close();
+}
+
+function setStatus(online) {
+  const s = document.getElementById('status');
+  s.textContent = online ? 'connected' : 'disconnected';
+  s.className = online ? 'online' : 'offline';
+  document.getElementById('send').disabled = !online;
+}
+
+function addMsg(who, text, ts) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + who;
+  const time = ts ? new Date(ts * 1000).toLocaleTimeString() : '';
+  div.innerHTML = `<div class="who">${who}</div><div>${escapeHtml(text)}</div>` +
+    (time ? `<div class="time">${time}</div>` : '');
+  const box = document.getElementById('messages');
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function send() {
+  const text = document.getElementById('text').value.trim();
+  if (!text || !ws || ws.readyState !== 1) return;
+  const to = document.getElementById('to').value;
+  const id = 'judith-' + Date.now();
+  ws.send(JSON.stringify({ to, text, id }));
+  addMsg('judith', text, Date.now() / 1000);
+  document.getElementById('text').value = '';
+}
+
+document.getElementById('text').addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') send();
+});
+document.getElementById('token').addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') connect();
+});
+</script>
+</body>
+</html>

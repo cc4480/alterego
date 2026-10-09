@@ -7,16 +7,19 @@ pairing code (single-use, 30-minute expiry, 5-attempt lockout). A background
 thread refreshes the code when consumed or expired — but NOT after lockout,
 which requires manual re-arm (brute-force protection). The operator
 POSTs the code to /pair and receives a session bearer token over TLS, used
-for all subsequent tool calls. The token is persisted to
-%APPDATA%/pc-mcp-bridge/session_token so it survives server restarts, and
-lasts until logout: POST /logout with the token, or delete the token file
-(deleting it revokes access immediately, even while the server runs).
-Re-pairing rotates the token. There is no long-term shared secret to
-distribute, and nothing sensitive ever needs to travel through chat.
+for all subsequent tool calls. Tokens are persisted to
+%APPDATA%/pc-mcp-bridge/session_token so they survive server restarts.
+Multiple tokens can coexist (one per paired client); pairing appends a new
+token without invalidating existing ones. Revoke one token via POST /revoke,
+or all via POST /logout, or delete the token file (deleting it revokes
+access immediately, even while the server runs). There is no long-term
+shared secret to distribute, and nothing sensitive ever needs to travel
+through chat.
 
 Run:  python pc-agent/server.py   (from the repo root)
 """
 import ipaddress
+import json
 import os
 import secrets
 import sys
@@ -30,8 +33,9 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse
-from starlette.routing import Route
+from starlette.responses import JSONResponse, HTMLResponse
+from starlette.routing import Route, WebSocketRoute
+from starlette.websockets import WebSocket, WebSocketDisconnect
 import uvicorn
 
 import approval
@@ -103,26 +107,55 @@ def _pairing_refresher() -> None:
             _refresh_pairing_code()
 
 
-def _load_session_token() -> str | None:
-    """Read the persisted session token. The file is the source of truth:
-    deleting it revokes the operator immediately, even while running."""
+def _load_session_tokens() -> list:
+    """Read the persisted session tokens. Returns list of token strings.
+    The file is the source of truth: deleting it revokes all sessions
+    immediately, even while running. Backwards compatible with the old
+    single-token format."""
     try:
-        token = SESSION_TOKEN_FILE.read_text(encoding="utf-8").strip()
-        return token or None
-    except OSError:
-        return None
+        data = SESSION_TOKEN_FILE.read_text(encoding="utf-8").strip()
+        if not data:
+            return []
+        if data.startswith("["):
+            return json.loads(data)
+        return [data]  # old format: bare token
+    except (OSError, json.JSONDecodeError):
+        return []
+
+
+def _load_session_token() -> str | None:
+    """Legacy single-token accessor. Returns the first token, or None."""
+    tokens = _load_session_tokens()
+    return tokens[0] if tokens else None
 
 
 def _save_session_token(token: str) -> None:
+    """Append a token to the persisted list. Does NOT rotate out existing
+    tokens — multiple paired clients stay connected simultaneously."""
     SESSION_TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-    SESSION_TOKEN_FILE.write_text(token + "\n", encoding="utf-8")
+    tokens = _load_session_tokens()
+    if token not in tokens:
+        tokens.append(token)
+    SESSION_TOKEN_FILE.write_text(json.dumps(tokens) + "\n", encoding="utf-8")
     try:
         os.chmod(SESSION_TOKEN_FILE, 0o600)
     except OSError:
         pass  # %APPDATA% is already user-private via Windows ACLs
 
 
+def _revoke_session_token(token: str) -> bool:
+    """Remove one token. Returns True if it was present."""
+    tokens = _load_session_tokens()
+    if token in tokens:
+        tokens.remove(token)
+        SESSION_TOKEN_FILE.write_text(json.dumps(tokens) + "\n",
+                                      encoding="utf-8")
+        return True
+    return False
+
+
 def _clear_session_token() -> None:
+    """Revoke ALL tokens."""
     try:
         SESSION_TOKEN_FILE.unlink()
     except OSError:
@@ -134,11 +167,14 @@ class BearerAuth(BaseHTTPMiddleware):
         super().__init__(app)
 
     async def dispatch(self, request, call_next):
-        if request.url.path in ("/health", "/pair"):
+        if request.url.path in ("/health", "/pair", "/chat"):
             return await call_next(request)
         auth = request.headers.get("authorization", "")
-        token = _load_session_token()
-        if not token or not secrets.compare_digest(auth, f"Bearer {token}"):
+        tokens = _load_session_tokens()
+        valid = any(
+            secrets.compare_digest(auth, f"Bearer {t}") for t in tokens
+        )
+        if not valid:
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         return await call_next(request)
 
@@ -186,9 +222,10 @@ async def _pair(request: Request):
     locks after 5 wrong guesses. After lockout, pairing stays closed
     until manual re-arm (delete pairing.lock) or server restart —
     it does NOT auto-refresh, preventing brute-force attacks.
-    The issued token is persisted to disk (survives restarts) and any
-    previous token is rotated out. Lasts until POST /logout or the token
-    file is deleted.
+    The issued token is appended to the persisted token list (survives
+    restarts); existing tokens remain valid so multiple clients stay
+    connected. Revoke one token via POST /revoke, all via POST /logout,
+    or delete the token file.
     """
     if not _pair_ip_allowed(request):
         events.append("PairingDenied", {"reason": "ip not allowlisted"})
@@ -214,16 +251,119 @@ async def _pair(request: Request):
 
 
 async def _logout(request: Request):
-    """POST /logout (bearer token required) -> revokes the session now."""
-    token = _load_session_token()
+    """POST /logout (bearer token required) -> revokes ALL sessions now."""
     _clear_session_token()
-    sid = events.new_session(token)[0] if token else None
-    events.append("SessionRevoked", {"reason": "logout"}, session_id=sid)
+    events.append("SessionRevoked", {"reason": "logout-all"})
     return JSONResponse({"ok": True})
+
+
+async def _revoke(request: Request):
+    """POST /revoke (bearer token required) -> revokes just my token."""
+    auth = request.headers.get("authorization", "")
+    my_token = auth[7:] if auth.startswith("Bearer ") else ""
+    revoked = _revoke_session_token(my_token) if my_token else False
+    events.append("SessionRevoked", {"reason": "revoke-one",
+                                    "revoked": revoked})
+    return JSONResponse({"ok": True, "revoked": revoked})
+
+
+# --- WebSocket relay: direct Cosmo <-> Cho-zen1 link ---
+# Clients connect to /ws?client=<name>&token=<bearer>
+# Server routes JSON messages between connected clients instantly.
+
+_ws_clients: dict = {}  # name -> WebSocket
+
+
+async def _ws_relay(websocket: WebSocket):
+    """WebSocket endpoint for direct agent-to-agent messaging.
+
+    Connect: /ws?client=cosmo&token=<bearer> (or client=cho-zen1)
+    Send JSON: {"to": "cho-zen1", "text": "...", "id": "..."}
+    Receive JSON: {"from": "cosmo", "text": "...", "id": "...", "ts": ...}
+    """
+    params = dict(websocket.query_params)
+    client_name = params.get("client", "").strip().lower()
+    token = params.get("token", "").strip()
+
+    # Auth: token must be in the valid list
+    tokens = _load_session_tokens()
+    valid = any(secrets.compare_digest(token, t) for t in tokens)
+
+    if not valid or client_name not in ("cosmo", "cho-zen1", "judith"):
+        await websocket.close(code=4401, reason="unauthorized")
+        return
+
+    await websocket.accept()
+    _ws_clients[client_name] = websocket
+    events.append("WsConnected", {"client": client_name})
+    print(f"[ws] {client_name} connected "
+          f"({len(_ws_clients)} clients online)")
+
+    # Notify others that someone joined
+    for name, ws in _ws_clients.items():
+        if name != client_name:
+            try:
+                await ws.send_json({
+                    "from": "system",
+                    "text": f"{client_name} joined",
+                    "id": f"sys-{int(time.time()*1000)}",
+                    "ts": time.time(),
+                })
+            except Exception:
+                pass
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            to = str(data.get("to", "")).strip().lower()
+            text = str(data.get("text", ""))
+            msg_id = str(data.get("id", ""))
+
+            # Broadcast to all (if to is empty or "all")
+            # or send to specific client
+            targets = []
+            if to in ("", "all"):
+                targets = [n for n in _ws_clients if n != client_name]
+            elif to in _ws_clients:
+                targets = [to]
+
+            delivered = []
+            for t in targets:
+                try:
+                    await _ws_clients[t].send_json({
+                        "from": client_name,
+                        "text": text,
+                        "id": msg_id,
+                        "ts": time.time(),
+                    })
+                    delivered.append(t)
+                except Exception:
+                    pass
+
+            await websocket.send_json({"ok": True,
+                                       "delivered_to": delivered,
+                                       "id": msg_id})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        _ws_clients.pop(client_name, None)
+        events.append("WsDisconnected", {"client": client_name})
+        print(f"[ws] {client_name} disconnected "
+              f"({len(_ws_clients)} clients online)")
 
 
 async def _health(request):
     return JSONResponse({"ok": True, "service": "pc-bridge"})
+
+
+async def _chat_page(request):
+    """Serve the agent chat UI. Open http://127.0.0.1:8765/chat"""
+    try:
+        html = Path(__file__).parent.joinpath("chat.html").read_text(
+            encoding="utf-8")
+        return HTMLResponse(html)
+    except OSError:
+        return JSONResponse({"error": "chat.html not found"}, status_code=404)
 
 
 def _server_version():
@@ -285,8 +425,11 @@ def main():
         )
     )
     app.routes.append(Route("/health", _health))
+    app.routes.append(Route("/chat", _chat_page))
     app.routes.append(Route("/pair", _pair, methods=["POST"]))
     app.routes.append(Route("/logout", _logout, methods=["POST"]))
+    app.routes.append(Route("/revoke", _revoke, methods=["POST"]))
+    app.routes.append(WebSocketRoute("/ws", _ws_relay))
     app.add_middleware(BearerAuth)
 
     print(f"pc-mcp-bridge listening on http://{HOST}:{PORT} (loopback only)")
