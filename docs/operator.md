@@ -54,17 +54,18 @@ curl -s -X POST $PC_BRIDGE_URL/pair \
   other secret — there isn't one.
 - Pairing again **rotates** the token — the previous one stops working.
 - When you're done, log yourself out:
-  `PC_BRIDGE_URL=... PC_BRIDGE_TOKEN=... python3 bridge/pc_bridge.py logout`
+  `PC_BRIDGE_URL=... python3 bridge/op_call.py logout` (revokes the
+  session server-side and clears the saved token)
 - Pairing codes can't be reused and lock after 5 wrong guesses (until the
   owner restarts the server).
 
 ## 2. Use the tools
 
 ```bash
-python3 bridge/pc_bridge.py tools                            # list tools
-python3 bridge/pc_bridge.py call system_info '{}'            # read tool
-python3 bridge/pc_bridge.py screenshot --out /tmp/shot.png   # screenshot
-python3 bridge/pc_bridge.py call shell_exec '{"command":"whoami"}'
+python3 bridge/op_call.py tools                      # list tools
+python3 bridge/op_call.py call system_info '{}'      # read tool
+python3 bridge/op_call.py call screenshot '{}'       # screenshot (JSON -> /tmp/shot-full.json)
+python3 bridge/op_call.py call shell_exec '{"command":"whoami"}'
 ```
 
 Write tools pop a native Yes/No dialog **on the PC owner's screen** — the
@@ -99,8 +100,10 @@ See [tools.md](tools.md) for the full tool reference.
 
 ```bash
 cd bridge
-python3 mock_mcp_server.py 8765 &
-PC_BRIDGE_URL=http://127.0.0.1:8765 PC_BRIDGE_TOKEN=x python3 pc_bridge.py tools
+MOCK_TOKEN=secret python3 mock_mcp_server.py 8765 &
+PC_BRIDGE_URL=http://127.0.0.1:8765 PC_BRIDGE_TOKEN=secret python3 op_call.py tools
 ```
 
-The mock serves the same tool shapes without a PC or tunnel.
+The mock serves the real tool schemas (`bridge/tools.json`) with canned
+responses — no PC or tunnel needed. (`pc_bridge.py` is deprecated; use
+`op_call.py`.)
