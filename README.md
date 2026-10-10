@@ -33,7 +33,8 @@ against Carlos's real Windows PC through the named Cloudflare tunnel
   auth, native Yes/No approval dialogs for every write tool, event-sourced
   operation log.
 - `bridge/` — operator side. `op_call.py`: durable stdlib-only MCP client
-  CLI (`health`, `pair`, `tools`, `call`); `pc_bridge.py`: older minimal CLI;
+  CLI (`health`, `pair`, `tools`, `call`, `logout`); `pc_bridge.py`:
+  deprecated, kept for compatibility (use `op_call.py`);
   `mock_mcp_server.py`: stdlib-only fake PC for testing the client without
   a PC or tunnel.
 
@@ -106,7 +107,10 @@ a specific fix command for anything that isn't ok.
 
 ```bash
 cd bridge
-python3 mock_mcp_server.py 8765 &          # fake PC
-PC_BRIDGE_URL=http://127.0.0.1:8765 PC_BRIDGE_TOKEN=x python3 pc_bridge.py tools
-PC_BRIDGE_URL=http://127.0.0.1:8765 PC_BRIDGE_TOKEN=x python3 pc_bridge.py screenshot --out /tmp/shot.png
+MOCK_TOKEN=secret python3 mock_mcp_server.py 8765 &   # fake PC
+PC_BRIDGE_URL=http://127.0.0.1:8765 PC_BRIDGE_TOKEN=secret python3 op_call.py tools
+PC_BRIDGE_URL=http://127.0.0.1:8765 PC_BRIDGE_TOKEN=secret python3 op_call.py call system_info '{}'
 ```
+The mock serves the real tool schemas (see `bridge/tools.json`) with canned
+responses — no PC or tunnel needed. (`pc_bridge.py` is deprecated; use
+`op_call.py`.)
