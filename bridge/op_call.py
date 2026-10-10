@@ -2,11 +2,17 @@
 """Durable operator helper for pc-mcp-bridge (stdlib only).
 
 Reads PC_BRIDGE_URL and PC_BRIDGE_TOKEN from the environment — the token
-is never stored in this file. Session-scoped: re-pair after a VM restart.
+is never stored in this file. Pairing saves the session token via
+token_store.py (~/.config/pc-bridge/token, 0600); it survives VM restarts
+and is cleared automatically on 401. Re-pair only when the server rejects
+the stored token.
 
 Usage:
-  PC_BRIDGE_URL=... PC_BRIDGE_TOKEN=... python3 op_call.py tools
-  PC_BRIDGE_URL=... PC_BRIDGE_TOKEN=... python3 op_call.py call memory_recall '{"query":"x"}'
+  PC_BRIDGE_URL=... python3 op_call.py pair <6-digit-code>
+  PC_BRIDGE_URL=... python3 op_call.py health
+  PC_BRIDGE_URL=... python3 op_call.py tools
+  PC_BRIDGE_URL=... python3 op_call.py call memory_recall '{"query":"x"}'
+  PC_BRIDGE_URL=... python3 op_call.py logout
 """
 import json
 import os
@@ -140,6 +146,25 @@ def main():
             print(f"token: {e}")
         except Exception as e:
             print(f"server: ERROR — {type(e).__name__}: {e}")
+        return
+    if cmd == "logout":
+        if not TOKEN:
+            raise SystemExit("no session token — nothing to revoke")
+        req = urllib.request.Request(
+            URL + "/logout", data=b"",
+            headers={"Authorization": f"Bearer {TOKEN}",
+                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                                   "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                   "Chrome/126.0.0.0 Safari/537.36"},
+            method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                print(r.read().decode()[:200])
+        except urllib.error.HTTPError as e:
+            raise SystemExit(f"logout failed ({e.code}): "
+                             f"{e.read().decode()[:200]}")
+        token_store.clear_token()
+        print("local token cleared")
         return
     if not TOKEN:
         raise SystemExit(
