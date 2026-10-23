@@ -12,10 +12,23 @@ Usage:
   PC_BRIDGE_URL=... python3 op_call.py health
   PC_BRIDGE_URL=... python3 op_call.py tools
   PC_BRIDGE_URL=... python3 op_call.py call memory_recall '{"query":"x"}'
+  PC_BRIDGE_URL=... python3 op_call.py submit shell_pwsh '{"script":"..."}' [--key K]
+  PC_BRIDGE_URL=... python3 op_call.py calljob shell_pwsh '{"script":"..."}' [--key K] [--timeout S]
+  PC_BRIDGE_URL=... python3 op_call.py job <job_id>          (status)
+  PC_BRIDGE_URL=... python3 op_call.py job-result <job_id>
+  PC_BRIDGE_URL=... python3 op_call.py job-cancel <job_id>
+  PC_BRIDGE_URL=... python3 op_call.py resume [job_id|--key K]
   PC_BRIDGE_URL=... python3 op_call.py logout
+
+Job mode (submit/calljob) is the Hermes-pattern path: the tool is
+submitted ONCE under an idempotency key and executes server-side;
+the client then only polls job_status/job_result by job_id. A dropped
+connection loses nothing — `resume` picks the job back up by id.
 """
+import hashlib
 import json
 import os
+import socket
 import sys
 import time
 import urllib.error
@@ -89,6 +102,158 @@ def post(path, body, session_id=None):
     if "error" in msg:
         raise RuntimeError(msg["error"])
     return msg.get("result"), sid
+
+
+# ---- job client: submit+poll with resume-by-job_id -------------------
+# Per-class transport policy for the poll loop (classify-before-retry,
+# never blind resubmission): the submission itself is idempotent by
+# key, so retrying the submit_job op is safe; after that, every retry
+# is a READ against the journal. The tool script is never re-sent.
+
+JOBS_FILE = token_store.TOKEN_FILE.parent / "jobs.json"
+_TERMINAL = ("succeeded", "failed", "killed", "cancelled")
+_POLL_S = 2.0
+
+
+def classify_transport_error(e):
+    """Bucket a transport failure: timeout | refused | truncated |
+    server | http | unknown. Drives the poll loop's wait strategy."""
+    if isinstance(e, urllib.error.HTTPError):
+        return "server" if e.code >= 500 else "http"
+    if isinstance(e, (http.client.IncompleteRead,
+                      http.client.RemoteDisconnected)):
+        return "truncated"
+    reason = getattr(e, "reason", None) or e
+    if isinstance(reason, ConnectionRefusedError):
+        return "refused"
+    if isinstance(reason, (TimeoutError, socket.timeout)) or \
+            isinstance(e, (TimeoutError, socket.timeout)):
+        return "timeout"
+    if isinstance(e, urllib.error.URLError):
+        return "refused" if "refused" in str(e).lower() else "unknown"
+    return "unknown"
+
+
+def _tool_call(name, args, sid):
+    res, _ = post("/mcp", {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                           "params": {"name": name, "arguments": args}}, sid)
+    text = res["content"][0]["text"]
+    try:
+        return json.loads(text)
+    except ValueError:
+        return {"raw": text}
+
+
+def _default_key(tool, args):
+    """Content-derived idempotency key: re-running the identical
+    calljob returns the existing job instead of executing twice.
+    Pass --key with a fresh value for an intentional re-run."""
+    canon = json.dumps({"tool": tool, "args": args},
+                       sort_keys=True, default=str)
+    return "op-" + hashlib.sha256(canon.encode("utf-8")).hexdigest()
+
+
+def _record_job(key, job_id, tool):
+    """Local resume record (~/.config/pc-bridge/jobs.json). A crashed
+    or disconnected client finds its jobs here. Best-effort only."""
+    try:
+        data = {}
+        if JOBS_FILE.exists():
+            data = json.loads(JOBS_FILE.read_text(encoding="utf-8"))
+        entry = {"job_id": job_id, "tool": tool}
+        if key:
+            data[key] = entry
+        data["_last"] = dict(entry, key=key)
+        JOBS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        JOBS_FILE.write_text(json.dumps(data, indent=1), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _lookup_recorded(key=None, job_id=None):
+    try:
+        data = json.loads(JOBS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if job_id:
+        return {"job_id": job_id}
+    if key:
+        return data.get(key)
+    return data.get("_last")
+
+
+def _submit(tool, args, key, sid):
+    out = _tool_call("submit_job",
+                     {"tool": tool, "args": args,
+                      "idempotency_key": key}, sid)
+    if "error" in out:
+        raise SystemExit(f"submit refused: {out['error']} — "
+                           f"{out.get('detail', '')}")
+    _record_job(key, out["job_id"], tool)
+    return out
+
+
+def _poll_until_done(job_id, sid, timeout_s):
+    """Poll job_status until terminal, then fetch job_result. Every
+    poll is a fresh short request — the polling activity itself keeps
+    the tunnel warm, so no long-held connection exists to be reaped.
+    Transport failures are classified; the wait always resumes by
+    job_id and never resubmits the tool."""
+    deadline = time.time() + timeout_s
+    while True:
+        try:
+            st = _tool_call("job_status", {"job_id": job_id}, sid)
+        except Exception as e:
+            cls = classify_transport_error(e)
+            wait = 30 if cls in ("refused", "server") else 10
+            print(f"[poll] transport {cls} ({type(e).__name__}) — job "
+                  f"{job_id} is server-side and unaffected; resuming "
+                  f"by job_id in {wait}s", file=sys.stderr)
+            if time.time() + wait > deadline:
+                raise SystemExit(
+                    f"job {job_id}: poll budget exhausted during a "
+                    f"{cls} outage — the job keeps running server-side; "
+                    f"resume with: op_call.py resume {job_id}")
+            time.sleep(wait)
+            continue
+        if st.get("error"):
+            raise SystemExit(f"job_status failed: {st['error']}")
+        if st["state"] in _TERMINAL:
+            return _tool_call("job_result", {"job_id": job_id}, sid)
+        if time.time() > deadline:
+            raise SystemExit(
+                f"job {job_id} still {st['state']} after {timeout_s}s — "
+                f"it keeps running server-side; resume with: "
+                f"op_call.py resume {job_id}")
+        time.sleep(_POLL_S)
+
+
+def _print_job_result(out):
+    """Print a job_result payload like `call` prints a tool result.
+    Returns True iff the job succeeded."""
+    state = out.get("state")
+    if state == "succeeded":
+        text = json.dumps(out.get("result"), indent=1, default=str)
+        with open("/tmp/op-full.json", "w", encoding="utf-8") as f:
+            f.write(text)
+        print(text[:4000])
+        return True
+    print(json.dumps(out, indent=1, default=str)[:4000])
+    return False
+
+
+def _parse_flags(argv, allowed):
+    """Split trailing --flag value pairs off argv for job commands."""
+    flags, rest = {}, []
+    i = 0
+    while i < len(argv):
+        if argv[i] in allowed and i + 1 < len(argv):
+            flags[argv[i]] = argv[i + 1]
+            i += 2
+        else:
+            rest.append(argv[i])
+            i += 1
+    return flags, rest
 
 
 def main():
@@ -202,8 +367,55 @@ def main():
             print(json.dumps(json.loads(text), indent=1)[:4000])
         except Exception:
             print(text[:4000])
+    elif cmd == "submit":
+        flags, rest = _parse_flags(sys.argv[2:], ("--key",))
+        name = rest[0]
+        args = json.loads(rest[1]) if len(rest) > 1 else {}
+        key = flags.get("--key") or _default_key(name, args)
+        out = _submit(name, args, key, sid)
+        print(json.dumps(out))
+    elif cmd == "calljob":
+        flags, rest = _parse_flags(sys.argv[2:], ("--key", "--timeout"))
+        name = rest[0]
+        args = json.loads(rest[1]) if len(rest) > 1 else {}
+        key = flags.get("--key") or _default_key(name, args)
+        timeout_s = int(flags.get(
+            "--timeout", os.environ.get("PC_BRIDGE_JOB_TIMEOUT", "3600")))
+        out = _submit(name, args, key, sid)
+        if out.get("deduplicated"):
+            print(f"[job] resubmission deduplicated — existing job "
+                  f"{out['job_id']} ({out['state']})", file=sys.stderr)
+        result = _poll_until_done(out["job_id"], sid, timeout_s)
+        if not _print_job_result(result):
+            raise SystemExit(1)
+    elif cmd == "job":
+        print(json.dumps(
+            _tool_call("job_status", {"job_id": sys.argv[2]}, sid),
+            indent=1))
+    elif cmd == "job-result":
+        out = _tool_call("job_result", {"job_id": sys.argv[2]}, sid)
+        print(json.dumps(out, indent=1, default=str)[:4000])
+    elif cmd == "job-cancel":
+        print(json.dumps(
+            _tool_call("job_cancel", {"job_id": sys.argv[2]}, sid),
+            indent=1))
+    elif cmd == "resume":
+        flags, rest = _parse_flags(sys.argv[2:], ("--key", "--timeout"))
+        rec = _lookup_recorded(key=flags.get("--key"),
+                               job_id=rest[0] if rest else None)
+        if not rec:
+            raise SystemExit("nothing to resume: pass a job_id or --key, "
+                             "or submit a job first (no local record)")
+        timeout_s = int(flags.get(
+            "--timeout", os.environ.get("PC_BRIDGE_JOB_TIMEOUT", "3600")))
+        result = _poll_until_done(rec["job_id"], sid, timeout_s)
+        if not _print_job_result(result):
+            raise SystemExit(1)
     else:
-        raise SystemExit("usage: op_call.py tools | call <name> '<json>'")
+        raise SystemExit("usage: op_call.py tools | call <name> '<json>' "
+                         "| submit|calljob <name> '<json>' [--key K] "
+                         "| job|job-result|job-cancel <job_id> "
+                         "| resume [job_id|--key K]")
 
 
 if __name__ == "__main__":
