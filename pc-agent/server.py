@@ -49,6 +49,44 @@ mcp = MCPServer("pc-bridge")
 for _tool_fn in ALL_TOOLS:
     mcp.tool()(_tool_fn)
 
+# --- Job layer ops (Hermes-pattern, 2026-10-23): journal-ACK intake ---
+# submit_job journals the call and returns a job_id immediately; the
+# tool itself executes later on a worker thread through the very same
+# wrapper a sync call would use. These meta-ops are registered directly
+# (not via toolcall): the journal in jobs.py is their record, and the
+# inner tool execution produces the usual toolcall events + dialogs.
+import jobs as _jobs
+
+
+@mcp.tool()
+def submit_job(tool: str, args: dict | None = None,
+               idempotency_key: str = "") -> dict:
+    """Submit a tool call as a background job; returns {job_id, state}
+    immediately. The tool executes on the PC whether or not the caller
+    stays connected — poll job_status / job_result with the job_id.
+    A resubmission with the same idempotency_key returns the existing
+    job and never executes twice."""
+    return _jobs.submit_job_op(tool, args, idempotency_key or None)
+
+
+@mcp.tool()
+def job_status(job_id: str) -> dict:
+    """Job state + started/finished receipts from the journal."""
+    return _jobs.job_status_op(job_id)
+
+
+@mcp.tool()
+def job_result(job_id: str) -> dict:
+    """Job result (when terminal) from the journal / blob store."""
+    return _jobs.job_result_op(job_id)
+
+
+@mcp.tool()
+def job_cancel(job_id: str) -> dict:
+    """Cancel a queued or running job; a running job's process tree is
+    fenced (only that job's processes are killed)."""
+    return _jobs.job_cancel_op(job_id)
+
 PAIRING_TTL_S = 30 * 60
 MAX_PAIRING_ATTEMPTS = 5
 
