@@ -22,6 +22,18 @@ cap, and a transport retry can replay a whole script with no way to ask
   (studies 02/03). Slowness is never treated as death without evidence.
 - Admission is bounded: a full queue refuses new submissions cleanly
   and immediately instead of piling up (bounded spool, study 01).
+- ESTOP: a sentinel file named ESTOP in the data dir (next to jobs.db)
+  pauses ALL new job execution fleet-wide. Presence alone engages it —
+  an empty or corrupt file still counts (fail-safe). Submissions are
+  still journaled and ACKed while engaged; queued jobs wait with a
+  visible paused state; in-flight jobs are never interrupted. Removing
+  the file resumes dispatch automatically.
+- Lineage: every job records where its request came from (typed |
+  relay | scheduled | agent | unattributed), so a job journal answers
+  "who actually asked for this?" — relayed or unattributed work is
+  visibly second-class next to the operator's own words.
+- Doctor: a read-only op reporting per-component health where every
+  warning carries its one concrete fix, not just the failure.
 
 Legacy sync ops are untouched: jobs execute the very same tool wrappers
 (same toolcall pipeline, same approval dialogs) — just from a worker
@@ -54,6 +66,16 @@ WATCHDOG_INTERVAL_S = 1.0
 
 TERMINAL_STATES = ("succeeded", "failed", "killed", "cancelled")
 
+# Where a job's request came from (intent lineage). Recorded at intake,
+# never rewritten afterwards; anything unrecognized normalizes to
+# "unattributed" rather than being trusted.
+LINEAGES = ("typed", "relay", "scheduled", "agent", "unattributed")
+
+
+def _normalize_lineage(value):
+    v = str(value or "").strip().lower()
+    return v if v in LINEAGES else "unattributed"
+
 # Tools that share one physical resource and must serialize. Everything
 # not listed runs fully parallel. "desktop": the interactive desktop —
 # screen, UIA tree, injected input, clipboard, window state are all one
@@ -82,6 +104,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     args_json      TEXT NOT NULL,
     args_hash      TEXT NOT NULL,
     state          TEXT NOT NULL,
+    lineage        TEXT NOT NULL DEFAULT 'unattributed',
     submitted_ts   REAL NOT NULL,
     started_ts     REAL,
     finished_ts    REAL,
@@ -214,9 +237,18 @@ class JobJournal:
         with self._lock:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.executescript(_SCHEMA)
+            # Journals created before lineage existed gain the column
+            # in place; existing rows default to 'unattributed'.
+            cols = {r[1] for r in
+                    self._conn.execute("PRAGMA table_info(jobs)")}
+            if "lineage" not in cols:
+                self._conn.execute(
+                    "ALTER TABLE jobs ADD COLUMN lineage"
+                    " TEXT NOT NULL DEFAULT 'unattributed'")
             self._conn.commit()
 
-    def insert_new(self, job_id, idem_key, tool, args):
+    def insert_new(self, job_id, idem_key, tool, args,
+                   lineage="unattributed"):
         """Insert a queued job. Returns the row, or None if idem_key is
         already taken (the caller then returns the existing job)."""
         now = time.time()
@@ -224,10 +256,11 @@ class JobJournal:
             try:
                 self._conn.execute(
                     "INSERT INTO jobs (job_id, idem_key, tool, args_json,"
-                    " args_hash, state, submitted_ts, progress_ts)"
-                    " VALUES (?,?,?,?,?,'queued',?,?)",
+                    " args_hash, lineage, state, submitted_ts, progress_ts)"
+                    " VALUES (?,?,?,?,?,?,'queued',?,?)",
                     (job_id, idem_key, tool,
                      json.dumps(args, default=str), _args_hash(args),
+                     _normalize_lineage(lineage),
                      now, now))
                 self._conn.commit()
             except sqlite3.IntegrityError:
@@ -312,6 +345,10 @@ class JobManager:
             from auth import app_dir
             db_path = app_dir() / "jobs.db"
         self.journal = JobJournal(db_path)
+        # The ESTOP sentinel lives beside the journal: dropping a file
+        # named ESTOP into this dir pauses all new job execution.
+        self.data_dir = Path(db_path).parent
+        self.estop_path = self.data_dir / "ESTOP"
         self._executor = executor or _default_executor
         self.max_workers = max_workers
         self.max_queued = max_queued
@@ -354,14 +391,43 @@ class JobManager:
     def shutdown(self):
         self._stop.set()
 
+    # -- ESTOP sentinel ---------------------------------------------------
+    def estop(self):
+        """ESTOP state: None when not engaged, else a dict describing
+        the engagement. Presence alone engages — an empty or corrupt
+        sentinel still counts (fail-safe); a JSON body may carry
+        {reason, engaged_at}, surfaced verbatim for the operator."""
+        try:
+            raw = self.estop_path.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            return None
+        except OSError as e:
+            return {"engaged": True, "reason": None, "engaged_at": None,
+                    "detail": f"sentinel unreadable ({type(e).__name__}); "
+                              f"treated as engaged"}
+        info = {"engaged": True, "reason": None, "engaged_at": None,
+                "detail": None}
+        if raw:
+            try:
+                body = json.loads(raw)
+                if isinstance(body, dict):
+                    info["reason"] = body.get("reason")
+                    info["engaged_at"] = body.get("engaged_at")
+            except ValueError:
+                info["detail"] = "sentinel is not JSON; treated as engaged"
+        return info
+
     # -- submit ---------------------------------------------------------
-    def submit(self, tool, args=None, idem_key=None):
+    def submit(self, tool, args=None, idem_key=None, lineage=None):
         """Journal-ACK intake. Dedupe first (a resubmission is never
-        refused and never re-executes), then the admission bound."""
+        refused and never re-executes), then the admission bound.
+        Submissions are accepted and journaled even while ESTOP is
+        engaged — they queue and wait for the sentinel to clear."""
         args = args or {}
         existing = self.journal.get_by_key(idem_key)
         if existing:
             return {"job_id": existing["job_id"], "state": existing["state"],
+                    "lineage": existing.get("lineage") or "unattributed",
                     "deduplicated": True}
         if self.journal.active_count() >= self.max_workers + self.max_queued:
             return {"error": "queue_full",
@@ -370,12 +436,15 @@ class JobManager:
                               f"{self.max_queued} queued); retry later",
                     "tool": tool}
         job_id = events.new_event_id("job_")
-        row = self.journal.insert_new(job_id, idem_key, tool, args)
+        row = self.journal.insert_new(job_id, idem_key, tool, args,
+                                      lineage=lineage)
         if row is None:  # lost an insert race on the idempotency key
             existing = self.journal.get_by_key(idem_key)
             return {"job_id": existing["job_id"], "state": existing["state"],
+                    "lineage": existing.get("lineage") or "unattributed",
                     "deduplicated": True}
-        return {"job_id": job_id, "state": "queued", "deduplicated": False}
+        return {"job_id": job_id, "state": "queued",
+                "lineage": row["lineage"], "deduplicated": False}
 
     # -- reads ------------------------------------------------------------
     def status(self, job_id):
@@ -384,6 +453,7 @@ class JobManager:
             return {"error": "unknown_job", "job_id": job_id}
         out = {"job_id": row["job_id"], "tool": row["tool"],
                "state": row["state"],
+               "lineage": row.get("lineage") or "unattributed",
                "args_hash": row["args_hash"],
                "submitted_at": _iso(row["submitted_ts"]),
                "started_at": _iso(row["started_ts"]),
@@ -391,6 +461,14 @@ class JobManager:
                "output_bytes": row["output_bytes"],
                "classification": row["classification"],
                "error": row["error"]}
+        if row["state"] == "queued":
+            est = self.estop()
+            out["paused"] = est is not None
+            if est is not None:
+                out["paused_reason"] = (
+                    f"ESTOP engaged at {self.estop_path}"
+                    + (f" — {est['reason']}" if est["reason"] else "")
+                    + (f" ({est['detail']})" if est["detail"] else ""))
         ctx = self._contexts.get(job_id)
         if row["state"] == "running" and ctx is not None:
             out["progress"] = ctx.snapshot()
@@ -402,6 +480,7 @@ class JobManager:
             return {"error": "unknown_job", "job_id": job_id}
         out = {"job_id": row["job_id"], "tool": row["tool"],
                "state": row["state"], "error": row["error"],
+               "lineage": row.get("lineage") or "unattributed",
                "classification": row["classification"]}
         if row["result_ref"]:
             raw = blob_store.get(row["result_ref"])
@@ -463,6 +542,11 @@ class JobManager:
                              if t.is_alive()}
             free = self.max_workers - len(self._workers)
             if free <= 0:
+                return
+            if self.estop() is not None:
+                # ESTOP: start nothing new. Jobs already running keep
+                # their threads (never interrupted); queued jobs wait
+                # in the journal until the sentinel disappears.
                 return
             for row in self.journal.queued_jobs():
                 if free <= 0:
@@ -557,7 +641,146 @@ class JobManager:
 
 
 # ---------------------------------------------------------------------------
-# Module singleton + the four ops (server.py registers these as MCP tools)
+# Doctor: per-component health, every warning carrying its fix.
+# Read-only: the checks below never write, start, or stop anything.
+# ---------------------------------------------------------------------------
+
+def _check_listener(host, port):
+    import socket
+    try:
+        with socket.create_connection((host, port), timeout=2):
+            return {"ok": True,
+                    "detail": f"agent listening on {host}:{port}",
+                    "fix": None}
+    except OSError as e:
+        return {"ok": False,
+                "detail": f"nothing answering on {host}:{port} "
+                          f"({type(e).__name__}: {e})",
+                "fix": "Start the agent on the PC: "
+                       "python pc-agent/server.py (from the repo root) — "
+                       "or restart the pc-bridge service/task."}
+
+
+def _check_tunnel():
+    try:
+        import psutil
+    except ImportError:
+        return {"ok": False,
+                "detail": "psutil unavailable — tunnel process state "
+                          "cannot be determined",
+                "fix": "Install psutil in the agent venv: "
+                       "pip install psutil"}
+    try:
+        for proc in psutil.process_iter(["name", "cmdline"]):
+            try:
+                name = (proc.info.get("name") or "").lower()
+                cmd = " ".join(proc.info.get("cmdline") or []).lower()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+            if "cloudflared" in name or "cloudflared" in cmd:
+                return {"ok": True,
+                        "detail": "cloudflared tunnel process is running",
+                        "fix": None}
+    except Exception as e:  # noqa: BLE001 - diagnosis must not crash
+        return {"ok": False,
+                "detail": f"tunnel probe failed: {type(e).__name__}: {e}",
+                "fix": "Check the PC's process list for cloudflared "
+                       "manually (Task Manager > Details)."}
+    return {"ok": False,
+            "detail": "no cloudflared process found — remote clients "
+                      "cannot reach the bridge",
+            "fix": "Start the tunnel on the PC: cloudflared tunnel run "
+                   "pc-bridge (per the bridge runbook / startup task)."}
+
+
+def _check_token(token_file):
+    try:
+        tokens = json.loads(token_file.read_text(encoding="utf-8"))
+        count = len(tokens) if isinstance(tokens, list) else 0
+    except FileNotFoundError:
+        count = 0
+    except (OSError, ValueError):
+        # Legacy bare-token format (or an unreadable file): non-empty
+        # still means a paired session exists.
+        try:
+            count = 1 if token_file.read_text(
+                encoding="utf-8").strip() else 0
+        except OSError:
+            count = 0
+    if count:
+        return {"ok": True,
+                "detail": f"{count} paired session token(s) on file",
+                "fix": None}
+    return {"ok": False,
+            "detail": f"no session token at {token_file} — no client "
+                      f"is paired",
+            "fix": "Pair a client: read the 6-digit code printed by "
+                   "the server console, then run "
+                   "op_call.py pair <code> on the client."}
+
+
+def _check_journal(mgr):
+    try:
+        with mgr.journal._lock:
+            mgr.journal._conn.execute("SELECT 1").fetchone()
+        return {"ok": True,
+                "detail": f"journal open at {mgr.journal._db_path} "
+                          f"({mgr.journal.active_count()} active job(s))",
+                "fix": None}
+    except Exception as e:  # noqa: BLE001 - report, never raise
+        return {"ok": False,
+                "detail": f"journal query failed: "
+                          f"{type(e).__name__}: {e}",
+                "fix": f"Inspect {mgr.journal._db_path} and its -wal/"
+                       f"-shm siblings; if corrupt, move the file aside "
+                       f"and restart the server — a fresh journal is "
+                       f"created (finished-job history in the old file "
+                       f"is preserved in the moved copy)."}
+
+
+def _check_estop(mgr):
+    est = mgr.estop()
+    if est is None:
+        return {"ok": True,
+                "detail": "ESTOP not engaged — queued jobs dispatch "
+                          "normally",
+                "fix": None}
+    why = est["reason"] or est["detail"] or "no reason recorded"
+    return {"ok": False,
+            "detail": f"ESTOP engaged at {mgr.estop_path} — {why}; "
+                      f"new job execution is paused (in-flight jobs "
+                      f"are unaffected)",
+            "fix": f"Delete {mgr.estop_path} to resume queued job "
+                   f"execution."}
+
+
+def doctor(manager=None):
+    """Assemble the doctor report. `manager` is injectable for tests;
+    production callers go through doctor_op()."""
+    mgr = manager or get_manager()
+    try:
+        from auth import app_dir
+        token_file = app_dir() / "session_token"
+    except Exception:  # noqa: BLE001 - fall back to the journal's dir
+        token_file = mgr.data_dir / "session_token"
+    host = os.environ.get("PC_BRIDGE_HOST", "127.0.0.1")
+    try:
+        port = int(os.environ.get("PC_BRIDGE_PORT", "8765"))
+    except ValueError:
+        port = 8765
+    components = {
+        "listener": _check_listener(host, port),
+        "tunnel": _check_tunnel(),
+        "token": _check_token(token_file),
+        "journal": _check_journal(mgr),
+        "estop": _check_estop(mgr),
+    }
+    return {"ok": all(c["ok"] for c in components.values()),
+            "components": components}
+
+
+# ---------------------------------------------------------------------------
+# Module singleton + the job ops (server.py registers these as MCP tools)
 # ---------------------------------------------------------------------------
 
 _manager = None
@@ -574,11 +797,18 @@ def get_manager():
     return _manager
 
 
-def submit_job_op(tool, args=None, idempotency_key=None):
+def submit_job_op(tool, args=None, idempotency_key=None, lineage=None):
     """submit_job: journal-ACK intake. Returns job_id immediately;
     a resubmission with the same idempotency_key returns the existing
     job and never executes twice."""
-    return get_manager().submit(tool, args or {}, idempotency_key or None)
+    return get_manager().submit(tool, args or {}, idempotency_key or None,
+                                lineage=lineage)
+
+
+def doctor_op():
+    """doctor: read-only health report — listener, tunnel, token,
+    journal, estop — every failing component carries its fix."""
+    return doctor()
 
 
 def job_status_op(job_id):

@@ -60,13 +60,18 @@ import jobs as _jobs
 
 @mcp.tool()
 def submit_job(tool: str, args: dict | None = None,
-               idempotency_key: str = "") -> dict:
+               idempotency_key: str = "", lineage: str = "") -> dict:
     """Submit a tool call as a background job; returns {job_id, state}
     immediately. The tool executes on the PC whether or not the caller
     stays connected — poll job_status / job_result with the job_id.
     A resubmission with the same idempotency_key returns the existing
-    job and never executes twice."""
-    return _jobs.submit_job_op(tool, args, idempotency_key or None)
+    job and never executes twice. `lineage` records where the request
+    came from: typed | relay | scheduled | agent (anything else is
+    journaled as unattributed). While an ESTOP sentinel file sits in
+    the bridge data dir, submissions are still accepted and journaled
+    but no new job executes until the file is removed."""
+    return _jobs.submit_job_op(tool, args, idempotency_key or None,
+                               lineage or None)
 
 
 @mcp.tool()
@@ -86,6 +91,14 @@ def job_cancel(job_id: str) -> dict:
     """Cancel a queued or running job; a running job's process tree is
     fenced (only that job's processes are killed)."""
     return _jobs.job_cancel_op(job_id)
+
+
+@mcp.tool()
+def doctor() -> dict:
+    """Read-only bridge health report: listener, tunnel, token,
+    journal, and ESTOP state — every component that is not ok carries
+    its one concrete fix. Never starts, stops, or changes anything."""
+    return _jobs.doctor_op()
 
 PAIRING_TTL_S = 30 * 60
 MAX_PAIRING_ATTEMPTS = 5
