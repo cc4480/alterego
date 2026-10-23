@@ -182,19 +182,19 @@ Not yet verified: closed shadow roots (inaccessible by design), and the
 Google account chooser as a separate CDP target (untestable on the fresh
 test profile).
 
-## Examples (via `bridge/op_call.py`)
+## Examples (via `bridge/pc_bridge.py`)
 
 ```bash
-export PC_BRIDGE_URL=https://pc.secscan.info
-python3 bridge/op_call.py pair 279416        # one-time; token is saved
+export PC_BRIDGE_URL=https://<random>.trycloudflare.com
+export PC_BRIDGE_TOKEN=<session token from pairing>
 
-python3 bridge/op_call.py tools
-python3 bridge/op_call.py call system_info '{}'
-python3 bridge/op_call.py call list_dir '{"path": "C:\\Users\\Cho-zen\\Downloads"}'
-python3 bridge/op_call.py call list_windows '{}'
-python3 bridge/op_call.py call screenshot '{}'   # -> /tmp/shot-full.json
+python3 bridge/pc_bridge.py tools
+python3 bridge/pc_bridge.py call system_info '{}'
+python3 bridge/pc_bridge.py call list_dir '{"path": "C:\\Users\\celos\\Downloads"}'
+python3 bridge/pc_bridge.py call list_windows '{}'
+python3 bridge/pc_bridge.py screenshot --out /tmp/shot.png
 # write tools — expect a Yes/No dialog on the PC:
-python3 bridge/op_call.py call shell_exec '{"command": "whoami"}'
+python3 bridge/pc_bridge.py call shell_exec '{"command": "whoami"}'
 ```
 
 Tool errors come back as `{"error": "..."}` payloads (including
