@@ -54,7 +54,8 @@ class _Handler(BaseHTTPRequestHandler):
             args = body["params"].get("arguments") or {}
             if name == "submit_job":
                 payload = MANAGER.submit(args["tool"], args.get("args") or {},
-                                         args.get("idempotency_key") or None)
+                                         args.get("idempotency_key") or None,
+                                         lineage=args.get("lineage") or None)
             elif name == "job_status":
                 payload = MANAGER.status(args["job_id"])
             elif name == "job_result":
@@ -143,6 +144,18 @@ class TestSubmitPoll(ClientCase):
         result = self.op._poll_until_done(out["job_id"], sid, 30)
         self.assertEqual(result["state"], "succeeded")
         self.assertEqual(result["result"], {"echo": {"x": 1}})
+
+    def test_lineage_round_trips(self):
+        self.make_manager(lambda t, a, c: {"echo": a})
+        sid = self.session()
+        out = self.op._submit("system_info", {"x": 2}, "cli-lin-1", sid,
+                              lineage="agent")
+        st = self.op._tool_call("job_status",
+                                {"job_id": out["job_id"]}, sid)
+        self.assertEqual(st["lineage"], "agent")
+        result = self.op._poll_until_done(out["job_id"], sid, 30)
+        self.assertEqual(result["state"], "succeeded")
+        self.assertEqual(result["lineage"], "agent")
 
     def test_queue_full_surfaces_as_refusal(self):
         gate = threading.Event()

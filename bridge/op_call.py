@@ -12,8 +12,8 @@ Usage:
   PC_BRIDGE_URL=... python3 op_call.py health
   PC_BRIDGE_URL=... python3 op_call.py tools
   PC_BRIDGE_URL=... python3 op_call.py call memory_recall '{"query":"x"}'
-  PC_BRIDGE_URL=... python3 op_call.py submit shell_pwsh '{"script":"..."}' [--key K]
-  PC_BRIDGE_URL=... python3 op_call.py calljob shell_pwsh '{"script":"..."}' [--key K] [--timeout S]
+  PC_BRIDGE_URL=... python3 op_call.py submit shell_pwsh '{"script":"..."}' [--key K] [--lineage L]
+  PC_BRIDGE_URL=... python3 op_call.py calljob shell_pwsh '{"script":"..."}' [--key K] [--timeout S] [--lineage L]
   PC_BRIDGE_URL=... python3 op_call.py job <job_id>          (status)
   PC_BRIDGE_URL=... python3 op_call.py job-result <job_id>
   PC_BRIDGE_URL=... python3 op_call.py job-cancel <job_id>
@@ -182,10 +182,11 @@ def _lookup_recorded(key=None, job_id=None):
     return data.get("_last")
 
 
-def _submit(tool, args, key, sid):
-    out = _tool_call("submit_job",
-                     {"tool": tool, "args": args,
-                      "idempotency_key": key}, sid)
+def _submit(tool, args, key, sid, lineage=None):
+    payload = {"tool": tool, "args": args, "idempotency_key": key}
+    if lineage:
+        payload["lineage"] = lineage
+    out = _tool_call("submit_job", payload, sid)
     if "error" in out:
         raise SystemExit(f"submit refused: {out['error']} — "
                            f"{out.get('detail', '')}")
@@ -368,20 +369,21 @@ def main():
         except Exception:
             print(text[:4000])
     elif cmd == "submit":
-        flags, rest = _parse_flags(sys.argv[2:], ("--key",))
+        flags, rest = _parse_flags(sys.argv[2:], ("--key", "--lineage"))
         name = rest[0]
         args = json.loads(rest[1]) if len(rest) > 1 else {}
         key = flags.get("--key") or _default_key(name, args)
-        out = _submit(name, args, key, sid)
+        out = _submit(name, args, key, sid, lineage=flags.get("--lineage"))
         print(json.dumps(out))
     elif cmd == "calljob":
-        flags, rest = _parse_flags(sys.argv[2:], ("--key", "--timeout"))
+        flags, rest = _parse_flags(sys.argv[2:],
+                                   ("--key", "--timeout", "--lineage"))
         name = rest[0]
         args = json.loads(rest[1]) if len(rest) > 1 else {}
         key = flags.get("--key") or _default_key(name, args)
         timeout_s = int(flags.get(
             "--timeout", os.environ.get("PC_BRIDGE_JOB_TIMEOUT", "3600")))
-        out = _submit(name, args, key, sid)
+        out = _submit(name, args, key, sid, lineage=flags.get("--lineage"))
         if out.get("deduplicated"):
             print(f"[job] resubmission deduplicated — existing job "
                   f"{out['job_id']} ({out['state']})", file=sys.stderr)
