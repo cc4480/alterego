@@ -95,7 +95,7 @@ let token = '';
 
 function connect() {
   token = document.getElementById('token').value.trim();
-  if (!token) return;
+  // Token optional for localhost — server allows 127.0.0.1 without auth
 
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   // Connect to local bridge (Judith opens this on her PC)

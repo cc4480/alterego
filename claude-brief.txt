@@ -1,0 +1,38 @@
+You are analyzing the pc-mcp-bridge project. Read the codebase thoroughly, then provide your analysis.
+
+## Project Overview
+
+pc-mcp-bridge is a Windows MCP (Model Context Protocol) server that gives an AI assistant full remote control of a Windows PC. It runs on the PC (127.0.0.1:8765) and is exposed via a Cloudflare named tunnel at https://pc.secscan.info.
+
+## Architecture
+
+- **Provider registry + capability seams** (`pc-agent/seams/`): Windows and mock providers, clean separation
+- **Event-sourced JSONL operation log** (`pc-agent/events.py`): typed events (ToolCalled, ToolCompleted, SessionPaired, PairingDenied, etc.) with schema validation
+- **60 tools**: file ops, shell exec, screenshots, browser automation (CDP), system info, network recon (dns_query, tls_info, tcp_check, http_headers), web_search, web_fetch, task management (hash-chained), clipboard, audio, etc.
+- **Tiered approval system**: reads run silent, routine writes show native Yes/No dialogs on the PC (30s timeout = deny), DESTRUCTIVE tools always pop a dialog even in auto-approve mode
+- **Pairing**: single-use 6-digit codes, 30-min expiry, 5-attempt lockout, optional IP allowlist (PAIR_IP_ALLOWLIST env var)
+- **web_search**: SearXNG (self-hosted in Docker) → DuckDuckGo → Bing fallback chain
+- **Background execution**: exec_background with incremental output, whole-process-tree cancellation
+- All Python files capped at 300 lines (enforced)
+
+## What Was Recently Built
+
+- SHA-256 staleness guards for write_file/edit_file
+- Enhanced search_files (ripgrep fast path, context, pagination)
+- web_fetch with redirect-aware SSRF protection
+- Headless Edge auto-launch for CDP browser tools
+- SearXNG metasearch in Docker with JSON API
+- PairingDenied event type + stale import fix
+- Doctor health checks (7 checks)
+
+## Your Task
+
+Analyze this codebase from scratch. Tell me:
+
+1. **Biggest architectural risks** — what could break, what's fragile
+2. **Security gaps** — what's still exposed, what you'd harden next (be specific)
+3. **Missing capabilities** — what tools or features would make this significantly more useful
+4. **Code quality** — what's clean, what's technical debt
+5. **Top 3 recommendations** — if you could only change three things, what and why
+
+Be direct and specific. Reference actual files and functions. No fluff.

@@ -1,0 +1,1442 @@
+[
+ {
+  "name": "screenshot",
+  "description": "Capture the primary monitor as PNG (base64). Optional region and scale.",
+  "inputSchema": {
+   "properties": {
+    "region": {
+     "anyOf": [
+      {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Region"
+    },
+    "scale": {
+     "default": 1.0,
+     "title": "Scale",
+     "type": "number"
+    }
+   },
+   "type": "object",
+   "title": "screenshotArguments"
+  }
+ },
+ {
+  "name": "list_windows",
+  "description": "List visible windows: handle, pid, title.",
+  "inputSchema": {
+   "properties": {},
+   "type": "object",
+   "title": "list_windowsArguments"
+  }
+ },
+ {
+  "name": "system_info",
+  "description": "OS, host, user, CPU/memory.",
+  "inputSchema": {
+   "properties": {},
+   "type": "object",
+   "title": "system_infoArguments"
+  }
+ },
+ {
+  "name": "list_dir",
+  "description": "List a directory. Restricted to the user's profile.",
+  "inputSchema": {
+   "properties": {
+    "path": {
+     "default": "",
+     "title": "Path",
+     "type": "string"
+    }
+   },
+   "type": "object",
+   "title": "list_dirArguments"
+  }
+ },
+ {
+  "name": "read_file",
+  "description": "Read a UTF-8 text file (<=1MB). Restricted to the user's profile.",
+  "inputSchema": {
+   "properties": {
+    "path": {
+     "title": "Path",
+     "type": "string"
+    }
+   },
+   "required": [
+    "path"
+   ],
+   "type": "object",
+   "title": "read_fileArguments"
+  }
+ },
+ {
+  "name": "clipboard_get",
+  "description": "Read text from the Windows clipboard (no approval).",
+  "inputSchema": {
+   "properties": {},
+   "type": "object",
+   "title": "clipboard_getArguments"
+  }
+ },
+ {
+  "name": "memory_recall",
+  "description": "Search the on-PC memory archive (transcripts + subjects). No approval.",
+  "inputSchema": {
+   "properties": {
+    "query": {
+     "title": "Query",
+     "type": "string"
+    },
+    "limit": {
+     "default": 5,
+     "title": "Limit",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "query"
+   ],
+   "type": "object",
+   "title": "memory_recallArguments"
+  }
+ },
+ {
+  "name": "search_files",
+  "description": "Content search (regex) under a dir. Profile-restricted, no approval.",
+  "inputSchema": {
+   "properties": {
+    "pattern": {
+     "title": "Pattern",
+     "type": "string"
+    },
+    "path": {
+     "title": "Path",
+     "type": "string"
+    },
+    "file_pattern": {
+     "default": "*",
+     "title": "File Pattern",
+     "type": "string"
+    },
+    "max_results": {
+     "default": 50,
+     "title": "Max Results",
+     "type": "integer"
+    },
+    "context": {
+     "default": 0,
+     "title": "Context",
+     "type": "integer"
+    },
+    "case_insensitive": {
+     "default": false,
+     "title": "Case Insensitive",
+     "type": "boolean"
+    },
+    "output_mode": {
+     "default": "matches",
+     "title": "Output Mode",
+     "type": "string"
+    },
+    "offset": {
+     "default": 0,
+     "title": "Offset",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "pattern",
+    "path"
+   ],
+   "type": "object",
+   "title": "search_filesArguments"
+  }
+ },
+ {
+  "name": "search_filenames",
+  "description": "Find files by name glob under a dir. Profile-restricted, no approval.",
+  "inputSchema": {
+   "properties": {
+    "pattern": {
+     "title": "Pattern",
+     "type": "string"
+    },
+    "path": {
+     "title": "Path",
+     "type": "string"
+    },
+    "max_results": {
+     "default": 50,
+     "title": "Max Results",
+     "type": "integer"
+    },
+    "sort_by": {
+     "default": "name",
+     "title": "Sort By",
+     "type": "string"
+    },
+    "offset": {
+     "default": 0,
+     "title": "Offset",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "pattern",
+    "path"
+   ],
+   "type": "object",
+   "title": "search_filenamesArguments"
+  }
+ },
+ {
+  "name": "read_file_range",
+  "description": "Read 1-indexed line range (end_line=0 \u2192 start+50). Profile-restricted.",
+  "inputSchema": {
+   "properties": {
+    "path": {
+     "title": "Path",
+     "type": "string"
+    },
+    "start_line": {
+     "title": "Start Line",
+     "type": "integer"
+    },
+    "end_line": {
+     "default": 0,
+     "title": "End Line",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "path",
+    "start_line"
+   ],
+   "type": "object",
+   "title": "read_file_rangeArguments"
+  }
+ },
+ {
+  "name": "focus_window",
+  "description": "Bring a window to the foreground. Requires on-PC approval.",
+  "inputSchema": {
+   "properties": {
+    "hwnd": {
+     "title": "Hwnd",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "hwnd"
+   ],
+   "type": "object",
+   "title": "focus_windowArguments"
+  }
+ },
+ {
+  "name": "close_window",
+  "description": "Gracefully close a window (like clicking X). Requires on-PC approval.",
+  "inputSchema": {
+   "properties": {
+    "hwnd": {
+     "title": "Hwnd",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "hwnd"
+   ],
+   "type": "object",
+   "title": "close_windowArguments"
+  }
+ },
+ {
+  "name": "type_text",
+  "description": "Type text into the focused window. Requires on-PC approval.",
+  "inputSchema": {
+   "properties": {
+    "text": {
+     "title": "Text",
+     "type": "string"
+    }
+   },
+   "required": [
+    "text"
+   ],
+   "type": "object",
+   "title": "type_textArguments"
+  }
+ },
+ {
+  "name": "shell_exec",
+  "description": "Run a command in cmd.exe. Optional cwd must be inside the user\n    profile. Requires on-PC approval.",
+  "inputSchema": {
+   "properties": {
+    "command": {
+     "title": "Command",
+     "type": "string"
+    },
+    "timeout_s": {
+     "default": 60,
+     "title": "Timeout S",
+     "type": "integer"
+    },
+    "cwd": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Cwd"
+    }
+   },
+   "required": [
+    "command"
+   ],
+   "type": "object",
+   "title": "shell_execArguments"
+  }
+ },
+ {
+  "name": "hotkey",
+  "description": "Press a key combo: 'enter', 'esc', 'tab', 'ctrl+c', 'alt+f4', 'win+r'.",
+  "inputSchema": {
+   "properties": {
+    "keys": {
+     "title": "Keys",
+     "type": "string"
+    }
+   },
+   "required": [
+    "keys"
+   ],
+   "type": "object",
+   "title": "hotkeyArguments"
+  }
+ },
+ {
+  "name": "mouse_move",
+  "description": "Move the cursor to screen coordinates. Requires on-PC approval.",
+  "inputSchema": {
+   "properties": {
+    "x": {
+     "title": "X",
+     "type": "integer"
+    },
+    "y": {
+     "title": "Y",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "x",
+    "y"
+   ],
+   "type": "object",
+   "title": "mouse_moveArguments"
+  }
+ },
+ {
+  "name": "mouse_click",
+  "description": "Click at screen coordinates. Requires on-PC approval.",
+  "inputSchema": {
+   "properties": {
+    "x": {
+     "title": "X",
+     "type": "integer"
+    },
+    "y": {
+     "title": "Y",
+     "type": "integer"
+    },
+    "button": {
+     "default": "left",
+     "title": "Button",
+     "type": "string"
+    }
+   },
+   "required": [
+    "x",
+    "y"
+   ],
+   "type": "object",
+   "title": "mouse_clickArguments"
+  }
+ },
+ {
+  "name": "mouse_scroll",
+  "description": "Scroll the wheel under the cursor. Requires on-PC approval.",
+  "inputSchema": {
+   "properties": {
+    "direction": {
+     "default": "down",
+     "title": "Direction",
+     "type": "string"
+    },
+    "clicks": {
+     "default": 3,
+     "title": "Clicks",
+     "type": "integer"
+    }
+   },
+   "type": "object",
+   "title": "mouse_scrollArguments"
+  }
+ },
+ {
+  "name": "uia_find",
+  "description": "Find UI elements in a window via UI Automation (no screenshot).",
+  "inputSchema": {
+   "properties": {
+    "window": {
+     "title": "Window",
+     "type": "string"
+    },
+    "name_rx": {
+     "default": "",
+     "title": "Name Rx",
+     "type": "string"
+    },
+    "control_type": {
+     "default": "",
+     "title": "Control Type",
+     "type": "string"
+    },
+    "max_results": {
+     "default": 50,
+     "title": "Max Results",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "window"
+   ],
+   "type": "object",
+   "title": "uia_findArguments"
+  }
+ },
+ {
+  "name": "uia_click",
+  "description": "Click a UI element by name via UI Automation. Requires on-PC approval.",
+  "inputSchema": {
+   "properties": {
+    "window": {
+     "title": "Window",
+     "type": "string"
+    },
+    "name_rx": {
+     "title": "Name Rx",
+     "type": "string"
+    },
+    "control_type": {
+     "default": "",
+     "title": "Control Type",
+     "type": "string"
+    },
+    "index": {
+     "default": 0,
+     "title": "Index",
+     "type": "integer"
+    },
+    "button": {
+     "default": "left",
+     "title": "Button",
+     "type": "string"
+    }
+   },
+   "required": [
+    "window",
+    "name_rx"
+   ],
+   "type": "object",
+   "title": "uia_clickArguments"
+  }
+ },
+ {
+  "name": "uia_set_text",
+  "description": "Set text of a UI element via UI Automation. Requires on-PC approval.",
+  "inputSchema": {
+   "properties": {
+    "window": {
+     "title": "Window",
+     "type": "string"
+    },
+    "name_rx": {
+     "title": "Name Rx",
+     "type": "string"
+    },
+    "text": {
+     "title": "Text",
+     "type": "string"
+    },
+    "control_type": {
+     "default": "",
+     "title": "Control Type",
+     "type": "string"
+    },
+    "index": {
+     "default": 0,
+     "title": "Index",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "window",
+    "name_rx",
+    "text"
+   ],
+   "type": "object",
+   "title": "uia_set_textArguments"
+  }
+ },
+ {
+  "name": "minimize_window",
+  "description": "Minimize a window. Requires on-PC approval.",
+  "inputSchema": {
+   "properties": {
+    "hwnd": {
+     "title": "Hwnd",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "hwnd"
+   ],
+   "type": "object",
+   "title": "minimize_windowArguments"
+  }
+ },
+ {
+  "name": "maximize_window",
+  "description": "Maximize a window. Requires on-PC approval.",
+  "inputSchema": {
+   "properties": {
+    "hwnd": {
+     "title": "Hwnd",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "hwnd"
+   ],
+   "type": "object",
+   "title": "maximize_windowArguments"
+  }
+ },
+ {
+  "name": "kill_process",
+  "description": "Terminate a process by PID. Requires on-PC approval.",
+  "inputSchema": {
+   "properties": {
+    "pid": {
+     "title": "Pid",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "pid"
+   ],
+   "type": "object",
+   "title": "kill_processArguments"
+  }
+ },
+ {
+  "name": "clipboard_set",
+  "description": "Put text on the Windows clipboard. Requires on-PC approval.",
+  "inputSchema": {
+   "properties": {
+    "text": {
+     "title": "Text",
+     "type": "string"
+    }
+   },
+   "required": [
+    "text"
+   ],
+   "type": "object",
+   "title": "clipboard_setArguments"
+  }
+ },
+ {
+  "name": "paste_text",
+  "description": "Paste text into the focused window (reliable for long text).",
+  "inputSchema": {
+   "properties": {
+    "text": {
+     "title": "Text",
+     "type": "string"
+    }
+   },
+   "required": [
+    "text"
+   ],
+   "type": "object",
+   "title": "paste_textArguments"
+  }
+ },
+ {
+  "name": "write_file",
+  "description": "Create/overwrite a UTF-8 text file. Approval unless dry_run.\n    expected_sha256 fails the write if the file changed since read.",
+  "inputSchema": {
+   "properties": {
+    "path": {
+     "title": "Path",
+     "type": "string"
+    },
+    "content": {
+     "title": "Content",
+     "type": "string"
+    },
+    "dry_run": {
+     "default": false,
+     "title": "Dry Run",
+     "type": "boolean"
+    },
+    "expected_sha256": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Expected Sha256"
+    }
+   },
+   "required": [
+    "path",
+    "content"
+   ],
+   "type": "object",
+   "title": "write_fileArguments"
+  }
+ },
+ {
+  "name": "edit_file",
+  "description": "Replace old_text with new_text. Fails on multiple matches unless\n    require_unique=False. Always returns a diff preview.\n    expected_sha256 fails the edit if the file changed since read.\n    Approval unless dry_run.",
+  "inputSchema": {
+   "properties": {
+    "path": {
+     "title": "Path",
+     "type": "string"
+    },
+    "old_text": {
+     "title": "Old Text",
+     "type": "string"
+    },
+    "new_text": {
+     "title": "New Text",
+     "type": "string"
+    },
+    "dry_run": {
+     "default": false,
+     "title": "Dry Run",
+     "type": "boolean"
+    },
+    "require_unique": {
+     "default": true,
+     "title": "Require Unique",
+     "type": "boolean"
+    },
+    "read_before": {
+     "default": true,
+     "title": "Read Before",
+     "type": "boolean"
+    },
+    "expected_sha256": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Expected Sha256"
+    }
+   },
+   "required": [
+    "path",
+    "old_text",
+    "new_text"
+   ],
+   "type": "object",
+   "title": "edit_fileArguments"
+  }
+ },
+ {
+  "name": "delete_file",
+  "description": "Permanently delete a file. Approval unless dry_run.",
+  "inputSchema": {
+   "properties": {
+    "path": {
+     "title": "Path",
+     "type": "string"
+    },
+    "dry_run": {
+     "default": false,
+     "title": "Dry Run",
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "path"
+   ],
+   "type": "object",
+   "title": "delete_fileArguments"
+  }
+ },
+ {
+  "name": "create_dir",
+  "description": "Create a directory (parents too). Approval unless dry_run.",
+  "inputSchema": {
+   "properties": {
+    "path": {
+     "title": "Path",
+     "type": "string"
+    },
+    "dry_run": {
+     "default": false,
+     "title": "Dry Run",
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "path"
+   ],
+   "type": "object",
+   "title": "create_dirArguments"
+  }
+ },
+ {
+  "name": "copy_file",
+  "description": "Copy a file (metadata preserved). Approval unless dry_run.",
+  "inputSchema": {
+   "properties": {
+    "src": {
+     "title": "Src",
+     "type": "string"
+    },
+    "dst": {
+     "title": "Dst",
+     "type": "string"
+    },
+    "dry_run": {
+     "default": false,
+     "title": "Dry Run",
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "src",
+    "dst"
+   ],
+   "type": "object",
+   "title": "copy_fileArguments"
+  }
+ },
+ {
+  "name": "move_file",
+  "description": "Move/rename a file. Approval unless dry_run.",
+  "inputSchema": {
+   "properties": {
+    "src": {
+     "title": "Src",
+     "type": "string"
+    },
+    "dst": {
+     "title": "Dst",
+     "type": "string"
+    },
+    "dry_run": {
+     "default": false,
+     "title": "Dry Run",
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "src",
+    "dst"
+   ],
+   "type": "object",
+   "title": "move_fileArguments"
+  }
+ },
+ {
+  "name": "file_info",
+  "description": "Size and timestamps for a file or directory (no approval).",
+  "inputSchema": {
+   "properties": {
+    "path": {
+     "title": "Path",
+     "type": "string"
+    }
+   },
+   "required": [
+    "path"
+   ],
+   "type": "object",
+   "title": "file_infoArguments"
+  }
+ },
+ {
+  "name": "browser_snapshot",
+  "description": "List interactive elements of the live Edge tab (no approval).",
+  "inputSchema": {
+   "properties": {
+    "url_contains": {
+     "default": "",
+     "title": "Url Contains",
+     "type": "string"
+    }
+   },
+   "type": "object",
+   "title": "browser_snapshotArguments"
+  }
+ },
+ {
+  "name": "browser_navigate",
+  "description": "Navigate the Edge tab to a URL. Requires on-PC approval.",
+  "inputSchema": {
+   "properties": {
+    "url": {
+     "title": "Url",
+     "type": "string"
+    },
+    "url_contains": {
+     "default": "",
+     "title": "Url Contains",
+     "type": "string"
+    }
+   },
+   "required": [
+    "url"
+   ],
+   "type": "object",
+   "title": "browser_navigateArguments"
+  }
+ },
+ {
+  "name": "browser_click",
+  "description": "Click the element containing text in the Edge tab. Requires approval.",
+  "inputSchema": {
+   "properties": {
+    "text": {
+     "title": "Text",
+     "type": "string"
+    },
+    "url_contains": {
+     "default": "",
+     "title": "Url Contains",
+     "type": "string"
+    }
+   },
+   "required": [
+    "text"
+   ],
+   "type": "object",
+   "title": "browser_clickArguments"
+  }
+ },
+ {
+  "name": "browser_fill",
+  "description": "Fill the field matching label in the Edge tab. Requires approval.",
+  "inputSchema": {
+   "properties": {
+    "label": {
+     "title": "Label",
+     "type": "string"
+    },
+    "text": {
+     "title": "Text",
+     "type": "string"
+    },
+    "url_contains": {
+     "default": "",
+     "title": "Url Contains",
+     "type": "string"
+    }
+   },
+   "required": [
+    "label",
+    "text"
+   ],
+   "type": "object",
+   "title": "browser_fillArguments"
+  }
+ },
+ {
+  "name": "browser_eval",
+  "description": "Run JavaScript in the Edge tab. Requires on-PC approval.",
+  "inputSchema": {
+   "properties": {
+    "js": {
+     "title": "Js",
+     "type": "string"
+    },
+    "url_contains": {
+     "default": "",
+     "title": "Url Contains",
+     "type": "string"
+    }
+   },
+   "required": [
+    "js"
+   ],
+   "type": "object",
+   "title": "browser_evalArguments"
+  }
+ },
+ {
+  "name": "shell_pwsh",
+  "description": "Run a PowerShell script directly (no cmd.exe wrapping). Optional cwd\n    must be inside the user profile. Requires approval.",
+  "inputSchema": {
+   "properties": {
+    "script": {
+     "title": "Script",
+     "type": "string"
+    },
+    "timeout_s": {
+     "default": 60,
+     "title": "Timeout S",
+     "type": "integer"
+    },
+    "cwd": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Cwd"
+    }
+   },
+   "required": [
+    "script"
+   ],
+   "type": "object",
+   "title": "shell_pwshArguments"
+  }
+ },
+ {
+  "name": "batch",
+  "description": "Run up to 20 tool calls in one roundtrip. One approval covers all writes.",
+  "inputSchema": {
+   "properties": {
+    "calls": {
+     "items": {},
+     "title": "Calls",
+     "type": "array"
+    }
+   },
+   "required": [
+    "calls"
+   ],
+   "type": "object",
+   "title": "batchArguments"
+  }
+ },
+ {
+  "name": "exec_background",
+  "description": "Start a long-running shell command in the background. Returns a\n    job_id for polling with exec_status or killing with exec_cancel.\n    Optional cwd must be inside the user profile. Requires on-PC approval.",
+  "inputSchema": {
+   "properties": {
+    "command": {
+     "title": "Command",
+     "type": "string"
+    },
+    "timeout_s": {
+     "default": 300,
+     "title": "Timeout S",
+     "type": "integer"
+    },
+    "cwd": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Cwd"
+    }
+   },
+   "required": [
+    "command"
+   ],
+   "type": "object",
+   "title": "exec_backgroundArguments"
+  }
+ },
+ {
+  "name": "exec_status",
+  "description": "Check on a background job started with exec_background. offset\n    (bytes) enables incremental output polling.",
+  "inputSchema": {
+   "properties": {
+    "job_id": {
+     "title": "Job Id",
+     "type": "string"
+    },
+    "offset": {
+     "default": 0,
+     "title": "Offset",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "job_id"
+   ],
+   "type": "object",
+   "title": "exec_statusArguments"
+  }
+ },
+ {
+  "name": "exec_cancel",
+  "description": "Kill a running background job started with exec_background.",
+  "inputSchema": {
+   "properties": {
+    "job_id": {
+     "title": "Job Id",
+     "type": "string"
+    }
+   },
+   "required": [
+    "job_id"
+   ],
+   "type": "object",
+   "title": "exec_cancelArguments"
+  }
+ },
+ {
+  "name": "http_headers",
+  "description": "GET a URL, return status + response headers. No approval (read-only).",
+  "inputSchema": {
+   "properties": {
+    "url": {
+     "title": "Url",
+     "type": "string"
+    },
+    "timeout_s": {
+     "default": 20,
+     "title": "Timeout S",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "url"
+   ],
+   "type": "object",
+   "title": "http_headersArguments"
+  }
+ },
+ {
+  "name": "dns_query",
+  "description": "Resolve DNS records (A AAAA CNAME MX NS TXT DNSKEY SOA). No approval.",
+  "inputSchema": {
+   "properties": {
+    "domain": {
+     "title": "Domain",
+     "type": "string"
+    },
+    "rtype": {
+     "default": "A",
+     "title": "Rtype",
+     "type": "string"
+    }
+   },
+   "required": [
+    "domain"
+   ],
+   "type": "object",
+   "title": "dns_queryArguments"
+  }
+ },
+ {
+  "name": "tls_info",
+  "description": "TLS handshake: version, cipher, cert subject/issuer/expiry. No approval.",
+  "inputSchema": {
+   "properties": {
+    "host": {
+     "title": "Host",
+     "type": "string"
+    },
+    "port": {
+     "default": 443,
+     "title": "Port",
+     "type": "integer"
+    },
+    "timeout_s": {
+     "default": 15,
+     "title": "Timeout S",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "host"
+   ],
+   "type": "object",
+   "title": "tls_infoArguments"
+  }
+ },
+ {
+  "name": "tcp_check",
+  "description": "TCP connect check across ports (open/closed/filtered). No approval.",
+  "inputSchema": {
+   "properties": {
+    "host": {
+     "title": "Host",
+     "type": "string"
+    },
+    "ports": {
+     "items": {},
+     "title": "Ports",
+     "type": "array"
+    },
+    "timeout_s": {
+     "default": 3,
+     "title": "Timeout S",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "host",
+    "ports"
+   ],
+   "type": "object",
+   "title": "tcp_checkArguments"
+  }
+ },
+ {
+  "name": "web_fetch",
+  "description": "Fetch a URL, return its readable text. SSRF-guarded: public IPs only,\n    every redirect hop re-checked, optional host rules. Approval in\n    default mode (skipped when dontAsk).",
+  "inputSchema": {
+   "properties": {
+    "url": {
+     "title": "Url",
+     "type": "string"
+    },
+    "max_bytes": {
+     "default": 100000,
+     "title": "Max Bytes",
+     "type": "integer"
+    },
+    "timeout_s": {
+     "default": 15,
+     "title": "Timeout S",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "url"
+   ],
+   "type": "object",
+   "title": "web_fetchArguments"
+  }
+ },
+ {
+  "name": "web_search",
+  "description": "Search the web without an API key (DuckDuckGo/Bing scraping,\n    optional self-hosted SearXNG). Returns title/url/snippet per result.\n    Approval in default mode (skipped when dontAsk).",
+  "inputSchema": {
+   "properties": {
+    "query": {
+     "title": "Query",
+     "type": "string"
+    },
+    "max_results": {
+     "default": 10,
+     "title": "Max Results",
+     "type": "integer"
+    },
+    "backend": {
+     "default": "auto",
+     "title": "Backend",
+     "type": "string"
+    }
+   },
+   "required": [
+    "query"
+   ],
+   "type": "object",
+   "title": "web_searchArguments"
+  }
+ },
+ {
+  "name": "active_window",
+  "description": "Foreground window: hwnd, title, pid, process. No approval.",
+  "inputSchema": {
+   "properties": {},
+   "type": "object",
+   "title": "active_windowArguments"
+  }
+ },
+ {
+  "name": "idle_seconds",
+  "description": "Seconds since last keyboard/mouse input. No approval.",
+  "inputSchema": {
+   "properties": {},
+   "type": "object",
+   "title": "idle_secondsArguments"
+  }
+ },
+ {
+  "name": "list_processes",
+  "description": "Running processes (pid + exe). No approval.",
+  "inputSchema": {
+   "properties": {},
+   "type": "object",
+   "title": "list_processesArguments"
+  }
+ },
+ {
+  "name": "notify",
+  "description": "Windows tray balloon notification. Requires approval.",
+  "inputSchema": {
+   "properties": {
+    "title": {
+     "title": "Title",
+     "type": "string"
+    },
+    "message": {
+     "title": "Message",
+     "type": "string"
+    },
+    "timeout_s": {
+     "default": 5,
+     "title": "Timeout S",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "title",
+    "message"
+   ],
+   "type": "object",
+   "title": "notifyArguments"
+  }
+ },
+ {
+  "name": "speak",
+  "description": "Speak text aloud through the PC speakers. Requires approval.",
+  "inputSchema": {
+   "properties": {
+    "text": {
+     "title": "Text",
+     "type": "string"
+    }
+   },
+   "required": [
+    "text"
+   ],
+   "type": "object",
+   "title": "speakArguments"
+  }
+ },
+ {
+  "name": "set_volume",
+  "description": "Set master volume 0-100. Requires approval.",
+  "inputSchema": {
+   "properties": {
+    "level": {
+     "title": "Level",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "level"
+   ],
+   "type": "object",
+   "title": "set_volumeArguments"
+  }
+ },
+ {
+  "name": "power",
+  "description": "lock | sleep | restart | shutdown. Requires approval.",
+  "inputSchema": {
+   "properties": {
+    "action": {
+     "title": "Action",
+     "type": "string"
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "type": "object",
+   "title": "powerArguments"
+  }
+ },
+ {
+  "name": "task_create",
+  "description": "Create a signed task record with a step plan. No approval.",
+  "inputSchema": {
+   "properties": {
+    "goal": {
+     "title": "Goal",
+     "type": "string"
+    },
+    "plan": {
+     "items": {},
+     "title": "Plan",
+     "type": "array"
+    }
+   },
+   "required": [
+    "goal",
+    "plan"
+   ],
+   "type": "object",
+   "title": "task_createArguments"
+  }
+ },
+ {
+  "name": "task_checkpoint",
+  "description": "Append a signed checkpoint to a task. No approval.",
+  "inputSchema": {
+   "properties": {
+    "task_id": {
+     "title": "Task Id",
+     "type": "string"
+    },
+    "step": {
+     "title": "Step",
+     "type": "integer"
+    },
+    "result": {
+     "title": "Result",
+     "type": "string"
+    },
+    "done": {
+     "default": true,
+     "title": "Done",
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "task_id",
+    "step",
+    "result"
+   ],
+   "type": "object",
+   "title": "task_checkpointArguments"
+  }
+ },
+ {
+  "name": "task_status",
+  "description": "Get a task's verified status, or list all tasks. No approval.",
+  "inputSchema": {
+   "properties": {
+    "task_id": {
+     "default": "",
+     "title": "Task Id",
+     "type": "string"
+    }
+   },
+   "type": "object",
+   "title": "task_statusArguments"
+  }
+ },
+ {
+  "name": "arbitrate_tool",
+  "description": "Rank candidate tool sequences by risk. No approval.",
+  "inputSchema": {
+   "properties": {
+    "trajectories": {
+     "items": {},
+     "title": "Trajectories",
+     "type": "array"
+    }
+   },
+   "required": [
+    "trajectories"
+   ],
+   "type": "object",
+   "title": "arbitrate_toolArguments"
+  }
+ },
+ {
+  "name": "doctor",
+  "description": "Bridge health check: Python, port, Defender, Startup, tunnel, disk.\n    Each check returns ok/warning/fail + a specific fix command. No approval.",
+  "inputSchema": {
+   "properties": {},
+   "type": "object",
+   "title": "doctorArguments"
+  }
+ },
+ {
+  "name": "query_events",
+  "description": "Search the event-sourced operation log: filter by tool name, event\n    type, session, and time window (5m/1h/24h/7d/30d or ISO). Read-only,\n    no approval.",
+  "inputSchema": {
+   "properties": {
+    "tool": {
+     "default": null,
+     "title": "Tool",
+     "type": "string"
+    },
+    "type": {
+     "default": null,
+     "title": "Type",
+     "type": "string"
+    },
+    "since": {
+     "default": "7d",
+     "title": "Since",
+     "type": "string"
+    },
+    "session_id": {
+     "default": null,
+     "title": "Session Id",
+     "type": "string"
+    },
+    "limit": {
+     "default": 50,
+     "title": "Limit",
+     "type": "integer"
+    }
+   },
+   "type": "object",
+   "title": "query_eventsArguments"
+  }
+ },
+ {
+  "name": "replay_session",
+  "description": "Full causal transcript of one operator session \u2014 verify reported\n    operations against the log. Read-only, no approval.",
+  "inputSchema": {
+   "properties": {
+    "session_id": {
+     "title": "Session Id",
+     "type": "string"
+    },
+    "format": {
+     "default": "human",
+     "title": "Format",
+     "type": "string"
+    }
+   },
+   "required": [
+    "session_id"
+   ],
+   "type": "object",
+   "title": "replay_sessionArguments"
+  }
+ }
+]

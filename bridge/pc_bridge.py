@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Minimal MCP (Streamable HTTP) client CLI for pc-mcp-bridge.
 
+DEPRECATED — use bridge/op_call.py instead. It is stdlib-only, persists the
+session token (token_store.py), retries tunnel flaps, and has a layered
+`health` check. This file is kept for compatibility and will warn on use.
+
 Env:
   PC_BRIDGE_URL    e.g. https://abc-123.trycloudflare.com   (/mcp is appended)
   PC_BRIDGE_TOKEN  bearer token from the PC's %APPDATA%/pc-mcp-bridge/token
@@ -103,6 +107,8 @@ class Bridge:
 
 
 def main():
+    print("pc_bridge.py is deprecated — use bridge/op_call.py instead",
+          file=sys.stderr)
     ap = argparse.ArgumentParser(prog="pc_bridge")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("tools", help="list remote tools")

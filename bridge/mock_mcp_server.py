@@ -4,9 +4,17 @@
 Speaks just enough MCP Streamable HTTP:
   initialize                 -> protocolVersion + serverInfo (+ Mcp-Session-Id)
   notifications/initialized  -> 202
-  tools/list                 -> echo, screenshot, system_info
+  tools/list                 -> real tool schemas from tools.json (canned data)
   tools/call                 -> echo returns args; screenshot returns a
                                 generated PNG as base64 JSON text content
+
+tools.json is generated from the live server's tools/list so client tests
+exercise real shapes. Regenerate it any time with:
+  python3 -c "
+  import json, subprocess
+  ..."  # or: op_call.py tools --json (when supported)
+
+Falls back to the 3 built-in demo tools if tools.json is missing.
 
 Run:  python3 mock_mcp_server.py [port]   (default 8765)
 """
@@ -22,6 +30,30 @@ SESSION = "mock-session-1"
 PROTO = "2025-06-18"
 # Bearer token the mock expects (default "secret"); wrong token -> 401.
 MOCK_TOKEN = os.environ.get("MOCK_TOKEN", "secret")
+
+
+def _load_tools():
+    here = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(here, "tools.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            tools = json.load(f)
+        print(f"mock: loaded {len(tools)} tool schemas from tools.json")
+        return tools
+    except (OSError, ValueError) as e:
+        print(f"mock: tools.json unavailable ({e}) — using built-in demo tools")
+        return [
+            {"name": "echo", "description": "Echo back arguments",
+             "inputSchema": {"type": "object"}},
+            {"name": "screenshot", "description": "Fake screenshot (generated PNG)",
+             "inputSchema": {"type": "object"}},
+            {"name": "system_info", "description": "Fake system info",
+             "inputSchema": {"type": "object"}},
+        ]
+
+
+TOOLS = _load_tools()
+_KNOWN = {t["name"] for t in TOOLS}
 
 
 def make_png(w=96, h=64) -> bytes:
@@ -49,33 +81,16 @@ def make_png(w=96, h=64) -> bytes:
 
 PNG_B64 = base64.b64encode(make_png()).decode("ascii")
 
-TOOLS = [
-    {
-        "name": "echo",
-        "description": "Echo back arguments",
-        "inputSchema": {"type": "object"},
-    },
-    {
-        "name": "screenshot",
-        "description": "Fake screenshot (generated PNG)",
-        "inputSchema": {"type": "object"},
-    },
-    {
-        "name": "system_info",
-        "description": "Fake system info",
-        "inputSchema": {"type": "object"},
-    },
-]
-
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
     def _send(self, obj, status=200, session=False):
-        body = json.dumps(obj).encode()
+        # SSE envelope, like the real server (op_call.py only parses SSE).
+        body = ("data: " + json.dumps(obj) + "\n").encode()
         self.send_response(status)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Type", "text/event-stream")
         self.send_header("Content-Length", str(len(body)))
         if session:
             self.send_header("Mcp-Session-Id", SESSION)
@@ -120,8 +135,19 @@ class Handler(BaseHTTPRequestHandler):
                 )
             elif name == "system_info":
                 text = json.dumps({"system": "Windows", "mock": True})
+            elif name in _KNOWN:
+                # Canned response with the real arg shape echoed back —
+                # exercises client schema handling without a PC.
+                text = json.dumps({"mock": True, "tool": name, "arguments": args})
             else:
-                text = json.dumps({"echo": args})
+                self._send(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": mid,
+                        "error": {"code": -32602, "message": f"unknown tool: {name}"},
+                    }
+                )
+                return
             self._send(
                 {
                     "jsonrpc": "2.0",
