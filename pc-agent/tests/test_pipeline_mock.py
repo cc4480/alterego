@@ -36,6 +36,7 @@ ARGS = {
     "file_info": {"path": "seed.txt"},
     "active_window": {}, "idle_seconds": {}, "list_processes": {},
     "notify": {"title": "t", "message": "m"}, "speak": {"text": "hi"},
+    "record_audio": {"duration_s": 2, "device": None},
     "set_volume": {"level": 50}, "power": {"action": "shutdown"},
     "browser_snapshot": {},
     "browser_navigate": {"url": "https://example.com"},
@@ -69,7 +70,7 @@ ARGS = {
 ALL_NAMES = [d.name for d in definitions.ALL_DEFS]
 PARAM_NAMES = [n for n in ALL_NAMES
                if n not in ("task_checkpoint", "task_status")]
-assert len(PARAM_NAMES) == 61, len(PARAM_NAMES)
+assert len(PARAM_NAMES) == 62, len(PARAM_NAMES)
 
 
 def _write_flag(name):

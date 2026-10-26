@@ -69,6 +69,40 @@ SPEAK = ToolDef(
                    "ports.",
 )
 
+RECORD_AUDIO = ToolDef(
+    name="record_audio",
+    group="pc",
+    doc="Record microphone audio to a WAV clip. Always requires approval "
+        "(always_ask: a returned clip cannot be recalled).",
+    args={"duration_s": {"type": "int", "default": 5, "required": False},
+          "device": {"type": "str", "required": False}},
+    result_keys=["wav_base64", "duration_s", "sample_rate", "channels",
+                 "peak", "rms", "near_silent", "backend", "device"],
+    approval_tier="always_ask",
+    side_effects="session",
+    platform_notes="Windows backend chain (zero new deps; per "
+                   "research/CAPTURE-BACKENDS.md 2026-10-26): PRIMARY "
+                   "winmm waveIn via ctypes — devices enumerated by name "
+                   "(waveInGetDevCapsW; names truncate at 31 chars), a "
+                   "device hint matches by substring, raw PCM16 gives an "
+                   "exact peak, failures are named MMSYSERR_* codes. "
+                   "FALLBACK ffmpeg dshow, only when ffmpeg is on PATH. "
+                   "LAST RESORT winmm MCI (mciSendString): system default "
+                   "device ONLY (cannot select a device — never used "
+                   "when a device hint is given) and a known WAV-header "
+                   "quirk. A device hint that matches no enumerated "
+                   "device (waveIn) and no dshow device (ffmpeg) fails "
+                   "loud — the wrong mic is never recorded silently. "
+                   "Linux: arecord/ffmpeg (not implemented in this slice "
+                   "— honest gap). macOS: ffmpeg avfoundation (gap). "
+                   "The 1-30s duration cap ports. peak/rms are 0.0-1.0 "
+                   "of full scale, computed from the raw PCM. A "
+                   "near-silent capture (peak < 0.01) is a FAILURE "
+                   "(silent_capture error naming the measured peak), "
+                   "never a successful silent WAV — so near_silent is "
+                   "always False in a returned result.",
+)
+
 SET_VOLUME = ToolDef(
     name="set_volume",
     group="pc",
@@ -98,4 +132,4 @@ POWER = ToolDef(
 )
 
 ALL_PC_DEFS = [ACTIVE_WINDOW, IDLE_SECONDS, LIST_PROCESSES, NOTIFY,
-               SPEAK, SET_VOLUME, POWER]
+               SPEAK, RECORD_AUDIO, SET_VOLUME, POWER]

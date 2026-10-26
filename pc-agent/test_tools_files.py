@@ -109,8 +109,11 @@ def test_denied_raises(tmp_path):
 
 def test_wrappers_register_all():
     names = [f.__name__ for f in tool_wrappers.ALL_TOOLS]
-    assert len(names) == 50, names
-    assert len(set(names)) == 50, "duplicate tool names"
+    # NOTE: this asserted 50 for a long time while the real count had
+    # already drifted to 63 on main (measured 2026-10-26); 64 here is
+    # 63 + record_audio. The integrator reconciles the merged count.
+    assert len(names) == 64, names
+    assert len(set(names)) == 64, "duplicate tool names"
     for n in ("write_file", "edit_file", "delete_file", "create_dir",
               "close_window", "hotkey", "mouse_move", "mouse_click",
               "mouse_scroll", "minimize_window", "maximize_window",
@@ -119,7 +122,7 @@ def test_wrappers_register_all():
               "memory_recall", "shell_pwsh", "batch",
               "http_headers", "dns_query", "tls_info", "tcp_check",
               "active_window", "idle_seconds", "list_processes",
-              "notify", "speak", "set_volume", "power"):
+              "notify", "speak", "record_audio", "set_volume", "power"):
         assert n in names, n
     print("PASS wrappers: 50 tools registered")
 
@@ -156,6 +159,7 @@ def test_pc_tools_validation():
     # validation paths only (windll calls need Windows); approval must not fire
     for fn, bad in ((P.notify, [("", "m"), ("t", ""), (None, "m")]),
                     (P.speak, ["", "   ", None, "x" * 501]),
+                    (P.record_audio, [0, -1, 31, "5", None, True]),
                     (P.power, ["explode", "", None])):
         for b in bad:
             try:
