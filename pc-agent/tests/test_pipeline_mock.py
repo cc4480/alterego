@@ -2,7 +2,7 @@
 provider — hooks -> plan-mode -> execute -> typed events (the primary
 record since the Phase 5 cutover; the legacy audit.log is gone).
 
-Covers: result_keys contract for all 61 tools, hook allow/deny/modify,
+Covers: result_keys contract for all 71 tools, hook allow/deny/modify,
 plan-mode dry-run, approval tiers, and the expected event chain per call.
 """
 import pytest
@@ -42,6 +42,16 @@ ARGS = {
     "browser_click": {"text": "OK"},
     "browser_fill": {"label": "q", "text": "x"},
     "browser_eval": {"js": "1+1"},
+    "cdp_launch": {},
+    "cdp_connect": {},
+    "cdp_targets": {},
+    "cdp_navigate": {"url": "https://example.com"},
+    "cdp_snapshot": {},
+    "cdp_click": {"text": "OK"},
+    "cdp_type": {"text": "x", "label": "q"},
+    "cdp_evaluate": {"js": "1+1"},
+    "cdp_readback": {},
+    "cdp_close": {},
     "http_headers": {"url": "https://example.com"},
     "dns_query": {"domain": "example.com"},
     "tls_info": {"host": "example.com"},
@@ -69,7 +79,7 @@ ARGS = {
 ALL_NAMES = [d.name for d in definitions.ALL_DEFS]
 PARAM_NAMES = [n for n in ALL_NAMES
                if n not in ("task_checkpoint", "task_status")]
-assert len(PARAM_NAMES) == 61, len(PARAM_NAMES)
+assert len(PARAM_NAMES) == 71, len(PARAM_NAMES)
 
 
 def _write_flag(name):
