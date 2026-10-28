@@ -163,6 +163,51 @@ clickable, clicks confirmed via page title changes.
 
 `url_contains` picks which tab when several are open (e.g. `"seclayer"`).
 
+### Chrome CDP session hand (`cdp_*`)
+
+The deterministic presentation hand, added on the 2026-10-28
+browser-execution proof (raw CDP route 3.3–5.3 s, every action verified
+by readback, vs 147 s+ unverified for screenshot/type; browser-use was
+rejected — it deadlocked). Where `browser_*` attaches opportunistically
+to a headless Edge for one-shot DOM access, `cdp_*` owns a **visible
+Chrome session across calls**: `cdp_launch` starts installed Chrome on
+a prepared presentation profile under the agent data area
+(`%LocalAppData%\AlterEgo\cdp-profiles\presentation` — the user's real
+Chrome profile is refused), and every later op acts on that session
+until `cdp_close`.
+
+Protocol discipline (the proof's two hard lessons): page operations go
+over the **per-target WebSocket** from `/json/list` — never a
+flatten-mode browser session, whose responses silently vanished under
+load — and a **background reader thread** routes responses by id and
+absorbs events, so interleaved protocol traffic cannot starve a
+command. Every command has a timeout that fails loudly. Actions are
+addressed by DOM identity (selector or text/label), never coordinates,
+and each returns its readback: navigation waits for the load event,
+typing requires value-readback equality, clicks return the landing
+URL/title. `cdp_close` shuts a launched browser down **gracefully**
+(`Browser.close`) — a forced kill marks the profile's exit unclean and
+summons the "Restore pages?" bubble next launch; the launch flags and
+a clean-exit Preferences seed suppress that bubble as well.
+
+| Tool | Args | Approval | What it does |
+|---|---|---|---|
+| `cdp_launch` | `profile_dir`, `debug_port`, `start_url` (all optional) | Yes | Launches Chrome on the presentation profile, attaches the session; returns port/pid/profile + landing readback |
+| `cdp_connect` | `debug_port` (optional) | Yes | Attaches to a Chrome already serving a debug port (no ownership; close only detaches) |
+| `cdp_targets` | `target_id` (optional) | No | Lists page targets; switches the active target when given |
+| `cdp_navigate` | `url`, `timeout_s` (optional) | Yes | Navigates and proves the landing (url + title); hard timeout, never a silent hang |
+| `cdp_snapshot` | — | No | Interactive elements with stable CSS selectors — the addressing primitive |
+| `cdp_click` | `selector` or `text` | Yes | Clicks by identity; returns the landing readback + whether it moved |
+| `cdp_type` | `text`, `selector` or `label`, `clear_first` (default true) | Yes | Types via `Input.insertText`; readback must equal the typed text or the call fails |
+| `cdp_evaluate` | `js` | Yes (always) | Runs JavaScript in the tab (escape hatch; same tier as `browser_eval`) |
+| `cdp_readback` | — | No | URL, title, ready_state, active element — verify a landing without acting |
+| `cdp_close` | `delete_profile` (optional) | Yes | Graceful `Browser.close` for a launched browser; detach for an attached one |
+
+Live status: unit-proven (fake-socket suites, incl. the interleaved-
+frame regression); on-PC smoke script ships at
+`pc-agent/smoke_chrome_cdp.py` (data-URL route, no external network)
+— **not yet run on a PC**; its pass is the hand's first-light receipt.
+
 Live-verified 2026-10-04 (Edge 154, fresh `--user-data-dir` profile):
 
 - `browser_snapshot` returned real element lists for two pages

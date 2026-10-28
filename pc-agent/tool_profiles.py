@@ -65,6 +65,25 @@ PROFILES = {
     "browser_navigate": _p("session", 9, ("tab navigates",), "navigate back"),
     "browser_click": _p("session", 7, ("page element activated",), "depends on element"),
     "browser_fill": _p("session", 7, ("form field filled",), "clear field", ("user_data",)),
+    # ---- Chrome CDP session hand (cdp_*): agent-owned presentation
+    # profile; tiers mirror the browser_* analogs by blast radius ----
+    "cdp_launch": _p("session", 7, ("Chrome process launched on a "
+                                    "presentation profile",),
+                     "close browser"),
+    "cdp_connect": _p("session", 9, ("CDP session attached to a "
+                                     "running browser",), "detach"),
+    "cdp_targets": _p("none", 10),
+    "cdp_navigate": _p("session", 9, ("tab navigates",), "navigate back"),
+    "cdp_snapshot": _p("none", 10),
+    "cdp_click": _p("session", 7, ("page element activated",),
+                    "depends on element"),
+    "cdp_type": _p("session", 7, ("form field filled",), "clear field",
+                   ("user_data",)),
+    "cdp_evaluate": _p("session", 4, ("arbitrary JavaScript in page",),
+                       "depends on script", ("destructive",)),
+    "cdp_readback": _p("none", 10),
+    "cdp_close": _p("session", 8, ("browser closed gracefully",),
+                    "relaunch browser"),
     "notify": _p("session", 10, ("toast notification shown",), "dismiss notification"),
     "speak": _p("session", 10, ("text spoken aloud",)),
     "set_volume": _p("session", 10, ("volume changed",), "restore previous volume"),
