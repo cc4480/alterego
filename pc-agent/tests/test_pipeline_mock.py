@@ -2,7 +2,7 @@
 provider — hooks -> plan-mode -> execute -> typed events (the primary
 record since the Phase 5 cutover; the legacy audit.log is gone).
 
-Covers: result_keys contract for all 61 tools, hook allow/deny/modify,
+Covers: result_keys contract for all 63 tools, hook allow/deny/modify,
 plan-mode dry-run, approval tiers, and the expected event chain per call.
 """
 import pytest
@@ -17,7 +17,8 @@ from conftest import events_for, read_events
 # Canonical args for tools that need no cross-test state. task_checkpoint
 # and task_status are exercised in test_task_lifecycle instead.
 ARGS = {
-    "screenshot": {}, "list_windows": {}, "system_info": {},
+    "screenshot": {}, "camera_snapshot": {}, "list_windows": {},
+    "system_info": {},
     "list_dir": {"path": ""}, "read_file": {"path": "seed.txt"},
     "clipboard_get": {},
     "focus_window": {"hwnd": 12345}, "close_window": {"hwnd": 12345},
@@ -36,6 +37,7 @@ ARGS = {
     "file_info": {"path": "seed.txt"},
     "active_window": {}, "idle_seconds": {}, "list_processes": {},
     "notify": {"title": "t", "message": "m"}, "speak": {"text": "hi"},
+    "record_audio": {"duration_s": 2, "device": None},
     "set_volume": {"level": 50}, "power": {"action": "shutdown"},
     "browser_snapshot": {},
     "browser_navigate": {"url": "https://example.com"},
@@ -69,7 +71,7 @@ ARGS = {
 ALL_NAMES = [d.name for d in definitions.ALL_DEFS]
 PARAM_NAMES = [n for n in ALL_NAMES
                if n not in ("task_checkpoint", "task_status")]
-assert len(PARAM_NAMES) == 61, len(PARAM_NAMES)
+assert len(PARAM_NAMES) == 63, len(PARAM_NAMES)
 
 
 def _write_flag(name):

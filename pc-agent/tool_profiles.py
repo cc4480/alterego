@@ -17,6 +17,13 @@ def _p(blast, rec, effects=(), undo=None, tags=()):
 PROFILES = {
     # ---- read-only: no blast, fully recoverable ----
     "screenshot": _p("none", 10),
+    # Senses capture: a returned frame cannot be recalled, so honest
+    # recoverability is 3 — which computes to always_ask (never silent,
+    # and the dialog still fires under PC_BRIDGE_AUTO_APPROVE=1).
+    "camera_snapshot": _p("session", 3,
+                          ("camera frame captured and returned to a remote operator",),
+                          "none — a returned frame cannot be recalled",
+                          ("user_data", "media_capture")),
     "list_windows": _p("none", 10),
     "system_info": _p("none", 10),
     "list_dir": _p("none", 10),
@@ -67,6 +74,14 @@ PROFILES = {
     "browser_fill": _p("session", 7, ("form field filled",), "clear field", ("user_data",)),
     "notify": _p("session", 10, ("toast notification shown",), "dismiss notification"),
     "speak": _p("session", 10, ("text spoken aloud",)),
+    # Capture is not transient like speak: a returned clip cannot be
+    # recalled, so honest recoverability is 3 -> computed tier
+    # always_ask (privacy MF-1). Never profile this "none"/silent.
+    "record_audio": _p("session", 3,
+                       ("microphone audio captured and returned to a "
+                        "remote operator",),
+                       "none — returned audio cannot be recalled",
+                       ("user_data", "media_capture")),
     "set_volume": _p("session", 10, ("volume changed",), "restore previous volume"),
     # ---- file writes: user-data scope ----
     "create_dir": _p("user_data", 9, ("directory created",), "remove directory"),

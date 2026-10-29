@@ -12,6 +12,8 @@ import json
 import os
 import platform
 import re
+import shutil
+import struct
 import subprocess
 import tempfile
 from pathlib import Path
@@ -126,6 +128,300 @@ def screenshot(region: dict | None = None, scale: float = 1.0) -> dict:
         "width": width,
         "height": height,
     }
+
+
+# ---------------------------------------------------------------------------
+# camera_snapshot — ONE still frame from a PC camera. NOT a silent read:
+# this provider carries its own approval gate (privacy MF-2), an
+# audit-or-refuse pre-flight (MF-4), and explicit per-mode consent
+# behaviour (MF-3), all BEFORE any capture device is opened.
+#
+# Backend chain (capture-backends research, 2026-10-26):
+#   1. ffmpeg / DirectShow — best engine when ffmpeg is on PATH
+#      (PnP-stable device names, loud non-zero exits, signalstats for
+#      the blank-frame check, native scale filter for max_width).
+#   2. Media Foundation via ctypes (seams.providers.windows.camera_mf)
+#      — the only unconditional zero-new-dependency backend; mfplat
+#      ships with Windows 10.
+#   WinRT MediaCapture via PowerShell is deliberately NOT in the chain
+#   (packaged-app consent expectations, non-agile threading, hang-prone
+#   opaque async failures). If both backends fail, the error names
+#   every backend tried — never a fake or blank success.
+# ---------------------------------------------------------------------------
+
+def _validate_camera_args(device=None, max_width=None):
+    """Shared arg contract for camera_snapshot (mock mirrors this).
+    Returns (device, max_width) normalised. Raises ValueError."""
+    if isinstance(device, bool) or (
+            device is not None and not isinstance(device, (int, str))):
+        raise ValueError(
+            "device must be a camera index (int) or name (str)")
+    if isinstance(device, int) and device < 0:
+        raise ValueError("device index must be >= 0")
+    if isinstance(device, str) and not device.strip():
+        raise ValueError("device name must be non-empty")
+    if isinstance(device, str):
+        device = device.strip()
+    if max_width is not None:
+        if isinstance(max_width, bool) or not isinstance(max_width, int):
+            raise ValueError("max_width must be an int (pixels)")
+        if not 16 <= max_width <= 7680:
+            raise ValueError("max_width must be 16-7680")
+    return device, max_width
+
+
+def _camera_device_label(device) -> str:
+    if device is None:
+        return "default (first camera)"
+    if isinstance(device, int):
+        return f"index {device}"
+    return str(device)
+
+
+def _camera_gate(device) -> None:
+    """Approval + audit gate. Runs BEFORE any device is opened.
+
+    Behaviour by permission mode (explicit, per privacy MF-3 — the
+    coordinator/Carlos decision: dontAsk is the owner's own confirmed
+    startup choice, so it is accepted, never silently inherited):
+    - default / acceptEdits / auto-approve: _approved() shows the
+      per-capture dialog. camera_snapshot's tier is always_ask, so the
+      dialog fires even under PC_BRIDGE_AUTO_APPROVE=1. camera_snapshot
+      is NOT in ACCEPT_EDITS_AUTO (MF-10) and never may be.
+    - dontAsk / PC_BRIDGE_FULL_ACCESS=1: no dialog exists to show;
+      consent is session-level (confirmed once at startup by
+      startup_confirm) and is recorded as such in the audit event.
+    - plan posture never reaches here: toolcall stubs write=True
+      calls before the provider runs.
+
+    Audit-or-refuse (MF-4): EVENT_LOG_ENABLED=0 refuses outright, and
+    the MediaCaptureConsent event must actually land in the event log
+    before capture proceeds — if events.append returns None the
+    capture is refused with a named error.
+    """
+    if os.environ.get("EVENT_LOG_ENABLED", "1") == "0":
+        raise RuntimeError(
+            "camera_snapshot refused: event log is disabled "
+            "(EVENT_LOG_ENABLED=0); senses captures require an audit "
+            "record (privacy MF-4)")
+    import approval
+    import events
+    from seams.providers.windows.pc import _approved
+    label = _camera_device_label(device)
+    # MF-8: the dialog text is informed — which device, and that the
+    # image leaves this PC to the requesting agent/operator.
+    _approved("camera_snapshot",
+              f"Capture ONE still photo from camera: {label}\n"
+              "The image will be sent off this PC to the requesting "
+              "agent/operator.")
+    consent = ("session_level" if approval.is_full_access()
+               else "per_capture_dialog")
+    event_id = events.append("MediaCaptureConsent", {
+        "tool": "camera_snapshot",
+        "permission_mode": approval.get_permission_mode(),
+        "consent": consent,
+        "device": label,
+    })
+    if event_id is None:
+        raise RuntimeError(
+            "camera_snapshot refused: could not write the capture "
+            "consent event to the event log (privacy MF-4: no audit, "
+            "no capture)")
+
+
+# ffmpeg's -list_devices prefix changed across versions: classic builds
+# print [dshow @ 0x...], current builds (probed on Looko 2026-10-26,
+# Gyan Essentials) print [in#0 @ 0x...]. Match any bracketed log prefix;
+# the (video)/(audio) type tag is what actually classifies the entry.
+_DSHOW_VIDEO_RE = re.compile(r'\[[^\]]*\]\s+"([^"]+)"\s+\(([^)]*)\)')
+_DSHOW_ALT_RE = re.compile(r'\[[^\]]*\]\s+Alternative name\s+"([^"]+)"')
+
+
+def _parse_dshow_devices(text: str) -> list:
+    """Parse `ffmpeg -list_devices` stderr into [(name, alt_name)] for
+    video devices, in enumeration order. Pure function (unit-tested)."""
+    devices = []
+    current = None
+    for line in (text or "").splitlines():
+        m = _DSHOW_VIDEO_RE.search(line)
+        if m:
+            current = None
+            if "video" in m.group(2):
+                current = [m.group(1), ""]
+                devices.append(current)
+            continue
+        m = _DSHOW_ALT_RE.search(line)
+        if m and current is not None:
+            current[1] = m.group(1)
+    return [(name, alt) for name, alt in devices]
+
+
+def _list_dshow_devices(exe: str) -> list:
+    """Enumerate DirectShow video devices. ffmpeg exits non-zero for
+    -list_devices by design; the device list is on stderr."""
+    _rc, _out, err, _timed = subproc.run_noinherit(
+        [exe, "-hide_banner", "-list_devices", "true", "-f", "dshow",
+         "-i", "dummy"], 15)
+    return _parse_dshow_devices(err)
+
+
+def _resolve_dshow_device(devices: list, device) -> tuple:
+    """(name, video_device_number|None) for the request. No silent
+    substitution (MF-7): an unmatched request is a hard error naming
+    the device looked for and the devices that exist."""
+    if device is None:
+        if not devices:
+            raise RuntimeError(
+                "camera_snapshot: no camera device found (ffmpeg "
+                "-list_devices enumerated 0 video devices; requested "
+                "device: default (first camera))")
+        return devices[0][0], None
+    if isinstance(device, int):
+        if device >= len(devices):
+            raise RuntimeError(
+                f"camera_snapshot: camera device index {device} not "
+                f"found (ffmpeg enumerated: "
+                f"{[n for n, _a in devices]})")
+        name = devices[device][0]
+        # Duplicate friendly names are disambiguated by occurrence.
+        occurrence = [n for n, _a in devices[:device + 1]].count(name) - 1
+        return name, (occurrence if occurrence else None)
+    needle = device.lower()
+    for i, (name, alt) in enumerate(devices):
+        if needle in name.lower() or (alt and needle in alt.lower()):
+            occurrence = [n for n, _a in devices[:i + 1]].count(name) - 1
+            return name, (occurrence if occurrence else None)
+    if devices:
+        raise RuntimeError(
+            f"camera_snapshot: camera device {device!r} not found "
+            f"(ffmpeg enumerated: {[n for n, _a in devices]})")
+    # Enumeration found nothing readable; ffmpeg itself will fail loud
+    # naming the device if the string is wrong.
+    return device, None
+
+
+def _png_dimensions(png: bytes) -> tuple:
+    if len(png) < 24 or png[:8] != b"\x89PNG\r\n\x1a\n":
+        raise RuntimeError("camera frame is not a PNG")
+    width, height = struct.unpack(">II", png[16:24])
+    if width <= 0 or height <= 0:
+        raise RuntimeError("camera frame has no dimensions")
+    return width, height
+
+
+def _ffmpeg_frame_stats(exe: str, png_path: str) -> tuple:
+    """(mean_luma, luma_range) via ffmpeg signalstats — the backend's
+    own measurement, no image library needed."""
+    rc, out, err, timed_out = subproc.run_noinherit(
+        [exe, "-hide_banner", "-i", png_path, "-vf",
+         "signalstats,metadata=print", "-f", "null", "-"], 15)
+    text = (out or "") + (err or "")
+    if timed_out:
+        raise RuntimeError("ffmpeg signalstats timed out verifying frame")
+    stats = {}
+    for key in ("YAVG", "YMIN", "YMAX"):
+        m = re.search(rf"lavfi\.signalstats\.{key}=([0-9.]+)", text)
+        if m:
+            stats[key] = float(m.group(1))
+    if len(stats) != 3:
+        raise RuntimeError(
+            "camera_snapshot: could not verify frame is not blank "
+            f"(ffmpeg signalstats incomplete: rc={rc})")
+    return stats["YAVG"], stats["YMAX"] - stats["YMIN"]
+
+
+def _capture_ffmpeg(device, max_width) -> tuple:
+    """(png_bytes, device_name, width, height, mean_luma, is_flat)."""
+    exe = shutil.which("ffmpeg")
+    if not exe:
+        raise RuntimeError(
+            "ffmpeg backend unavailable: ffmpeg not on PATH")
+    devices = _list_dshow_devices(exe)
+    name, devnum = _resolve_dshow_device(devices, device)
+    fd, png_path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    try:
+        vf = "select='gte(n\\,10)'"  # skip ~10 warm-up frames (auto-exposure)
+        if max_width is not None:
+            vf += f",scale='min({max_width}\\,iw)':-2"  # backend-native scale
+        cmd = [exe, "-hide_banner", "-loglevel", "error", "-f", "dshow"]
+        if devnum:
+            cmd += ["-video_device_number", str(devnum)]
+        cmd += ["-i", f"video={name}", "-vf", vf, "-frames:v", "1",
+                "-y", png_path]
+        rc, _out, err, timed_out = subproc.run_noinherit(cmd, 30)
+        if timed_out:
+            raise RuntimeError(
+                f"ffmpeg capture from {name!r} timed out after 30s")
+        if rc != 0:
+            raise RuntimeError(
+                f"ffmpeg could not capture from camera {name!r}: "
+                f"{(err or '').strip()[-400:]}")
+        png = Path(png_path).read_bytes()
+        if not png:
+            raise RuntimeError(
+                f"ffmpeg produced an empty frame from camera {name!r}")
+        width, height = _png_dimensions(png)
+        mean, luma_range = _ffmpeg_frame_stats(exe, png_path)
+        return png, name, width, height, mean, luma_range <= 1.0
+    finally:
+        try:
+            os.unlink(png_path)
+        except OSError:
+            pass
+
+
+def _finish_camera_frame(png, backend, device_name, width, height,
+                         mean_luma, is_flat) -> dict:
+    """MF-7: a black or near-uniform frame is an explicit NON-success
+    (privacy shutter closed / lens covered), never a delivered image."""
+    if mean_luma < 2.0 or is_flat:
+        raise RuntimeError(
+            "camera_snapshot: frame_blank_or_shutter_closed "
+            f"(mean luma {mean_luma:.2f}, flat={is_flat}) — privacy "
+            "shutter closed or lens covered; no image returned")
+    # Device/backend/dims first so toolcall's 200-char result_summary
+    # in the audit log names WHAT was captured (privacy §2.1); the
+    # base64 payload rides last.
+    return {
+        "device": device_name,
+        "backend": backend,
+        "width": width,
+        "height": height,
+        "png_base64": base64.b64encode(png).decode("ascii"),
+    }
+
+
+def camera_snapshot(device=None, max_width=None) -> dict:
+    """Capture ONE still frame from a PC camera as PNG (base64).
+
+    device: camera index (int) or name substring (str); default first
+    camera. max_width: downscale cap honored by the capture backend
+    itself (ffmpeg scale filter / Media Foundation mode selection) —
+    no Pillow. Approval-gated (always_ask) via _camera_gate BEFORE
+    any device opens. One call = one frame (MF-9: no interval/stream
+    parameters exist, by design)."""
+    device, max_width = _validate_camera_args(device, max_width)
+    _camera_gate(device)
+    errors = []
+    try:
+        png, dev_name, w, h, mean, is_flat = _capture_ffmpeg(
+            device, max_width)
+        return _finish_camera_frame(png, "ffmpeg-dshow", dev_name,
+                                    w, h, mean, is_flat)
+    except Exception as e:  # noqa: BLE001 - try the next backend
+        errors.append(f"ffmpeg-dshow: {e}")
+    try:
+        from seams.providers.windows import camera_mf
+        png, dev_name, w, h, mean, var = camera_mf.capture(
+            device, max_width)
+        return _finish_camera_frame(png, camera_mf.BACKEND_NAME,
+                                    dev_name, w, h, mean, var < 0.5)
+    except Exception as e:  # noqa: BLE001 - aggregate into the loud error
+        errors.append(f"media-foundation: {e}")
+    raise RuntimeError(
+        "camera_snapshot: no capture backend succeeded — "
+        + " | ".join(errors))
 
 
 def list_windows() -> dict:

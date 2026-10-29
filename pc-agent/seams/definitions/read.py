@@ -21,6 +21,34 @@ SCREENSHOT = ToolDef(
                    "post-processing (PIL), fully portable.",
 )
 
+CAMERA_SNAPSHOT = ToolDef(
+    name="camera_snapshot",
+    group="read",
+    doc="Capture ONE still frame from a PC camera as PNG (base64). "
+        "Requires approval (always_ask) — unlike screenshot this is "
+        "never silent. device: camera index (int) or name substring "
+        "(str); default is the first camera. max_width: downscale to "
+        "at most this width, done by the capture backend itself. One "
+        "call = one frame; there is no interval/stream mode.",
+    args={"device": {"type": "str_or_int", "required": False,
+                     "default": None},
+          "max_width": {"type": "int", "required": False,
+                        "default": None}},
+    result_keys=["device", "backend", "width", "height", "png_base64"],
+    approval_tier="always_ask",
+    side_effects="session",
+    platform_notes="Windows: ffmpeg/DirectShow when ffmpeg is on PATH, "
+                   "else Media Foundation via ctypes (mfplat ships "
+                   "with Windows — zero new dependencies either way). "
+                   "WinRT/MediaCapture via PowerShell is deliberately "
+                   "NOT used (consent/threading/hang failure modes). "
+                   "Fails loud naming the backend when no capture path "
+                   "is available; a black/near-uniform frame (privacy "
+                   "shutter closed, lens covered) is an error, never a "
+                   "successful result. Linux/macOS: honest gap — no "
+                   "provider implemented.",
+)
+
 LIST_WINDOWS = ToolDef(
     name="list_windows",
     group="read",
@@ -180,6 +208,6 @@ UIA_FIND = ToolDef(
                    "Honest gap on other platforms — omit rather than fake.",
 )
 
-ALL_READ_DEFS = [SCREENSHOT, LIST_WINDOWS, SYSTEM_INFO, LIST_DIR,
-                 READ_FILE, CLIPBOARD_GET, SEARCH_FILES,
+ALL_READ_DEFS = [SCREENSHOT, CAMERA_SNAPSHOT, LIST_WINDOWS, SYSTEM_INFO,
+                 LIST_DIR, READ_FILE, CLIPBOARD_GET, SEARCH_FILES,
                  SEARCH_FILENAMES, READ_FILE_RANGE, UIA_FIND]

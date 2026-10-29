@@ -15,6 +15,23 @@ def screenshot(region: dict | None = None, scale: float = 1.0) -> dict:
         a["scale"] = scale
     return toolcall.call("screenshot", a)
 
+def camera_snapshot(device: str | int | None = None,
+                    max_width: int | None = None) -> dict:
+    """Capture ONE still frame from a PC camera as PNG (base64).
+
+    Placement is read-side (screenshot's sibling), but this is NOT a
+    silent read: the call goes through toolcall with write=True so the
+    ApprovalRequested audit event fires and plan mode cannot execute
+    it, and the provider runs its own always_ask approval gate before
+    opening the camera (privacy MF-1/MF-2). device: camera index or
+    name; default first camera. One call = one frame."""
+    a = {}
+    if device is not None:
+        a["device"] = device
+    if max_width is not None:
+        a["max_width"] = max_width
+    return toolcall.call("camera_snapshot", a, write=True)
+
 def list_windows() -> dict:
     """List visible windows: handle, pid, title."""
     return toolcall.call("list_windows", {})

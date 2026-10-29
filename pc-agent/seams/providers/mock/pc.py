@@ -31,6 +31,68 @@ def speak(text: str) -> dict:
     return {"spoken_chars": len(text)}
 
 
+def record_audio(duration_s: int = 5, device: str = None) -> dict:
+    """Synthetic WAV: a 0.5-full-scale square wave at 8 kHz mono, so the
+    payload is a real, parseable WAV whose measured peak/rms match the
+    returned metadata. Mirrors the Windows provider's validation."""
+    import array
+    import base64
+    import io
+    import wave as _wave
+    if isinstance(duration_s, bool) or duration_s is None:
+        raise ValueError("duration_s must be an int number of seconds")
+    if isinstance(duration_s, float) and duration_s.is_integer():
+        duration_s = int(duration_s)
+    if not isinstance(duration_s, int):
+        raise ValueError("duration_s must be an int number of seconds")
+    if duration_s < 1 or duration_s > 30:
+        raise ValueError(f"duration_s must be 1-30 (hard cap), "
+                         f"got {duration_s}")
+    if device is not None and (not isinstance(device, str)
+                               or not device.strip()):
+        raise ValueError("device must be a non-empty string or None")
+    # Mirror the Windows provider's MF-3/MF-4 gates (integration parity
+    # fix: the mock previously emitted no consent event at all): refuse
+    # when the audit log is disabled, then record HOW consent was
+    # obtained before the (synthetic) capture.
+    import os
+    if os.environ.get("EVENT_LOG_ENABLED", "1") == "0":
+        raise RuntimeError(
+            "record_audio refused: event log is disabled "
+            "(EVENT_LOG_ENABLED=0) — media capture requires an audit "
+            "record (privacy MF-4)")
+    import approval
+    import events
+    mode = approval.get_permission_mode()
+    consent = ("session_dontask"
+               if (mode == "dontask" or approval.is_full_access())
+               else "per_capture_dialog")
+    event_id = events.append("MediaCaptureConsent", {
+        "tool": "record_audio", "permission_mode": mode,
+        "consent": consent, "device": device or "default",
+        "duration_s": duration_s, "provider": "mock"})
+    if event_id is None:
+        raise RuntimeError(
+            "record_audio refused: could not write the capture consent "
+            "event to the event log (privacy MF-4)")
+    record("record_audio", {"duration_s": duration_s, "device": device})
+    rate = 8000
+    amp = 16384  # exactly 0.5 of full scale
+    pcm = array.array("h", [amp if (i // 8) % 2 == 0 else -amp
+                            for i in range(rate * duration_s)])
+    buf = io.BytesIO()
+    with _wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(pcm.tobytes())
+    return {"wav_base64": base64.b64encode(buf.getvalue()).decode("ascii"),
+            "duration_s": float(duration_s), "sample_rate": rate,
+            "channels": 1, "peak": 0.5, "rms": 0.5, "near_silent": False,
+            "backend": "mock",
+            "device": device or "mock microphone"}
+
+
 def set_volume(level: int) -> dict:
     record("set_volume", {"level": level})
     return {"volume": level}
