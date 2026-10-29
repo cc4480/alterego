@@ -114,15 +114,20 @@ def uia_set_text(window: str, name_rx: str, text: str,
 
 
 def send_message(window: str, name_rx: str, text: str,
-                 control_type: str = "", index: int | None = None) -> dict:
+                 control_type: str = "", index: int | None = None,
+                 runtime_id: str = "") -> dict:
     """Send a message via a window's composer control: focus gate,
     verified write, Enter, and confirmation (value cleared + text in
     the message list + focus still on the control). With index omitted
-    the composer match must resolve uniquely. Requires approval."""
+    the composer match must resolve uniquely. runtime_id (from
+    uia_find) addresses the composer directly when its accessible
+    name is unstable. Requires approval."""
     a = {"window": window, "name_rx": name_rx, "text": text,
          "control_type": control_type}
     if index is not None:
         a["index"] = index
+    if runtime_id:
+        a["runtime_id"] = runtime_id
     return toolcall.call("send_message", a, write=True)
 
 

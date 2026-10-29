@@ -145,7 +145,8 @@ def _resolve_target_hwnd(window) -> int | None:
 
 
 def _focus_gate(window=None, name_rx: str = "", control_type: str = "",
-                index: int | None = None, timeout_s: float = 0.5) -> dict:
+                index: int | None = None, timeout_s: float = 0.5,
+                runtime_id: str = "") -> dict:
     """Verify input will land on the target — or raise, typing nothing.
 
     Gate: the foreground hwnd must be the target window AND (when an
@@ -155,9 +156,10 @@ def _focus_gate(window=None, name_rx: str = "", control_type: str = "",
     """
     target_hwnd = _resolve_target_hwnd(window)
     target_rid = ""
-    if name_rx:
+    if name_rx or runtime_id:
         info = _uia_invoke(_uia_payload(
-            "get", window, name_rx, control_type, index))
+            "get", window, name_rx, control_type, index,
+            runtime_id=runtime_id))
         if not info.get("ok"):
             raise _uia_failure(info, "focus gate: element not found")
         target_rid = info.get("runtime_id", "")
@@ -686,7 +688,8 @@ def uia_set_text(window: str, name_rx: str, text: str,
 
 
 def send_message(window: str, name_rx: str, text: str,
-                 control_type: str = "", index: int | None = None) -> dict:
+                 control_type: str = "", index: int | None = None,
+                 runtime_id: str = "") -> dict:
     """Send a message through a window's composer control, verified.
 
     Composite: resolve target -> focus gate -> verified write ->
@@ -694,18 +697,27 @@ def send_message(window: str, name_rx: str, text: str,
     value cleared, the sent text appearing in the window's message list
     (a UIA descendant whose name/value carries the text), and focus
     still on the control. Any failed check is an error, not success.
+
+    runtime_id (from uia_find) addresses the composer directly; it
+    exists for surfaces whose composer accessible name is unstable
+    (Hermes's Electron composer flickers between its label and its
+    placeholder under app activity, which defeats name resolution
+    intermittently while the element itself never leaves the tree).
     """
     _validate_uia_target(window, name_rx, text)
     preview = text if len(text) <= 120 else text[:120] + "..."
     _approved("send_message",
               "Send message via /%s/ in window /%s/:\n%s"
               % (name_rx, window, preview))
-    info = _uia_get_raw(window, name_rx, control_type, index)
+    info = _uia_get_raw(window, name_rx, control_type, index,
+                        runtime_id=runtime_id)
     target_rid = info.get("runtime_id", "")
     _focus_gate(window=window, name_rx=name_rx,
-                control_type=control_type, index=index)
+                control_type=control_type, index=index,
+                runtime_id=runtime_id)
     set_result = _uia_set_text_verified(window, name_rx, text,
-                                        control_type, index)
+                                        control_type, index,
+                                        runtime_id=runtime_id)
     empty_value = set_result.get("empty_value")
     _tap_vk(_VK["enter"])
     checks = {"value_cleared": False, "in_message_list": False,
@@ -718,7 +730,8 @@ def send_message(window: str, name_rx: str, text: str,
     # loop still exits the moment every check passes.
     deadline = time.monotonic() + 15.0
     while True:
-        after = _uia_get_raw(window, name_rx, control_type, index)
+        after = _uia_get_raw(window, name_rx, control_type, index,
+                             runtime_id=runtime_id)
         # Cleared means "" — or, for placeholder-exposing composers
         # (see _keyboard_replace), the field's learned empty-state
         # value (its placeholder) is back.
