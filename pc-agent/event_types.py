@@ -91,6 +91,22 @@ def _v_doctor_run(d):
     return _req(d, "checks", "summary")
 
 
+def _v_media_capture_consent(d):
+    # Privacy MF-3/MF-4: emitted by a senses provider AFTER its approval
+    # gate and BEFORE the capture device opens. permission_mode is the
+    # server's posture at capture time; consent records HOW the capture
+    # was authorised — a per-capture dialog, or session-level consent
+    # (the dontAsk posture the owner confirmed once at startup; the two
+    # slices named that value "session_level" / "session_dontask", so
+    # both spellings are accepted here — exactly one validator, unioned
+    # at integration). duration_s is recorded by record_audio and is
+    # optional for camera_snapshot.
+    return (_req(d, "tool", "permission_mode", "consent", "device")
+            + _enum(d, "consent",
+                    {"per_capture_dialog", "session_level",
+                     "session_dontask"}))
+
+
 VALIDATORS = {
     "SessionPaired": _v_session_paired,
     "SessionRevoked": _v_session_revoked,
@@ -106,6 +122,7 @@ VALIDATORS = {
     "ServerStarted": _v_server_started,
     "ServerStopping": _v_server_stopping,
     "DoctorRun": _v_doctor_run,
+    "MediaCaptureConsent": _v_media_capture_consent,
 }
 
 VALID_EVENT_TYPES = frozenset(VALIDATORS)

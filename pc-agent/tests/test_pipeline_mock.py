@@ -17,7 +17,8 @@ from conftest import events_for, read_events
 # Canonical args for tools that need no cross-test state. task_checkpoint
 # and task_status are exercised in test_task_lifecycle instead.
 ARGS = {
-    "screenshot": {}, "list_windows": {}, "system_info": {},
+    "screenshot": {}, "camera_snapshot": {}, "list_windows": {},
+    "system_info": {},
     "list_dir": {"path": ""}, "read_file": {"path": "seed.txt"},
     "clipboard_get": {},
     "focus_window": {"hwnd": 12345}, "close_window": {"hwnd": 12345},
@@ -36,6 +37,7 @@ ARGS = {
     "file_info": {"path": "seed.txt"},
     "active_window": {}, "idle_seconds": {}, "list_processes": {},
     "notify": {"title": "t", "message": "m"}, "speak": {"text": "hi"},
+    "record_audio": {"duration_s": 2, "device": None},
     "set_volume": {"level": 50}, "power": {"action": "shutdown"},
     "browser_snapshot": {},
     "browser_navigate": {"url": "https://example.com"},
