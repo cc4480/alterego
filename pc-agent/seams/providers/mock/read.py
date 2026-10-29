@@ -394,6 +394,50 @@ def uia_find(window: str, name_rx: str = "", control_type: str = "",
     return {"ok": True, "count": len(out), "elements": out}
 
 
+def uia_focused(expect: str = "") -> dict:
+    """Mock 'focused' read path, mirroring the Windows helper's
+    focused op (the read-back half of paste_text).
+
+    Returns the focused element's usual fields. When `expect` is
+    non-empty, adds verified_via: "focused" when the focused
+    element's value/text contains it, "window" when another element
+    in the window does (with source_name/source_control_type naming
+    that element), else "none". Without `expect`, no verified_via
+    field is added (backward compatible, like the Windows helper).
+
+    The mock has no parent tree and no window grouping: its flat
+    UIA["elements"] list is treated as one window, so the Windows
+    helper's ancestor stage has no mock counterpart and containment
+    escalation goes straight to the window search.
+    """
+    from seams.providers.mock import UIA, focused_uia_element
+    el = focused_uia_element()
+    if el is None:
+        return {"ok": False, "error": "focused element unavailable"}
+    base = {"ok": True, "runtime_id": el["runtime_id"],
+            "name": el["name"], "control_type": el["control_type"],
+            "has_keyboard_focus": True,
+            "value": el["value"], "text": el["value"],
+            "window_hwnd": 12345}
+    if not expect:
+        return base
+    value = el["value"]
+    if isinstance(value, str) and expect in value:
+        base["verified_via"] = "focused"
+        return base
+    for cand in UIA["elements"]:
+        if cand is el:
+            continue
+        cv = cand.get("value")
+        if isinstance(cv, str) and expect in cv:
+            base["verified_via"] = "window"
+            base["source_name"] = cand["name"]
+            base["source_control_type"] = cand["control_type"]
+            return base
+    base["verified_via"] = "none"
+    return base
+
+
 def uia_get(window: str, name_rx: str = "", control_type: str = "",
             index: int | None = None) -> dict:
     from seams.providers.mock import (
