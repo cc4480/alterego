@@ -557,6 +557,14 @@ def _uia_get_raw(window, name_rx, control_type, index,
     return res
 
 
+def _fold_dashes(s):
+    """Fold Unicode dash variants (U+2010..U+2015, U+2212) to '-'."""
+    if not isinstance(s, str):
+        return s
+    return re.sub("[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]",
+                  "-", s)
+
+
 def _keyboard_replace(window: str, name_rx: str, text: str,
                       control_type: str = "",
                       index: int | None = None,
@@ -600,7 +608,13 @@ def _keyboard_replace(window: str, name_rx: str, text: str,
     _send_unicode(text)
     after = _uia_get_raw(window, name_rx, control_type, index,
                          runtime_id=runtime_id or "")
-    if after.get("value") != text:
+    # The comparison folds Unicode dash variants to '-': Chromium's
+    # composer UIA value canonicalizes an em dash to a hyphen in
+    # the pre-send read-back, while the message that lands in the
+    # conversation carries the exact typed character (both proven
+    # live on Hermes). Dash-class canonicalization by the surface
+    # is not a wrong write; any other difference still fails.
+    if _fold_dashes(after.get("value")) != _fold_dashes(text):
         raise RuntimeError(
             f"keyboard replace verification failed: expected {text!r}, "
             f"read back {after.get('value')!r}")
