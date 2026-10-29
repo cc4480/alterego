@@ -21,6 +21,7 @@ Run:  python pc-agent/server.py   (from the repo root)
 import ipaddress
 import json
 import os
+import re
 import secrets
 import sys
 import threading
@@ -31,17 +32,113 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.gzip import (
+    DEFAULT_EXCLUDED_CONTENT_TYPES,
+    GZipMiddleware,
+)
 from starlette.requests import Request
-from starlette.responses import JSONResponse, HTMLResponse
+from starlette.responses import JSONResponse, HTMLResponse, Response
 from starlette.routing import Route, WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 import uvicorn
 
 import approval
+import blob_store
 import events
 import hooks
 from tool_wrappers import ALL_TOOLS
+
+# --- DPI awareness (S3): one coordinate space --------------------------
+# This process must be PER_MONITOR_AWARE_V2 before any HWND exists in
+# it — the approval MessageBox creates one, and Windows ignores
+# programmatic awareness changes made after the first window. main()
+# therefore calls _apply_dpi_awareness() as its very first action.
+# (The older shcore SetProcessDpiAwareness(2) call in the windows
+# write provider stays as a fallback for provider-only processes;
+# this process-level context supersedes it here.)
+
+_DPI_CONTEXT_V2 = -4  # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+_DPI_CONTEXT_NAMES = {
+    -1: "unaware",
+    -2: "system",
+    -3: "per_monitor",
+    -4: "per_monitor_v2",
+    -5: "unaware_gdi_scaled",
+}
+_dpi_state = {"effective": None, "set_ok": None,
+              "detail": "SetProcessDpiAwarenessContext not attempted yet"}
+
+
+def _read_dpi_context_raw():
+    """This process's raw DPI_AWARENESS_CONTEXT value (signed), or
+    None when it cannot be read (non-Windows / API unavailable)."""
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.GetProcessDpiAwarenessContext.argtypes = []
+        user32.GetProcessDpiAwarenessContext.restype = ctypes.c_void_p
+        raw = user32.GetProcessDpiAwarenessContext()
+    except Exception:  # noqa: BLE001 - diagnostics must never raise
+        return None
+    if raw is None:
+        return None
+    if raw > 2**63:  # HANDLE values -1..-5 arrive as huge unsigned
+        raw -= 2**64
+    return raw
+
+
+def _apply_dpi_awareness() -> dict:
+    """Set PER_MONITOR_AWARE_V2 for this process and record the
+    outcome (return value CHECKED; the effective context is read
+    back, never assumed). Safe no-op off Windows. Idempotent."""
+    if os.name != "nt":
+        _dpi_state.update(
+            effective="not_applicable", set_ok=None,
+            detail="DPI awareness is a Windows concept; skipped on "
+                   f"{sys.platform}")
+        return dpi_awareness_info()
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    # HANDLE is pointer-sized: declare it c_void_p, never the
+    # ctypes default c_int (truncates on 64-bit Windows).
+    user32.SetProcessDpiAwarenessContext.argtypes = [ctypes.c_void_p]
+    user32.SetProcessDpiAwarenessContext.restype = wintypes.BOOL
+    ctypes.set_last_error(0)
+    ok = bool(user32.SetProcessDpiAwarenessContext(
+        ctypes.c_void_p(_DPI_CONTEXT_V2)))
+    err = ctypes.get_last_error()
+    raw = _read_dpi_context_raw()
+    effective = _DPI_CONTEXT_NAMES.get(raw, "unknown")
+    if ok:
+        detail = "SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2) ok"
+    elif err == 5:  # ERROR_ACCESS_DENIED: already set (e.g. manifest)
+        detail = ("SetProcessDpiAwarenessContext refused "
+                  "(ERROR_ACCESS_DENIED — awareness already set); "
+                  f"effective context read back as {effective}")
+    else:
+        detail = (f"SetProcessDpiAwarenessContext failed, "
+                  f"GetLastError={err}; effective context read back "
+                  f"as {effective}")
+    _dpi_state.update(effective=effective, set_ok=ok, detail=detail)
+    return dpi_awareness_info()
+
+
+def dpi_awareness_info() -> dict:
+    """Effective DPI awareness for doctor/health output. On Windows
+    before main() applies it, the live context is read so the report
+    is honest rather than a placeholder."""
+    if os.name != "nt":
+        return {"effective": "not_applicable", "set_ok": None,
+                "detail": "DPI awareness is a Windows concept; "
+                          f"not applicable on {sys.platform}"}
+    info = dict(_dpi_state)
+    if info["effective"] is None:
+        raw = _read_dpi_context_raw()
+        info["effective"] = _DPI_CONTEXT_NAMES.get(raw, "unknown")
+    return info
 
 HOST, PORT = "127.0.0.1", 8765
 mcp = MCPServer("pc-bridge")
@@ -98,7 +195,11 @@ def doctor() -> dict:
     """Read-only bridge health report: listener, tunnel, token,
     journal, and ESTOP state — every component that is not ok carries
     its one concrete fix. Never starts, stops, or changes anything."""
-    return _jobs.doctor_op()
+    report = _jobs.doctor_op()
+    # S3: the effective DPI awareness rides along (jobs.py's component
+    # set is its own contract; this field is added here, in server.py).
+    report["dpi_awareness"] = dpi_awareness_info()
+    return report
 
 PAIRING_TTL_S = 30 * 60
 MAX_PAIRING_ATTEMPTS = 5
@@ -213,21 +314,82 @@ def _clear_session_token() -> None:
         pass
 
 
-class BearerAuth(BaseHTTPMiddleware):
-    def __init__(self, app):
-        super().__init__(app)
+class BearerAuth:
+    """Pure-ASGI bearer auth (Q4b).
 
-    async def dispatch(self, request, call_next):
-        if request.url.path in ("/health", "/pair", "/chat"):
-            return await call_next(request)
-        auth = request.headers.get("authorization", "")
+    Replaces the old BaseHTTPMiddleware subclass: that base class
+    ferries every request/response through a zero-buffer anyio
+    rendezvous (starlette/middleware/base.py), adding a full extra
+    hop that holds responses open longer. This middleware speaks
+    ASGI directly — it reads the Authorization header from the
+    scope and either delegates untouched or answers 401 itself.
+
+    Behaviour is unchanged: /health, /pair and /chat are exempt;
+    every other HTTP route requires `Authorization: Bearer <token>`
+    matching a persisted session token (401 {"error": "unauthorized"}
+    otherwise). Non-HTTP scopes (websocket /ws does its own auth,
+    lifespan) pass through untouched, exactly as before.
+    """
+
+    EXEMPT_PATHS = frozenset({"/health", "/pair", "/chat"})
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope.get("path") in self.EXEMPT_PATHS:
+            await self.app(scope, receive, send)
+            return
+        auth = ""
+        for name, value in scope.get("headers") or []:
+            if name.lower() == b"authorization":
+                auth = value.decode("latin-1")
+                break
         tokens = _load_session_tokens()
         valid = any(
             secrets.compare_digest(auth, f"Bearer {t}") for t in tokens
         )
         if not valid:
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
-        return await call_next(request)
+            await JSONResponse(
+                {"error": "unauthorized"}, status_code=401
+            )(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+
+# Descriptive alias; BearerAuth stays the canonical name (main/tests).
+BearerAuthMiddleware = BearerAuth
+
+
+class JsonGzipMiddleware:
+    """GZip for JSON responses (Q4d), on top of Starlette's pure-ASGI
+    GZipMiddleware. Never applied to:
+    - /blobs/* — raw binary payloads (already-compressed images);
+      the route is bypassed by path AND its application/octet-stream
+      bodies are on the exclude list (belt and braces);
+    - SSE (text/event-stream) — on GZipMiddleware's default exclude
+      list; compressing a stream would defeat its purpose;
+    - 206 Range responses — GZipMiddleware never compresses partial
+      responses.
+    Small bodies (<500 B) pass through uncompressed, Starlette's
+    default threshold.
+    """
+
+    def __init__(self, app):
+        self.app = app
+        self._gzip = GZipMiddleware(
+            app,
+            minimum_size=500,
+            exclude_content_types=DEFAULT_EXCLUDED_CONTENT_TYPES
+            + ("application/octet-stream",),
+        )
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and \
+                (scope.get("path") or "").startswith("/blobs/"):
+            await self.app(scope, receive, send)
+            return
+        await self._gzip(scope, receive, send)
 
 
 def _pair_ip_allowed(request: Request) -> bool:
@@ -420,7 +582,57 @@ async def _ws_relay(websocket: WebSocket):
 
 
 async def _health(request):
-    return JSONResponse({"ok": True, "service": "pc-bridge"})
+    return JSONResponse({"ok": True, "service": "pc-bridge",
+                         "dpi_awareness": dpi_awareness_info()})
+
+
+_BLOB_HEX_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+_BLOB_RANGE_RE = re.compile(r"^bytes=(\d*)-(\d*)$")
+
+
+async def _blob_download(request: Request):
+    """GET /blobs/<sha256-hex> (S1) — bulk by reference, never inline.
+
+    Auth is the BearerAuth middleware's job (this route is NOT
+    exempt): unauthenticated requests 401 before reaching here.
+    Unknown or malformed hashes 404. Supports a single Range:
+    `Range: bytes=start-end` (open-ended and suffix forms included)
+    answers 206 with Content-Range; no Range answers the full body
+    with 200. Raw bytes, application/octet-stream, correct
+    Content-Length, never gzipped (see JsonGzipMiddleware).
+    """
+    digest = request.path_params.get("digest", "")
+    if not _BLOB_HEX_RE.match(digest):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    data = blob_store.get(f"sha256:{digest.lower()}")
+    if data is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    size = len(data)
+    range_header = (request.headers.get("range") or "").strip()
+    match = _BLOB_RANGE_RE.match(range_header) if range_header else None
+    if match and (match.group(1) or match.group(2)):
+        start_s, end_s = match.groups()
+        if start_s:
+            start = int(start_s)
+            end = int(end_s) if end_s else size - 1
+        else:  # suffix range: the last N bytes
+            start = max(0, size - int(end_s))
+            end = size - 1
+        end = min(end, size - 1)
+        if start >= size or start > end:
+            return Response(
+                status_code=416,
+                headers={"Content-Range": f"bytes */{size}",
+                         "Accept-Ranges": "bytes"})
+        return Response(
+            data[start:end + 1], status_code=206,
+            media_type="application/octet-stream",
+            headers={"Content-Range": f"bytes {start}-{end}/{size}",
+                     "Accept-Ranges": "bytes"})
+    # No (or unparseable / multi-) Range header: full body. Per
+    # RFC 9110 an invalid Range is ignored, not an error.
+    return Response(data, media_type="application/octet-stream",
+                    headers={"Accept-Ranges": "bytes"})
 
 
 async def _chat_page(request):
@@ -468,7 +680,52 @@ def _emit_server_started():
     return started
 
 
+def build_app():
+    """Assemble the Starlette app: MCP (JSON-response mode) + the
+    bridge's own routes + auth/gzip middleware. Split from main() so
+    tests can build the exact production app without uvicorn."""
+    # The SDK auto-enables DNS-rebinding protection for localhost servers,
+    # which 421s any Host header that isn't localhost — including our
+    # Cloudflare tunnel hostname (random per session, can't be allowlisted).
+    # Disabled here: the server binds 127.0.0.1-only, every route (except
+    # /health and /pair) requires the session bearer token, and the tunnel
+    # is user-initiated. The bearer token, not the Host header, is the
+    # real authentication.
+    #
+    # Q4a: json_response=True — each POST is answered with one plain
+    # JSON body with a known Content-Length (SDK _create_json_response)
+    # instead of a stateful SSE stream ferried through zero-buffer
+    # rendezvous hops. Session semantics are otherwise unchanged:
+    # stateless_http stays False, initialize still issues an
+    # mcp-session-id and later calls still present it.
+    app = mcp.streamable_http_app(
+        json_response=True,
+        transport_security=TransportSecuritySettings(
+            enable_dns_rebinding_protection=False
+        )
+    )
+    app.routes.append(Route("/health", _health))
+    app.routes.append(Route("/chat", _chat_page))
+    app.routes.append(Route("/pair", _pair, methods=["POST"]))
+    app.routes.append(Route("/logout", _logout, methods=["POST"]))
+    app.routes.append(Route("/revoke", _revoke, methods=["POST"]))
+    app.routes.append(Route("/blobs/{digest}", _blob_download,
+                            methods=["GET"]))
+    app.routes.append(WebSocketRoute("/ws", _ws_relay))
+    # Middleware added last runs outermost: auth rejects before any
+    # compression work; gzip wraps only the app + routes inside it.
+    app.add_middleware(JsonGzipMiddleware)
+    app.add_middleware(BearerAuth)
+    return app
+
+
 def main():
+    # S3: FIRST action, before any HWND can exist in this process
+    # (the approval MessageBox creates one) — set per-monitor-v2
+    # DPI awareness and check that it actually took.
+    dpi = _apply_dpi_awareness()
+    print(f"dpi: effective awareness = {dpi['effective']} "
+          f"(set_ok={dpi['set_ok']}) — {dpi['detail']}")
     _refresh_pairing_code()
     threading.Thread(target=_pairing_refresher, daemon=True).start()
     threading.Thread(target=_heartbeat_writer, daemon=True).start()
@@ -479,25 +736,7 @@ def main():
         if not confirm_dontask_mode():
             print("dontask: not confirmed, falling back to default mode")
             approval.override_permission_mode("default")
-    # The SDK auto-enables DNS-rebinding protection for localhost servers,
-    # which 421s any Host header that isn't localhost — including our
-    # Cloudflare tunnel hostname (random per session, can't be allowlisted).
-    # Disabled here: the server binds 127.0.0.1-only, every route (except
-    # /health and /pair) requires the session bearer token, and the tunnel
-    # is user-initiated. The bearer token, not the Host header, is the
-    # real authentication.
-    app = mcp.streamable_http_app(
-        transport_security=TransportSecuritySettings(
-            enable_dns_rebinding_protection=False
-        )
-    )
-    app.routes.append(Route("/health", _health))
-    app.routes.append(Route("/chat", _chat_page))
-    app.routes.append(Route("/pair", _pair, methods=["POST"]))
-    app.routes.append(Route("/logout", _logout, methods=["POST"]))
-    app.routes.append(Route("/revoke", _revoke, methods=["POST"]))
-    app.routes.append(WebSocketRoute("/ws", _ws_relay))
-    app.add_middleware(BearerAuth)
+    app = build_app()
 
     print(f"pc-mcp-bridge listening on http://{HOST}:{PORT} (loopback only)")
     print("tunnel:  cloudflared tunnel --url http://127.0.0.1:8765")
