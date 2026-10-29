@@ -4,21 +4,29 @@ from seams.definitions.base import ToolDef
 SCREENSHOT = ToolDef(
     name="screenshot",
     group="read",
-    doc="Capture the primary monitor as PNG (base64). Optional region "
-        "{x, y, width, height} captures part of the screen; optional "
-        "scale (0.1-1.0) downscales the image to save bandwidth.",
+    doc="Capture the virtual all-monitors screen (base64). Optional "
+        "region {x, y, width, height} captures part of the screen. "
+        "scale (0.1-1.0) downscales via Pillow; when omitted, the long "
+        "edge is fitted to ~1280px (explicit 1.0 = native resolution). "
+        "format: 'webp' (default, lossless), 'jpeg' (quality 95) or "
+        "'png'. png_base64 is the legacy field, populated only for "
+        "format='png' (None otherwise); image_base64 always carries "
+        "the encoded bytes.",
     args={"region": {"type": "dict", "required": False,
                      "default": None},
           "scale": {"type": "float", "required": False,
-                    "default": 1.0}},
-    result_keys=["png_base64", "width", "height"],
+                    "default": None},
+          "format": {"type": "str", "required": False,
+                     "default": "webp"}},
+    result_keys=["image_base64", "mime", "format", "width", "height",
+                 "scale", "png_base64"],
     approval_tier="silent",
     side_effects="none",
     platform_notes="mss is cross-platform (Windows/macOS/Linux) — a Linux "
                    "provider can reuse the same code. macOS needs "
                    "screen-recording permission; headless servers have no "
-                   "display to capture. Region/scale are pure "
-                   "post-processing (PIL), fully portable.",
+                   "display to capture. Region/scale/format are pure "
+                   "post-processing (Pillow), fully portable.",
 )
 
 LIST_WINDOWS = ToolDef(
