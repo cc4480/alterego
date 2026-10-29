@@ -21,6 +21,7 @@ import os
 import re
 import sys
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import events
 import projections
@@ -62,12 +63,85 @@ def _read_all(since=None, events_dir=None):
     return sorted(found, key=lambda e: e.get("ts", ""))
 
 
+_DAY_FILE_RX = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _candidate_files(events_path, since_iso):
+    """Log files that can contain events at/after since_iso.
+
+    Day files are named by their UTC day (events.py layout) and an
+    event is always appended to the file for the day it was written,
+    which is never earlier than the event's own ts day — so a file
+    dated before the since day cannot hold an in-window event and is
+    skipped WITHOUT being opened. That pruning is what bounds
+    query_events: the old path replayed (read + JSON-parsed) every
+    file in the log's whole history on every call (15.64s live for
+    limit=5, 2026-10-29). Files whose names are not plain dates are
+    always kept (conservative: identical results for odd layouts).
+    """
+    p = Path(events_path) if events_path else Path(_events_dir(None))
+    if p.is_dir():
+        files = sorted(p.glob("*.jsonl"))
+    elif p.exists():
+        files = [p]
+    else:
+        return []
+    if not since_iso:
+        return files
+    since_day = since_iso[:10]
+    return [f for f in files
+            if not _DAY_FILE_RX.fullmatch(f.stem)
+            or f.stem >= since_day]
+
+
+def _read_window(since_iso=None, events_dir=None):
+    """In-window events in replay (file) order, streamed line by line.
+
+    Same tolerance and validation as events.replay: blank lines and
+    corrupt JSON lines are skipped, envelope failures are reported to
+    stderr and skipped, and an unsupported event version still raises.
+    Only the scope differs — candidate files only (see above) — plus
+    streaming instead of read-text-all-then-split, and non-matching
+    history is never materialized beyond the window.
+    """
+    out = []
+    for p in _candidate_files(_events_dir(events_dir), since_iso):
+        try:
+            fh = p.open("r", encoding="utf-8")
+        except OSError:
+            continue
+        with fh:
+            for lineno, raw in enumerate(fh, 1):
+                line = raw.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except json.JSONDecodeError:
+                    continue  # corrupt line: skip, as replay does
+                bad = events._check_envelope(ev, lineno, p)
+                if bad:
+                    print(f"[events] {bad}", file=sys.stderr)
+                    continue
+                if since_iso and ev.get("ts", "") < since_iso:
+                    continue
+                out.append(ev)
+    return out
+
+
 def query_event_log(tool=None, event_type=None, since="7d", session_id=None,
                     limit=_DEFAULT_LIMIT, events_dir=None):
-    """Filtered event search. Returns (events, total, truncated)."""
+    """Filtered event search. Returns (events, total, truncated).
+
+    Bounded read (see _candidate_files/_read_window): results are
+    identical to the old full-replay implementation — same events in
+    the same (stable, ts-sorted) order, same total, same truncated
+    flag — proven by tests/test_event_query_bounded.py against the
+    old algorithm on fixture logs including corrupt lines.
+    """
     since_iso = _parse_all_since(since)
     out = []
-    for e in _read_all(since_iso, events_dir):
+    for e in _read_window(since_iso, events_dir):
         d = e.get("data", {})
         if tool and d.get("tool") != tool:
             continue
@@ -76,6 +150,10 @@ def query_event_log(tool=None, event_type=None, since="7d", session_id=None,
         if session_id and e.get("session_id") != session_id:
             continue
         out.append(e)
+    # Stable sort of the matches alone == filter after the old
+    # sort-everything: filtering preserves order, and ties keep
+    # replay order in both.
+    out.sort(key=lambda e: e.get("ts", ""))
     total = len(out)
     return out[:limit], total, total > limit
 

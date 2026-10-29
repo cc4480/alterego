@@ -20,9 +20,15 @@ import ipaddress
 import json
 import re
 import socket
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
+
+try:
+    import certifi
+except ImportError:  # requirements.txt pins it; degrade, never disable TLS
+    certifi = None
 
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) pc-mcp-bridge-webfetch")
 _MAX_REDIRECTS = 5
@@ -101,6 +107,52 @@ def _assert_fetchable(url: str) -> urllib.parse.ParseResult:
     return parts
 
 
+def _ca_bundle_path():
+    """Path of the certifi CA bundle, or None when certifi is absent."""
+    if certifi is None:
+        return None
+    try:
+        return certifi.where()
+    except Exception:  # noqa: BLE001 - a broken certifi == unavailable
+        return None
+
+
+def _ssl_context() -> ssl.SSLContext:
+    """HTTPS context whose trust store actually works on the PC.
+
+    Root cause of the 2026-10-29 live failure: urllib's default context
+    relies on the Python/OS store, which on Looko's Python 3.12 could
+    not verify even https://example.com ("unable to get local issuer
+    certificate") while other tools using their own stores succeeded.
+    Fix: build the context from certifi's bundled CA file. Fallback is
+    the system default context — verification is NEVER weakened
+    (no CERT_NONE, no disabled hostname check) either way.
+    """
+    cafile = _ca_bundle_path()
+    if cafile:
+        try:
+            return ssl.create_default_context(cafile=cafile)
+        except (OSError, ssl.SSLError):
+            pass  # bundle unreadable -> system store, still verifying
+    return ssl.create_default_context()
+
+
+def _is_cert_verify_error(e) -> bool:
+    """True when an URLError/OSError is a TLS certificate failure."""
+    reason = getattr(e, "reason", e)
+    if isinstance(reason, ssl.SSLCertVerificationError):
+        return True
+    return "CERTIFICATE_VERIFY_FAILED" in str(e)
+
+
+def _cert_error_content(e) -> str:
+    """Failure text that names the CA problem instead of a raw URLError."""
+    source = _ca_bundle_path() or "system CA store"
+    return (f"[fetch failed: SSL certificate verification failed — the "
+            f"CA trust store ({source}) could not verify the server's "
+            f"certificate chain: {e}]")
+
+
 class _GuardedRedirect(urllib.request.HTTPRedirectHandler):
     """Follow redirects only after re-validating each hop's target."""
     max_redirections = _MAX_REDIRECTS
@@ -154,7 +206,9 @@ def _html_to_text(html: str) -> str:
 
 def _fetch_guarded(url: str, max_bytes: int, timeout_s: int) -> dict:
     """HTTP fetch + text extraction. Call only after _assert_fetchable."""
-    opener = urllib.request.build_opener(_GuardedRedirect)
+    opener = urllib.request.build_opener(
+        _GuardedRedirect,
+        urllib.request.HTTPSHandler(context=_ssl_context()))
     req = urllib.request.Request(url, headers={"User-Agent": _UA})
     try:
         resp = opener.open(req, timeout=timeout_s)
@@ -165,9 +219,10 @@ def _fetch_guarded(url: str, max_bytes: int, timeout_s: int) -> dict:
                 "content_type": e.headers.get_content_type(),
                 "content": f"[HTTP error {e.code}]", "truncated": False}
     except (urllib.error.URLError, socket.timeout, OSError) as e:
+        content = _cert_error_content(e) if _is_cert_verify_error(e) \
+            else f"[fetch failed: {type(e).__name__}: {e}]"
         return {"url": url, "status_code": 0, "content_type": "",
-                "content": f"[fetch failed: {type(e).__name__}: {e}]",
-                "truncated": False}
+                "content": content, "truncated": False}
     truncated = len(raw) > max_bytes
     raw = raw[:max_bytes]
     text = raw.decode("utf-8", errors="replace")

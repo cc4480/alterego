@@ -7,7 +7,10 @@ correctly blocks loopback). The example.com test does real network I/O
 and skips when this sandbox's DNS returns non-public IPs.
 """
 import json
+import shutil
+import ssl
 import threading
+import urllib.error
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
@@ -139,6 +142,56 @@ def test_fetch_truncation(local_server):
     r = wf._fetch_guarded(local_server + "/", 10, 10)
     assert r["truncated"] is True
     assert len(r["content"]) <= 60
+
+
+def test_ssl_context_built_from_certifi_bundle(tmp_path, monkeypatch):
+    # A distinct copy of the real bundle: if the context loads, it can
+    # only have come from the path certifi.where() returned.
+    certifi = pytest.importorskip("certifi")
+    bundle_copy = tmp_path / "ca-bundle.pem"
+    shutil.copyfile(certifi.where(), bundle_copy)
+    monkeypatch.setattr(
+        wf, "certifi",
+        type("StubCertifi", (), {"where": staticmethod(
+            lambda: str(bundle_copy))})())
+    seen = {}
+    real_create = ssl.create_default_context
+
+    def recording_create(**kwargs):
+        seen.update(kwargs)
+        return real_create(**kwargs)
+
+    monkeypatch.setattr(ssl, "create_default_context", recording_create)
+    ctx = wf._ssl_context()
+    assert seen.get("cafile") == str(bundle_copy)
+    # Verification stays ON: default context semantics, never weakened.
+    assert ctx.verify_mode == ssl.CERT_REQUIRED
+    assert ctx.check_hostname is True
+
+
+def test_ssl_context_falls_back_to_system_store(monkeypatch):
+    monkeypatch.setattr(wf, "certifi", None)
+    assert wf._ca_bundle_path() is None
+    ctx = wf._ssl_context()
+    assert ctx.verify_mode == ssl.CERT_REQUIRED
+    assert ctx.check_hostname is True
+
+
+def test_fetch_cert_verify_failure_names_ca_problem(monkeypatch):
+    cert_err = ssl.SSLCertVerificationError(
+        1, "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: "
+           "unable to get local issuer certificate")
+
+    class _Opener:
+        def open(self, req, timeout=None):
+            raise urllib.error.URLError(cert_err)
+
+    monkeypatch.setattr(wf.urllib.request, "build_opener",
+                        lambda *a, **k: _Opener())
+    r = wf._fetch_guarded("https://example.com/", 1000, 5)
+    assert r["status_code"] == 0
+    assert "certificate verification failed" in r["content"]
+    assert "CA trust store" in r["content"]
 
 
 def test_example_com_live():
