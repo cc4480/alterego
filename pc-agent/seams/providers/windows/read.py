@@ -606,17 +606,13 @@ if ($req.op -eq 'focused') {
           try { if ($fh -ne 0) { $winEl = $AE::FromHandle((New-Object IntPtr $fh)) } } catch { $winEl = $null }
         }
         if ($null -ne $winEl) {
-          # Descendant search over the RAW view, same traversal as
-          # the main enumeration: the control view hides exactly the
-          # text surfaces this escalation hunts (e.g. Notepad's
-          # Document). Iterative document-order DFS, first hit wins.
+          # Descendant search via the provider-backed FindAll --
+          # the same enumeration as the main collection (a walker
+          # DFS misses lazily-realized Chromium subtrees; see the
+          # note at the main enumeration). First hit wins.
           try {
-            $d = $null
-            try { $d = $walker.GetFirstChild($winEl) } catch { $d = $null }
-            $dvisited = 0
-            $ddepth = 1
-            while (($null -ne $d) -and ($dvisited -lt 20000) -and ($via -eq 'none')) {
-              $dvisited += 1
+            $desc = $winEl.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+            foreach ($d in $desc) {
               $dv = El-Value $d
               $dt = El-Text $d
               if ((($null -ne $dv) -and $dv.Contains($expect)) -or (($null -ne $dt) -and $dt.Contains($expect))) {
@@ -625,21 +621,6 @@ if ($req.op -eq 'focused') {
                 try { $srcType = $d.Current.ControlType.ProgrammaticName } catch { $srcType = $null }
                 break
               }
-              $dnext = $null
-              try { $dnext = $walker.GetFirstChild($d) } catch { $dnext = $null }
-              if ($null -ne $dnext) { $ddepth += 1; $d = $dnext; continue }
-              $dcur = $d
-              while ($null -ne $dcur) {
-                $dsib = $null
-                try { $dsib = $walker.GetNextSibling($dcur) } catch { $dsib = $null }
-                if ($null -ne $dsib) { $dnext = $dsib; break }
-                if ($ddepth -le 1) { $dcur = $null; break }
-                $dpar = $null
-                try { $dpar = $walker.GetParent($dcur) } catch { $dpar = $null }
-                $dcur = $dpar
-                $ddepth -= 1
-              }
-              $d = $dnext
             }
           } catch { }
         }
@@ -656,40 +637,18 @@ if ($req.op -eq 'focused') {
 }
 $win = Find-Window $req.window
 if (-not $win) { @{ok=$false; error='window not found'} | ConvertTo-Json -Compress; exit 0 }
-# Raw-view walk, document order, descendants of $win only. The
-# control view hides real text surfaces in some apps (Win11 Notepad's
-# RichEdit Document, Chromium/Electron editors); the raw view exposes
-# the full tree. Iterative DFS: descend to the first child, else take
-# the next sibling, else climb to the nearest ancestor that has a next
-# sibling ($depth tracks position so the climb never leaves $win's
-# subtree). $visited counts walked nodes; the cap stops the walk
-# gracefully on a pathological tree instead of walking forever.
-$UIA_MAX_VISITED_NODES = 20000
-$walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
-$all = New-Object System.Collections.ArrayList
-$visited = 0
-$depth = 1
-$el = $null
-try { $el = $walker.GetFirstChild($win) } catch { $el = $null }
-while ($null -ne $el -and $visited -lt $UIA_MAX_VISITED_NODES) {
-  $visited += 1
-  [void]$all.Add($el)
-  $next = $null
-  try { $next = $walker.GetFirstChild($el) } catch { $next = $null }
-  if ($null -ne $next) { $depth += 1; $el = $next; continue }
-  $cur = $el
-  while ($null -ne $cur) {
-    $sib = $null
-    try { $sib = $walker.GetNextSibling($cur) } catch { $sib = $null }
-    if ($null -ne $sib) { $next = $sib; break }
-    if ($depth -le 1) { $cur = $null; break }
-    $par = $null
-    try { $par = $walker.GetParent($cur) } catch { $par = $null }
-    $cur = $par
-    $depth -= 1
-  }
-  $el = $next
-}
+# Enumeration via the provider-backed FindAll (descendants, document
+# order). A hand-rolled RawViewWalker DFS was tried first and lost
+# live: Chromium's UIA tree is lazy -- subtrees the provider realizes
+# for FindAll are not necessarily reachable by walker navigation, and
+# the DFS intermittently enumerated an empty/partial tree on Hermes
+# while a direct FindAll on the same window found every element
+# (A/B-proven 2026-10-29). The Notepad side of the original
+# diagnosis also closed differently than assumed: on this Win10 box
+# the classic editor child is a control-visible Pane in both views,
+# and its text channel is the hwnd fallback (El-HwndText), not the
+# view. FindAll is the enumeration that sees the real tree here.
+$all = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
 $elems = @()
 $limit = [int]$req.max_results
 $ctFilter = ''
