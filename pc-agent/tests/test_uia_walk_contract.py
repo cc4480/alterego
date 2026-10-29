@@ -47,12 +47,18 @@ def test_walk_feeds_the_shared_enumeration_in_document_order():
     # The raw-view walk replaces the enumeration source only: it sits
     # between the window lookup and the same downstream foreach, so
     # the filters / ordering / caps below it are the pre-change ones.
-    assert PS.index("Find-Window $req.window") < PS.index("RawViewWalker")
-    assert PS.index("RawViewWalker") < PS.index("foreach ($el in $all)")
+    # Scope to the MAIN walk via its unique cap constant: the
+    # 'focused' op (slice C) also names RawViewWalker for its
+    # ancestor/escalation walk and sits earlier in the script.
+    assert PS.index("Find-Window $req.window") < PS.index("$UIA_MAX_VISITED_NODES")
+    assert PS.index("$UIA_MAX_VISITED_NODES") < PS.index("foreach ($el in $all)")
     # Matched-cap break over the collected list is unchanged.
     assert "if ($elems.Count -ge $limit) { break }" in PS
-    # Name matching semantics are unchanged (-match family, as-is).
-    assert "$n -notmatch $req.name_rx" in PS
+    # Name matching: slice B alone left the in-loop -notmatch filter
+    # as-is; in the INTEGRATED tree slice A's tiered resolution
+    # supersedes it (collection is name-unfiltered, selection happens
+    # post-loop). This assertion tracks the integrated contract.
+    assert "$n -notmatch $req.name_rx" not in PS
 
 
 def test_visited_node_cap_constant_exists_and_bounds_the_walk():

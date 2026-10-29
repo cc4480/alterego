@@ -83,9 +83,12 @@ def uia_find(window: str, name_rx: str = "", control_type: str = "",
                           "max_results": max_results})
 
 def uia_get(window: str, name_rx: str = "", control_type: str = "",
-            index: int = 0) -> dict:
+            index: int | None = None) -> dict:
     """Read one UI element via UI Automation: value/text, keyboard
-    focus, RuntimeId, and available patterns (the read-back op)."""
-    return toolcall.call("uia_get",
-                         {"window": window, "name_rx": name_rx,
-                          "control_type": control_type, "index": index})
+    focus, RuntimeId, and available patterns (the read-back op).
+    Index omitted means the name match must resolve uniquely."""
+    a = {"window": window, "name_rx": name_rx,
+         "control_type": control_type}
+    if index is not None:
+        a["index"] = index
+    return toolcall.call("uia_get", a)
