@@ -294,3 +294,24 @@ def test_wavehdr_lpdata_void_p_and_string_at_roundtrips_nuls():
                           len(pcm), None, 0, 0, None, None)
     assembled = ctypes.string_at(hdr.lpData, hdr.dwBytesRecorded)
     assert assembled == pcm
+
+
+def test_nul_containing_pcm_duration_is_frames_over_rate():
+    import ctypes
+    pcm = _loud_pcm(1)  # every sample is b"\x00\x40": a NUL per sample
+    assert b"\x00" in pcm
+    chunk_frames = win_pc._RECORD_RATE // 4  # _record_wavein's chunking
+    chunk_bytes = chunk_frames * 2
+    bufs, hdrs = [], []
+    for off in range(0, len(pcm), chunk_bytes):
+        chunk = pcm[off:off + chunk_bytes]
+        b = ctypes.create_string_buffer(chunk, len(chunk))
+        hdrs.append(win_pc._WAVEHDR(ctypes.addressof(b), len(chunk),
+                                    len(chunk), None, 0, 0, None, None))
+        bufs.append(b)  # keep the buffers alive for string_at below
+    assembled = b"".join(ctypes.string_at(h.lpData, h.dwBytesRecorded)
+                         for h in hdrs)
+    assert assembled == pcm
+    info = win_pc._wav_info(win_pc._wav_from_pcm(assembled))
+    assert info["duration_s"] == 1.0  # frames / rate, not near-zero
+    assert info["peak"] == 0.5
