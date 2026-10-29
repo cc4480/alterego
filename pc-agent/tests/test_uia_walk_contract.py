@@ -68,6 +68,21 @@ def test_walk_feeds_the_shared_enumeration_in_document_order():
     assert "$n -notmatch $req.name_rx" not in PS
 
 
+def test_legacy_edit_hwnd_text_fallback_present():
+    # Hosts whose OS UIA proxy never engages for classic Win32
+    # controls expose standard Edits as pattern-less Panes; the
+    # helper's text channel for Edit/RichEdit hwnds is window
+    # messages (WM_GETTEXT/WM_SETTEXT via SendMessageTimeout),
+    # used only when no ValuePattern owns the element.
+    assert "function El-HwndText" in PS
+    assert "function El-HwndSet" in PS
+    assert "SendMessageTimeout" in PS
+    assert "0x000D" in PS  # WM_GETTEXT
+    assert "0x000C" in PS  # WM_SETTEXT
+    assert "'Edit'" in PS and "'RICHEDIT50W'" in PS
+    assert "method='hwnd'" in PS
+
+
 def test_visited_node_cap_constant_exists_and_bounds_the_walk():
     m = re.search(r"\$UIA_MAX_VISITED_NODES\s*=\s*(\d+)", PS)
     assert m, "named visited-node cap constant missing"

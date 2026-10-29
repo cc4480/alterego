@@ -477,13 +477,65 @@ function Find-Window($spec) {
   }
   return $null
 }
+# Legacy-control text channel. Some hosts never engage the OS UIA
+# proxy for classic Win32 controls: a standard Edit surfaces as a
+# pattern-less Pane and NO UIA pattern can read or write its text
+# (proven live on Looko's Win10: Notepad's Edit child and Explorer's
+# SysTreeView32/ToolbarWindow32 all expose zero patterns, while
+# self-provided controls expose full patterns). For Edit-class
+# hwnds the canonical text channel is window messages -- the same
+# channel the UIA proxy itself uses when it works. Strictly scoped:
+# Edit/RichEdit window classes with a real NativeWindowHandle only;
+# SendMessageTimeout with SMTO_ABORTIFHUNG so a hung app cannot
+# stall the helper.
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class HwndTextNative {
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)]
+  public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wParam, StringBuilder lParam, uint flags, uint timeout, out IntPtr result);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)]
+  public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wParam, string lParam, uint flags, uint timeout, out IntPtr result);
+}
+'@
+$UIA_EDIT_CLASSES = @('Edit','RICHEDIT50W','RichEdit20W','RichEdit20A','RichEdit')
+function El-HwndText($el) {
+  try {
+    if ($UIA_EDIT_CLASSES -notcontains $el.Current.ClassName) { return $null }
+    $h = $el.Current.NativeWindowHandle
+    if ($h -eq 0) { return $null }
+    $len = [IntPtr]::Zero
+    $dummy = New-Object System.Text.StringBuilder 1
+    [void][HwndTextNative]::SendMessageTimeout([IntPtr]$h, 0x000E, [IntPtr]::Zero, $dummy, 2, 2000, [ref]$len)
+    $n = $len.ToInt32()
+    if ($n -lt 0) { return $null }
+    $sb = New-Object System.Text.StringBuilder ($n + 1)
+    $res = [IntPtr]::Zero
+    [void][HwndTextNative]::SendMessageTimeout([IntPtr]$h, 0x000D, [IntPtr]($n + 1), $sb, 2, 2000, [ref]$res)
+    return $sb.ToString()
+  } catch { return $null }
+}
+function El-HwndSet($el, $text) {
+  try {
+    if ($UIA_EDIT_CLASSES -notcontains $el.Current.ClassName) { return $false }
+    $h = $el.Current.NativeWindowHandle
+    if ($h -eq 0) { return $false }
+    $res = [IntPtr]::Zero
+    [void][HwndTextNative]::SendMessageTimeout([IntPtr]$h, 0x000C, [IntPtr]::Zero, [string]$text, 2, 2000, [ref]$res)
+    return ((El-HwndText $el) -eq $text)
+  } catch { return $false }
+}
 function El-Value($el) {
-  try { $vp = $el.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern); return $vp.Current.Value } catch { return $null }
+  try { $vp = $el.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern); return $vp.Current.Value } catch { return (El-HwndText $el) }
 }
 function El-Text($el) {
   $v = El-Value $el
   if ($null -ne $v) { return $v }
-  try { $tp = $el.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern); return $tp.DocumentRange.GetText(-1) } catch { return '' }
+  try { $tp = $el.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern); return $tp.DocumentRange.GetText(-1) } catch { }
+  $ht = El-HwndText $el
+  if ($null -ne $ht) { return $ht }
+  return ''
 }
 function El-Patterns($el) {
   try { return @($el.GetSupportedPatterns() | ForEach-Object { $_.ProgrammaticName -replace 'Identifiers$','' }) } catch { return @() }
@@ -742,6 +794,15 @@ if ($op -eq 'set') {
     if ($after -ne $req.text) { @{ok=$false; error=('value mismatch after SetValue: read back "' + $after + '"'); value_after=$after} | ConvertTo-Json -Compress; exit 0 }
     @{ok=$true; method='value'; name=$t.name; value_after=$after} | ConvertTo-Json -Compress; exit 0
   } catch { }
+  # Pattern-less legacy Edit/RichEdit: write via WM_SETTEXT and
+  # verify by WM_GETTEXT (see El-HwndText). Only when the element
+  # has no ValuePattern at all -- a pattern-owned control (e.g. a
+  # read-only Edit that does expose ValuePattern) is never bypassed.
+  $hasVP = $false
+  try { $hasVP = [bool](@(El-Patterns $t.el) | Where-Object { $_ -like '*ValuePattern*' }) } catch { $hasVP = $false }
+  if (-not $hasVP) {
+    if (El-HwndSet $t.el $req.text) { @{ok=$true; method='hwnd'; name=$t.name; value_after=(El-HwndText $t.el)} | ConvertTo-Json -Compress; exit 0 }
+  }
   try { $t.el.SetFocus() }
   catch { @{ok=$false; error='set_text failed: no value pattern and focus failed'} | ConvertTo-Json -Compress; exit 0 }
   $frid = ''
