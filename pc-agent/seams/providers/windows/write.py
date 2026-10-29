@@ -747,8 +747,16 @@ def send_message(window: str, name_rx: str, text: str,
                              "contains": text,
                              "max_results": UIA_ENUM_MAX_RESULTS,
                              "return_limit": 50})
+        # The re-check folds dash variants: the helper matched the
+        # text ordinally on the PC, but the response round-trip
+        # canonicalizes an em dash in the returned name/value, so a
+        # byte-exact Python comparison false-fails on text the PC
+        # demonstrably found (live: every em-dash label missed,
+        # the ASCII control send verified). The rest of the string
+        # must still match exactly.
         checks["in_message_list"] = bool(found.get("ok")) and any(
-            text in (el.get("name") or "") or text == el.get("value")
+            _fold_dashes(text) in _fold_dashes(el.get("name") or "")
+            or _fold_dashes(text) == _fold_dashes(el.get("value"))
             for el in (found.get("elements") or []))
         foc = _uia_invoke({"op": "focused", "window": window,
                            "name_rx": "", "control_type": "",
