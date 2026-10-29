@@ -212,6 +212,38 @@ UIA_GET = ToolDef(
                    "Honest gap on other platforms — omit rather than fake.",
 )
 
+SCREENSHOT_TILES = ToolDef(
+    name="screenshot_tiles",
+    group="read",
+    doc="Capture the screen as raw-RGB tiles stored in the blob store. "
+        "Returns a manifest {grid, tile_size, tile_width, tile_height, "
+        "width, height, full_frame_sha256, delta, tiles}; each tile entry "
+        "carries {index, x, y, width, height, blob_ref, size, sha256} "
+        "(fetch bytes via GET /blobs/<sha>). delta=True returns only "
+        "changed tiles (plus changed/unchanged index lists) against the "
+        "previous frame; a grid/region/resolution change falls back to a "
+        "full manifest. Clients verify full_frame_sha256 to detect "
+        "desync and self-heal with one full frame.",
+    args={"region": {"type": "dict", "required": False,
+                     "default": None},
+          "tile_size": {"type": "int", "required": False,
+                        "default": 512},
+          "grid": {"type": "dict", "required": False,
+                   "default": None},
+          "delta": {"type": "bool", "required": False,
+                    "default": False}},
+    result_keys=["grid", "tile_size", "tile_width", "tile_height",
+                 "width", "height", "full_frame_sha256", "delta",
+                 "tiles"],
+    approval_tier="silent",
+    side_effects="none",
+    platform_notes="mss is cross-platform; tiles are raw RGB bytes so "
+                   "hashing/delta needs no image codec. Windows provider "
+                   "stores tiles via blob_store; the mock keeps them in "
+                   "memory under the same refs.",
+)
+
 ALL_READ_DEFS = [SCREENSHOT, LIST_WINDOWS, SYSTEM_INFO, LIST_DIR,
                  READ_FILE, CLIPBOARD_GET, SEARCH_FILES,
-                 SEARCH_FILENAMES, READ_FILE_RANGE, UIA_FIND, UIA_GET]
+                 SEARCH_FILENAMES, READ_FILE_RANGE, UIA_FIND, UIA_GET,
+                 SCREENSHOT_TILES]

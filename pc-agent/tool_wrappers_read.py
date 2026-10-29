@@ -6,14 +6,29 @@ Each wrapper delegates to toolcall.call for audit logging.
 import toolcall
 
 
-def screenshot(region: dict | None = None, scale: float = 1.0) -> dict:
-    """Capture the primary monitor as PNG (base64). Optional region and scale."""
-    a = {}
+def screenshot(region: dict | None = None, scale: float | None = None,
+               format: str = "webp") -> dict:
+    """Capture the screen (base64). Optional region; scale omitted =
+    auto-fit long edge to ~1280px (explicit 1.0 = native). format:
+    'webp' (default, lossless), 'jpeg' or 'png'."""
+    a = {"format": format}
     if region is not None:
         a["region"] = region
-    if scale != 1.0:
+    if scale is not None:
         a["scale"] = scale
     return toolcall.call("screenshot", a)
+
+def screenshot_tiles(region: dict | None = None, tile_size: int = 512,
+                     grid: dict | None = None,
+                     delta: bool = False) -> dict:
+    """Capture the screen as blob-referenced raw-RGB tiles + manifest.
+    delta=True returns only tiles changed since the previous frame."""
+    a = {"tile_size": tile_size, "delta": delta}
+    if region is not None:
+        a["region"] = region
+    if grid is not None:
+        a["grid"] = grid
+    return toolcall.call("screenshot_tiles", a)
 
 def list_windows() -> dict:
     """List visible windows: handle, pid, title."""

@@ -11,9 +11,9 @@ import tools_tasks  # shim -> seams.providers.windows.tasks (MCP wrappers)
 
 # ---- read tools (in tool_wrappers_read.py, file size limit) ---------------
 from tool_wrappers_read import (  # noqa: E402
-    screenshot, list_windows, system_info, list_dir, read_file,
-    clipboard_get, search_files, search_filenames, read_file_range,
-    uia_find, uia_get)
+    screenshot, screenshot_tiles, list_windows, system_info, list_dir,
+    read_file, clipboard_get, search_files, search_filenames,
+    read_file_range, uia_find, uia_get)
 
 # ---- write tools (each pops a native approval dialog on the PC) -----------
 def focus_window(hwnd: int) -> dict:
@@ -318,7 +318,8 @@ def browser_eval(js: str, url_contains: str = "") -> dict:
 
 
 ALL_TOOLS = [
-    screenshot, list_windows, system_info, list_dir, read_file,
+    screenshot, screenshot_tiles, list_windows, system_info, list_dir,
+    read_file,
     clipboard_get, memory_recall,
     search_files, search_filenames, read_file_range,
     focus_window, close_window, type_text, shell_exec,

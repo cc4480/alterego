@@ -81,8 +81,10 @@ def _normalize_lineage(value):
 # screen, UIA tree, injected input, clipboard, window state are all one
 # shared surface. "browser": the single Edge CDP session.
 RESOURCE_MAP = {
-    "screenshot": "desktop", "list_windows": "desktop",
+    "screenshot": "desktop", "screenshot_tiles": "desktop",
+    "list_windows": "desktop",
     "active_window": "desktop", "uia_find": "desktop",
+    "uia_get": "desktop", "send_message": "desktop",
     "focus_window": "desktop", "close_window": "desktop",
     "minimize_window": "desktop", "maximize_window": "desktop",
     "mouse_move": "desktop", "mouse_click": "desktop",

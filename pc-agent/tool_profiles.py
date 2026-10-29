@@ -17,6 +17,7 @@ def _p(blast, rec, effects=(), undo=None, tags=()):
 PROFILES = {
     # ---- read-only: no blast, fully recoverable ----
     "screenshot": _p("none", 10),
+    "screenshot_tiles": _p("none", 10),
     "list_windows": _p("none", 10),
     "system_info": _p("none", 10),
     "list_dir": _p("none", 10),
@@ -24,6 +25,7 @@ PROFILES = {
     "clipboard_get": _p("none", 10, tags=("user_data",)),
     "memory_recall": _p("none", 10),
     "uia_find": _p("none", 10),
+    "uia_get": _p("none", 10),
     "file_info": _p("none", 10),
     "task_create": _p("none", 10, ("task record created",)),
     "task_checkpoint": _p("none", 10, ("checkpoint appended",)),
@@ -55,6 +57,8 @@ PROFILES = {
     "uia_click": _p("session", 8, ("UIA element activated",), "depends on target"),
     "uia_set_text": _p("user_data", 6, ("text set into UI element",),
                      "manually clear the field", ("user_data",)),
+    "send_message": _p("user_data", 6, ("message sent into UI composer",),
+                     "delete the sent message in the app", ("user_data",)),
     "hotkey": _p("session", 8, ("key combo sent to focused app",), "depends on combo"),
     "type_text": _p("user_data", 6, ("text entered into focused app",),
                     "manually delete typed text", ("user_data",)),
