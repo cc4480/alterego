@@ -668,8 +668,15 @@ foreach ($el in $all) {
   try { $r = $el.Current.BoundingRectangle } catch { continue }
   $bx = Safe-Int $r.X; $by = Safe-Int $r.Y; $bw = Safe-Int $r.Width; $bh = Safe-Int $r.Height
   try { $aid = $el.Current.AutomationId } catch { $aid = '' }
-  $val = El-Value $el
-  $txt = El-Text $el
+  # Pattern probes (El-Value/El-Text/El-Focus/El-Patterns) are the
+  # expensive per-element calls; at collection time they run ONLY
+  # for a contains search, which matches on them. Otherwise value/
+  # text stay $null here and are probed after selection, on the
+  # few elements actually returned or resolved -- that is what
+  # lets the enumeration cap cover real app trees (thousands of
+  # elements) inside the helper timeout.
+  $val = $null; $txt = $null
+  if ($contains -ne '') { $val = El-Value $el; $txt = El-Text $el }
   if ($contains -ne '') {
     # Contains probe (send_message confirmation): no name filter;
     # the set is elements whose name, value, or text contains the
@@ -680,7 +687,7 @@ foreach ($el in $all) {
     if (($null -ne $txt) -and $txt.Contains($contains)) { $hit = $true }
     if (-not $hit) { continue }
   }
-  $elems += [pscustomobject]@{el=$el; name=$n; control_type=$ct; automation_id=$aid; x=$bx; y=$by; width=$bw; height=$bh; value=$val; text=$txt; has_keyboard_focus=(El-Focus $el); runtime_id=(El-Rid $el); patterns=@(El-Patterns $el)}
+  $elems += [pscustomobject]@{el=$el; name=$n; control_type=$ct; automation_id=$aid; x=$bx; y=$by; width=$bw; height=$bh; value=$val; text=$txt; has_keyboard_focus=$(if ($contains -ne '') { El-Focus $el } else { $false }); runtime_id=(El-Rid $el); patterns=@(if ($contains -ne '') { El-Patterns $el } else { @() })}
   if ($elems.Count -ge $limit) { break }
 }
 # Shared resolution: name matching is tiered over the control-type
@@ -705,6 +712,7 @@ if ($op -eq 'find') {
   $retLimit = $limit
   if (($req.PSObject.Properties.Name -contains 'return_limit') -and $req.return_limit) { $retLimit = [int]$req.return_limit }
   $winSet = @($sel | Select-Object -First $retLimit)
+  if ($contains -eq '') { foreach ($w in $winSet) { $w.value = El-Value $w.el; $w.has_keyboard_focus = El-Focus $w.el } }
   $proj = @($winSet | ForEach-Object { [pscustomobject]@{name=$_.name; control_type=$_.control_type; automation_id=$_.automation_id; x=$_.x; y=$_.y; width=$_.width; height=$_.height; value=$_.value; has_keyboard_focus=$_.has_keyboard_focus; runtime_id=$_.runtime_id} })
   @{ok=$true; count=$proj.Count; elements=$proj} | ConvertTo-Json -Compress -Depth 4
   exit 0
@@ -738,6 +746,9 @@ if ($ridWanted -ne '') {
     $t = $sel[0]
   }
 }
+# Deferred pattern probes for the one resolved element (see the
+# collection loop): fill the fields the ops read from $t.
+if ($contains -eq '') { $t.value = El-Value $t.el; $t.text = El-Text $t.el; $t.has_keyboard_focus = El-Focus $t.el; $t.patterns = @(El-Patterns $t.el) }
 $cx = $t.x + [int]($t.width / 2)
 $cy = $t.y + [int]($t.height / 2)
 if ($op -eq 'click') {
@@ -819,7 +830,15 @@ def _uia_invoke(payload: dict, timeout_s: int = 30) -> dict:
 # ordering, find's list is the resolution list, and any find index
 # resolves to the same element in get/set/click. uia_find's
 # max_results remains only as a cap on RETURNED results.
-UIA_ENUM_MAX_RESULTS = 200
+#
+# The cap value itself was the next defect: at 200 it truncated
+# real trees (Hermes' window holds 229+ elements and the composer
+# sits near the end, so whether it was enumerated at all depended
+# on how many elements preceded it — the live "flickering
+# composer"). Collection is cheap-field only (pattern probes are
+# deferred to the selected elements), so the cap can cover real
+# app trees; 5000 is a pathology guard, not a working limit.
+UIA_ENUM_MAX_RESULTS = 5000
 
 
 def _uia_failure(res: dict, fallback: str) -> RuntimeError:
