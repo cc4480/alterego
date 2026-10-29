@@ -97,6 +97,20 @@ def test_bounding_rect_values_are_clamped_not_cast():
     assert "$bx = Safe-Int $r.X" in PS
 
 
+def test_pattern_probes_are_deferred_until_selection():
+    # Collection stores cheap fields only; the expensive pattern
+    # probes run at collection time ONLY for a contains search.
+    assert "$val = $null; $txt = $null" in PS
+    assert "if ($contains -ne '') { $val = El-Value $el; $txt = El-Text $el }" in PS
+    # The returned find set is probed before projection...
+    assert ("foreach ($w in $winSet) { $w.value = El-Value $w.el; "
+            "$w.has_keyboard_focus = El-Focus $w.el }") in PS
+    # ...and so is the single resolved element before op dispatch.
+    assert ("$t.value = El-Value $t.el; $t.text = El-Text $t.el; "
+            "$t.has_keyboard_focus = El-Focus $t.el; "
+            "$t.patterns = @(El-Patterns $t.el)") in PS
+
+
 def test_no_visited_node_cap_machinery_remains():
     # The cap belonged to the retired hand-rolled DFS; the
     # provider-backed FindAll has no client-side walk to bound.
@@ -108,8 +122,10 @@ def test_collected_element_fields_are_exactly_the_pre_change_set():
     # The collected pscustomobject in the enumeration loop: 'el' is
     # the internal element handle (downstream ops act through it);
     # the data fields are exactly the pre-change set, in order.
+    # (The patterns tail is the deferred-probe form: patterns are
+    # probed at collection only for a contains search.)
     start = PS.index("[pscustomobject]@{el=$el;")
-    tail = "patterns=@(El-Patterns $el)}"
+    tail = "else { @() })}"
     segment = PS[start:PS.index(tail, start) + len(tail)]
     keys = re.findall(r"(?:^|[{;]\s*)([a-z_]+)=", segment)
     assert keys == ["el", "name", "control_type", "automation_id",

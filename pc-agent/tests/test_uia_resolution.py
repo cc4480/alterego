@@ -271,7 +271,7 @@ def test_windows_payload_marks_index_given():
     assert p2["index_given"] is True and p2["index"] == 2
     # find enumerates at the unified cap; return_limit carries the
     # caller's max_results.
-    assert p["max_results"] == win_read.UIA_ENUM_MAX_RESULTS == 200
+    assert p["max_results"] == win_read.UIA_ENUM_MAX_RESULTS == 5000
 
 
 def test_windows_failure_helper_names_ambiguity_candidates():
