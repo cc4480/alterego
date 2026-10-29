@@ -710,7 +710,13 @@ def send_message(window: str, name_rx: str, text: str,
     _tap_vk(_VK["enter"])
     checks = {"value_cleared": False, "in_message_list": False,
               "focus_on_control": False}
-    deadline = time.monotonic() + 1.0
+    # The confirmation probes are full UIA helper round-trips; on a
+    # real Electron tree each takes seconds, so a 1s deadline could
+    # expire before the first probe even returned (live: messages
+    # posted and present, confirmation still reported
+    # in_message_list False). 15s spans several probe cycles; the
+    # loop still exits the moment every check passes.
+    deadline = time.monotonic() + 15.0
     while True:
         after = _uia_get_raw(window, name_rx, control_type, index)
         # Cleared means "" — or, for placeholder-exposing composers
