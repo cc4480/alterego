@@ -173,8 +173,10 @@ READ_FILE_RANGE = ToolDef(
 UIA_FIND = ToolDef(
     name="uia_find",
     group="read",
-    doc="Find UI elements in a window via Windows UI Automation — match "
-        "by name regex and/or control type. Returns name, control type, "
+    doc="Find UI elements in a window via Windows UI Automation — name "
+        "matching is tiered: exact literal name first, then anchored "
+        "regex full match (no substring fallback); control type accepts "
+        "'Edit' or 'ControlType.Edit'. Returns name, control type, "
         "automation id, and bounding rect for each match. No screenshots "
         "needed. window: window title regex (or hwnd digits).",
     args={"window": {"type": "str", "required": True},
@@ -202,7 +204,7 @@ UIA_GET = ToolDef(
     args={"window": {"type": "str", "required": True},
           "name_rx": {"type": "str", "required": False, "default": ""},
           "control_type": {"type": "str", "required": False, "default": ""},
-          "index": {"type": "int", "required": False, "default": 0}},
+          "index": {"type": "int", "required": False, "default": None}},
     result_keys=["ok", "name", "control_type", "automation_id", "value",
                  "text", "has_keyboard_focus", "runtime_id", "patterns",
                  "x", "y", "width", "height"],

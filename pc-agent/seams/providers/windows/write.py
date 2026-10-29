@@ -9,7 +9,8 @@ from ctypes import wintypes  # pure type aliases; windll itself is Windows-only
 import subproc
 from approval import request_approval
 from seams.providers.windows.read import (
-    _check_path, _resolve_cwd, _uia_invoke, _uia_payload)
+    UIA_ENUM_MAX_RESULTS, _check_path, _resolve_cwd, _uia_failure,
+    _uia_invoke, _uia_payload)
 
 MAX_OUTPUT = 65536  # truncate captured output at 64 KB
 
@@ -144,7 +145,7 @@ def _resolve_target_hwnd(window) -> int | None:
 
 
 def _focus_gate(window=None, name_rx: str = "", control_type: str = "",
-                index: int = 0, timeout_s: float = 0.5) -> dict:
+                index: int | None = None, timeout_s: float = 0.5) -> dict:
     """Verify input will land on the target — or raise, typing nothing.
 
     Gate: the foreground hwnd must be the target window AND (when an
@@ -158,8 +159,7 @@ def _focus_gate(window=None, name_rx: str = "", control_type: str = "",
         info = _uia_invoke(_uia_payload(
             "get", window, name_rx, control_type, index))
         if not info.get("ok"):
-            raise RuntimeError(info.get("error", "focus gate: element "
-                                              "not found"))
+            raise _uia_failure(info, "focus gate: element not found")
         target_rid = info.get("runtime_id", "")
         if target_hwnd is None and info.get("window_hwnd"):
             target_hwnd = int(info["window_hwnd"])
@@ -483,7 +483,7 @@ def paste_text(text: str) -> dict:
 
 
 def uia_click(window: str, name_rx: str = "", control_type: str = "",
-              index: int = 0, button: str = "left",
+              index: int | None = None, button: str = "left",
               runtime_id: str = "") -> dict:
     """Click a UI element in a window, via UI Automation.
 
@@ -509,7 +509,7 @@ def uia_click(window: str, name_rx: str = "", control_type: str = "",
         "click", window, name_rx, control_type, index,
         runtime_id=runtime_id or ""))
     if not res.get("ok"):
-        raise RuntimeError(res.get("error", "uia_click failed"))
+        raise _uia_failure(res, "uia_click failed")
     x, y = int(res.get("x", 0)), int(res.get("y", 0))
     if res.get("method") == "coord":
         ctypes.windll.user32.SetCursorPos(x, y)
@@ -540,12 +540,13 @@ def _uia_get_raw(window, name_rx, control_type, index,
         "get", window, name_rx, control_type, index,
         runtime_id=runtime_id or ""))
     if not res.get("ok"):
-        raise RuntimeError(res.get("error", "uia read-back failed"))
+        raise _uia_failure(res, "uia read-back failed")
     return res
 
 
 def _uia_set_text_verified(window: str, name_rx: str, text: str,
-                           control_type: str = "", index: int = 0,
+                           control_type: str = "",
+                           index: int | None = None,
                            runtime_id: str = "") -> dict:
     """Verified UIA write (no approval — callers approve once).
 
@@ -559,7 +560,7 @@ def _uia_set_text_verified(window: str, name_rx: str, text: str,
         "set", window, name_rx, control_type, index,
         runtime_id=runtime_id or "", text=text))
     if not res.get("ok"):
-        raise RuntimeError(res.get("error", "uia_set_text failed"))
+        raise _uia_failure(res, "uia_set_text failed")
     if res.get("method") == "focus":
         _send_unicode(text)  # helper verified focus is on the target
     after = _uia_get_raw(window, name_rx, control_type, index,
@@ -575,7 +576,7 @@ def _uia_set_text_verified(window: str, name_rx: str, text: str,
 
 
 def uia_set_text(window: str, name_rx: str, text: str,
-                 control_type: str = "", index: int = 0,
+                 control_type: str = "", index: int | None = None,
                  runtime_id: str = "") -> dict:
     """Set text of an edit control in a window, via UI Automation.
 
@@ -595,7 +596,7 @@ def uia_set_text(window: str, name_rx: str, text: str,
 
 
 def send_message(window: str, name_rx: str, text: str,
-                 control_type: str = "", index: int = 0) -> dict:
+                 control_type: str = "", index: int | None = None) -> dict:
     """Send a message through a window's composer control, verified.
 
     Composite: resolve target -> focus gate -> verified write ->
@@ -621,9 +622,14 @@ def send_message(window: str, name_rx: str, text: str,
     while True:
         after = _uia_get_raw(window, name_rx, control_type, index)
         checks["value_cleared"] = after.get("value") == ""
+        # Contains probe: under the tiered name semantics the sent
+        # text is not a name match, so the find op collects elements
+        # whose name, value, or text contains it (case-sensitive).
         found = _uia_invoke({"op": "find", "window": window,
-                             "name_rx": re.escape(text),
-                             "control_type": "", "max_results": 50})
+                             "name_rx": "", "control_type": "",
+                             "contains": text,
+                             "max_results": UIA_ENUM_MAX_RESULTS,
+                             "return_limit": 50})
         checks["in_message_list"] = bool(found.get("ok")) and any(
             text in (el.get("name") or "") or text == el.get("value")
             for el in (found.get("elements") or []))
