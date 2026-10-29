@@ -541,6 +541,13 @@ function El-Patterns($el) {
   try { return @($el.GetSupportedPatterns() | ForEach-Object { $_.ProgrammaticName -replace 'Identifiers$','' }) } catch { return @() }
 }
 function El-Rid($el) { try { return ($el.GetRuntimeId() -join ',') } catch { return '' } }
+function Safe-Int($v) {
+  # BoundingRectangle fields are doubles and raw-view-only elements
+  # (off-screen / sentinel rects in Chromium trees) can carry values
+  # outside Int32 range; a bare [int] cast throws and kills the
+  # whole query under ErrorActionPreference=Stop. Clamp instead.
+  try { $d = [double]$v; if ([double]::IsNaN($d) -or [double]::IsInfinity($d)) { return 0 }; if ($d -gt 1000000) { return 1000000 }; if ($d -lt -1000000) { return -1000000 }; return [int]$d } catch { return 0 }
+}
 function El-Focus($el) { try { return [bool]$el.Current.HasKeyboardFocus } catch { return $false } }
 if ($req.op -eq 'focused') {
   # Focus is global: no window lookup (paste_text read-back has no
@@ -700,6 +707,7 @@ foreach ($el in $all) {
     if (($ct -ine $ctFilter) -and ($ctShort -ine $ctFilterShort)) { continue }
   }
   try { $r = $el.Current.BoundingRectangle } catch { continue }
+  $bx = Safe-Int $r.X; $by = Safe-Int $r.Y; $bw = Safe-Int $r.Width; $bh = Safe-Int $r.Height
   try { $aid = $el.Current.AutomationId } catch { $aid = '' }
   $val = El-Value $el
   $txt = El-Text $el
@@ -713,7 +721,7 @@ foreach ($el in $all) {
     if (($null -ne $txt) -and $txt.Contains($contains)) { $hit = $true }
     if (-not $hit) { continue }
   }
-  $elems += [pscustomobject]@{el=$el; name=$n; control_type=$ct; automation_id=$aid; x=[int]$r.X; y=[int]$r.Y; width=[int]$r.Width; height=[int]$r.Height; value=$val; text=$txt; has_keyboard_focus=(El-Focus $el); runtime_id=(El-Rid $el); patterns=@(El-Patterns $el)}
+  $elems += [pscustomobject]@{el=$el; name=$n; control_type=$ct; automation_id=$aid; x=$bx; y=$by; width=$bw; height=$bh; value=$val; text=$txt; has_keyboard_focus=(El-Focus $el); runtime_id=(El-Rid $el); patterns=@(El-Patterns $el)}
   if ($elems.Count -ge $limit) { break }
 }
 # Shared resolution: name matching is tiered over the control-type

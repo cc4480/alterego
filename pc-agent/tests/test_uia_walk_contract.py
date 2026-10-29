@@ -83,6 +83,15 @@ def test_legacy_edit_hwnd_text_fallback_present():
     assert "method='hwnd'" in PS
 
 
+def test_bounding_rect_values_are_clamped_not_cast():
+    # Raw-view-only elements can carry out-of-Int32-range rect
+    # doubles; a bare [int] cast throws and kills the whole query
+    # (proven live on Hermes). Collection must sanitize via Safe-Int.
+    assert "function Safe-Int" in PS
+    assert "x=[int]$r.X" not in PS
+    assert "$bx = Safe-Int $r.X" in PS
+
+
 def test_visited_node_cap_constant_exists_and_bounds_the_walk():
     m = re.search(r"\$UIA_MAX_VISITED_NODES\s*=\s*(\d+)", PS)
     assert m, "named visited-node cap constant missing"
