@@ -104,13 +104,17 @@ def test_result_keys_exact(name):
 def test_task_lifecycle_result_keys():
     created = toolcall.call("task_create", {"goal": "g", "plan": ["a"]})
     assert set(created) == {"task_id", "goal", "steps"}
+    # step is 1-based (step=1 is the first — here only — plan step);
+    # this call previously used step=0, encoding the old 0-based leak.
     cp = toolcall.call("task_checkpoint",
-                       {"task_id": created["task_id"], "step": 0,
+                       {"task_id": created["task_id"], "step": 1,
                         "result": "done"})
     assert set(cp) == {"task_id", "step", "done"}
     st = toolcall.call("task_status", {"task_id": created["task_id"]})
     assert set(st) == set(definitions.by_name("task_status").result_keys)
-    assert st["done_steps"] == 1
+    # done_steps is the list of 1-based done step numbers (matching
+    # the Windows provider), not a count.
+    assert st["done_steps"] == [1]
     listed = toolcall.call("task_status", {})
     assert any(t["task_id"] == created["task_id"]
                for t in listed["tasks"])
