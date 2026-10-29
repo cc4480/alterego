@@ -37,28 +37,43 @@ def test_exec_cancel_returns_cancelled():
 
 
 def test_screenshot_no_args_backward_compat():
+    # S5 contract: no args -> default lossless WebP with the new fields;
+    # the legacy png_base64 key is present but None (populated only for
+    # format="png" — see test_screenshot_png_legacy_field).
     r = toolcall.call("screenshot", {})
-    assert "png_base64" in r
+    assert r["format"] == "webp"
+    assert r["mime"] == "image/webp"
+    assert "image_base64" in r
+    assert r["png_base64"] is None
     assert r["width"] == 1
     assert r["height"] == 1
+    assert r["scale"] == 1.0
+
+
+def test_screenshot_png_legacy_field():
+    r = toolcall.call("screenshot", {"format": "png"})
+    assert r["format"] == "png"
+    assert r["png_base64"] is not None
+    assert r["png_base64"] == r["image_base64"]
 
 
 def test_screenshot_with_region():
     r = toolcall.call("screenshot", {
         "region": {"x": 0, "y": 0, "width": 100, "height": 100}})
-    assert "png_base64" in r
+    assert "image_base64" in r
 
 
 def test_screenshot_with_scale():
     r = toolcall.call("screenshot", {"scale": 0.5})
-    assert "png_base64" in r
+    assert "image_base64" in r
+    assert r["scale"] == 0.5
 
 
 def test_screenshot_with_region_and_scale():
     r = toolcall.call("screenshot", {
         "region": {"x": 10, "y": 10, "width": 200, "height": 200},
         "scale": 0.5})
-    assert "png_base64" in r
+    assert "image_base64" in r
 
 
 def test_screenshot_bad_scale_rejected():
