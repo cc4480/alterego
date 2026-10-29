@@ -435,31 +435,40 @@ def clipboard_set(text: str) -> dict:
 
 
 def _paste_readback(text: str) -> bool:
-    """True only when the focused element's UIA value/text is
-    resolvable AND contains the pasted text. Any failure to resolve
-    (no UIA, no focused element, no value/text pattern) is False —
-    never an implied success."""
+    """True only when the pasted text is verifiably landed: the
+    focused element's UIA value/text contains it, OR the helper's
+    expect-escalation found it in an ancestor of the focused element
+    or elsewhere in the focused element's window (verified_via
+    "ancestor"/"window" — e.g. Notepad, where focus sits on a
+    pattern-less Pane and the text lives in a sibling Document).
+    Any failure to resolve (no UIA, no focused element, no element
+    containing the text) is False — never an implied success."""
     try:
         foc = _uia_invoke({"op": "focused", "window": "", "name_rx": "",
                            "control_type": "", "index": 0,
-                           "max_results": 1})
+                           "max_results": 1, "expect": text})
     except Exception:
         return False
     if not foc.get("ok"):
         return False
-    candidate = foc.get("value")
-    if not isinstance(candidate, str):
-        candidate = foc.get("text")
-    return isinstance(candidate, str) and text in candidate
+    for key in ("value", "text"):
+        candidate = foc.get(key)
+        if isinstance(candidate, str) and text in candidate:
+            return True
+    return foc.get("verified_via") in ("ancestor", "window")
 
 
 def paste_text(text: str) -> dict:
     """Paste into the focused window via the clipboard; restores the
-    prior clipboard. Verified-write bar: after pasting, the focused
-    element is read back via UIA — verified:true only when its
-    value/text contains the pasted text; verified:false when the
-    landing differs or no read-back is possible. pasted_chars alone
-    is no longer the success signal."""
+    prior clipboard. Verified-write bar: after pasting, the landing
+    is read back via UIA with expect-escalation — verified:true when
+    the focused element's value/text contains the pasted text, or
+    when the helper finds it in an ancestor of the focused element
+    or elsewhere in its window (Notepad's text lives in a Document
+    sibling of the focused, pattern-less Pane); verified:false when
+    the landing differs, the text is nowhere in the window, or no
+    read-back is possible. pasted_chars alone is no longer the
+    success signal."""
     if not isinstance(text, str) or not text:
         raise ValueError("text must be a non-empty string")
     if len(text) > 100000:
