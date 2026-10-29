@@ -483,16 +483,22 @@ class JobManager:
                "lineage": row.get("lineage") or "unattributed",
                "classification": row["classification"]}
         if row["result_ref"]:
-            raw = blob_store.get(row["result_ref"])
-            if raw is None:
+            # Bulk-by-reference (S1): the blob is already stored (see
+            # _run_job); NEVER re-inline its payload here — a multi-MB
+            # result would again have to survive one all-or-nothing
+            # transfer. Return the reference instead: clients fetch the
+            # bytes via GET /blobs/<sha> in retryable ranges and verify
+            # them against the sha256 in the ref itself. The job layer
+            # only ever stores json.dumps payloads under result_ref, so
+            # the mime is known: application/json.
+            blob_size = blob_store.size(row["result_ref"])
+            if blob_size is None:
                 out["result"] = None
                 out["result_missing"] = row["result_ref"]
             else:
-                try:
-                    out["result"] = json.loads(raw.decode("utf-8"))
-                except (ValueError, UnicodeDecodeError):
-                    out["result"] = {"blob_ref": row["result_ref"],
-                                     "size": len(raw)}
+                out["result"] = {"blob_ref": row["result_ref"],
+                                 "size": blob_size,
+                                 "mime": "application/json"}
         elif row["result_json"] is not None:
             out["result"] = json.loads(row["result_json"])
         else:
@@ -594,8 +600,12 @@ class JobManager:
                       "output_bytes": ctx.snapshot()["output_bytes"]}
             if state == "succeeded":
                 payload = json.dumps(result, default=str)
-                if len(payload) > blob_store.BLOB_THRESHOLD:
-                    fields["result_ref"] = blob_store.put(payload)
+                # Threshold is in BYTES (blob_store.BLOB_THRESHOLD);
+                # the ref is the sha256 of exactly these bytes, so a
+                # client fetching by ref gets byte-identical content.
+                payload_bytes = payload.encode("utf-8")
+                if len(payload_bytes) > blob_store.BLOB_THRESHOLD:
+                    fields["result_ref"] = blob_store.put(payload_bytes)
                 else:
                     fields["result_json"] = payload
             else:

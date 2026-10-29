@@ -4,6 +4,8 @@ serialization. Stdlib unittest (also pytest-compatible); run with:
     python -m unittest tests.test_jobs   (from pc-agent/)
 or  python tests/test_jobs.py
 """
+import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -15,6 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ.setdefault("APPDATA", "/tmp/pc-bridge-test-appdata")
 
+import blob_store  # noqa: E402
 import jobs  # noqa: E402
 import subproc  # noqa: E402
 
@@ -215,6 +218,105 @@ class TestResourceSerialization(ManagerCase):
         (c0, _c1) = intervals["free"][0]
         self.assertLess(c0, a1 - 0.2,
                         "unrelated job did not run in parallel")
+
+
+class TestBlobRefResults(ManagerCase):
+    """S1 bulk-by-reference: results over blob_store.BLOB_THRESHOLD are
+    stored as blobs at finish time; job_result must return the REFERENCE
+    ({blob_ref, size, mime}), never re-inline the payload. Small results
+    keep inlining exactly as before."""
+
+    def run_one(self, value, key):
+        mgr = self.make_manager(lambda t, a, c: value)
+        jid = mgr.submit("big_tool", {}, key)["job_id"]
+        wait_state(mgr, jid, ("succeeded",))
+        return mgr, mgr.result(jid)
+
+    def test_large_result_returns_ref_not_payload(self):
+        value = {"data": "x" * 5000}
+        mgr, res = self.run_one(value, "blob-large-1")
+        # envelope fields are preserved untouched
+        self.assertEqual(res["job_id"], mgr.journal.get_by_key(
+            "blob-large-1")["job_id"])
+        self.assertEqual(res["tool"], "big_tool")
+        self.assertEqual(res["state"], "succeeded")
+        self.assertIsNone(res["error"])
+        self.assertIn("lineage", res)
+        self.assertIn("classification", res)
+        # result is exactly the reference shape — no payload anywhere
+        self.assertEqual(set(res["result"]),
+                         {"blob_ref", "size", "mime"})
+        self.assertTrue(res["result"]["blob_ref"].startswith("sha256:"))
+        self.assertEqual(res["result"]["mime"], "application/json")
+        payload = json.dumps(value)
+        self.assertEqual(res["result"]["size"],
+                         len(payload.encode("utf-8")))
+        self.assertNotIn(payload, json.dumps(res))
+        self.assertNotIn("x" * 5000, json.dumps(res))
+
+    def test_ref_resolves_byte_identical_and_ref_is_the_hash(self):
+        value = {"data": "y" * 5000, "n": 42}
+        _mgr, res = self.run_one(value, "blob-large-2")
+        ref = res["result"]["blob_ref"]
+        raw = blob_store.get(ref)
+        expected = json.dumps(value).encode("utf-8")
+        self.assertEqual(raw, expected)  # byte-identical round-trip
+        # the ref IS the sha256 of the exact bytes that used to inline
+        self.assertEqual(ref, "sha256:" + hashlib.sha256(raw).hexdigest())
+        self.assertEqual(json.loads(raw.decode("utf-8")), value)
+
+    def test_small_result_still_inlined(self):
+        _mgr, res = self.run_one({"ok": True}, "blob-small-1")
+        self.assertEqual(res["result"], {"ok": True})
+
+    def test_threshold_boundary(self):
+        # json.dumps({"d": "x"*n}) is n+9 bytes: at the 2048 threshold
+        # the result stays inline; one byte over goes by reference.
+        at = {"d": "x" * (blob_store.BLOB_THRESHOLD - 9)}
+        self.assertEqual(len(json.dumps(at).encode("utf-8")),
+                         blob_store.BLOB_THRESHOLD)
+        _m, res_at = self.run_one(at, "blob-edge-at")
+        self.assertEqual(res_at["result"], at)
+        over = {"d": "x" * (blob_store.BLOB_THRESHOLD - 8)}
+        _m, res_over = self.run_one(over, "blob-edge-over")
+        self.assertEqual(set(res_over["result"]),
+                         {"blob_ref", "size", "mime"})
+        self.assertEqual(res_over["result"]["size"],
+                         blob_store.BLOB_THRESHOLD + 1)
+        raw = blob_store.get(res_over["result"]["blob_ref"])
+        self.assertEqual(json.loads(raw.decode("utf-8")), over)
+
+    def test_over_1mb_end_to_end(self):
+        value = {"data": "z" * (1024 * 1024 + 12345)}
+        _mgr, res = self.run_one(value, "blob-huge-1")
+        ref = res["result"]["blob_ref"]
+        self.assertEqual(res["result"]["size"],
+                         len(json.dumps(value).encode("utf-8")))
+        self.assertGreater(res["result"]["size"], 1024 * 1024)
+        raw = blob_store.get(ref)
+        self.assertEqual(raw, json.dumps(value).encode("utf-8"))
+        # and the same bytes are range-fetchable in 256 KB chunks
+        chunks = []
+        offset = 0
+        while True:
+            chunk = blob_store.read_range(ref, offset, 256 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            offset += len(chunk)
+        self.assertEqual(b"".join(chunks), raw)
+
+    def test_missing_blob_reports_result_missing(self):
+        value = {"data": "q" * 6000}
+        _mgr, res = self.run_one(value, "blob-missing-1")
+        ref = res["result"]["blob_ref"]
+        hexpart = ref.split(":", 1)[1]
+        path = (blob_store.blob_dir() / "sha256"
+                / hexpart[:2] / hexpart)
+        path.unlink()
+        mgr2_res = _mgr.result(res["job_id"])
+        self.assertIsNone(mgr2_res["result"])
+        self.assertEqual(mgr2_res["result_missing"], ref)
 
 
 if __name__ == "__main__":
