@@ -11,6 +11,7 @@ from seams.providers.windows.read import (
     list_windows,
     read_file,
     screenshot,
+    screenshot_tiles,
     system_info,
     uia_find,
     uia_get,

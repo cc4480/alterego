@@ -109,8 +109,8 @@ def test_denied_raises(tmp_path):
 
 def test_wrappers_register_all():
     names = [f.__name__ for f in tool_wrappers.ALL_TOOLS]
-    assert len(names) == 52, names
-    assert len(set(names)) == 52, "duplicate tool names"
+    assert len(names) == 66, names
+    assert len(set(names)) == 66, "duplicate tool names"
     for n in ("write_file", "edit_file", "delete_file", "create_dir",
               "close_window", "hotkey", "mouse_move", "mouse_click",
               "mouse_scroll", "minimize_window", "maximize_window",
