@@ -6,3 +6,6 @@ Pillow>=10.0  # screenshot scale + webp/jpeg encoding
 pywin32>=306
 psutil>=6.0
 websocket-client>=1.7  # browser_cdp (Edge CDP tools)
+certifi>=2024.0  # web_fetch CA bundle: the Windows/Python system store
+                 # failed to verify mainstream certs (CERTIFICATE_VERIFY_
+                 # FAILED on https://example.com, live 2026-10-29)
