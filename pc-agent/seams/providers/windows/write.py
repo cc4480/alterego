@@ -557,6 +557,54 @@ def _uia_get_raw(window, name_rx, control_type, index,
     return res
 
 
+def _keyboard_replace(window: str, name_rx: str, text: str,
+                      control_type: str = "",
+                      index: int | None = None,
+                      runtime_id: str = "") -> dict:
+    """Verified write for composers whose ValuePattern.SetValue does
+    not replace (Chromium contenteditable: SetValue inserts at the
+    caret or no-ops, so the pattern path can never satisfy an exact
+    read-back — proven live on Hermes, whose composer kept its
+    prefilled first line through 20 pattern attempts).
+
+    Shape: focus gate (click to focus if the gate fails) -> Ctrl+A ->
+    Delete -> verify the field reads empty -> type via SendInput
+    unicode -> verify the field reads back exactly. Any failed check
+    raises; nothing is typed before the gate passes.
+    """
+    try:
+        _focus_gate(window=window, name_rx=name_rx,
+                    control_type=control_type, index=index)
+    except RuntimeError:
+        _uia_invoke(_uia_payload(
+            "click", window, name_rx, control_type, index,
+            runtime_id=runtime_id or ""))
+        _focus_gate(window=window, name_rx=name_rx,
+                    control_type=control_type, index=index)
+    mods, vk = _parse_hotkey("ctrl+a")
+    _send_inputs([_vk_input(m, True) for m in mods]
+                 + [_vk_input(vk, True), _vk_input(vk, False)]
+                 + [_vk_input(m, False) for m in reversed(mods)])
+    _send_inputs([_vk_input(_VK["delete"], True),
+                  _vk_input(_VK["delete"], False)])
+    cleared = _uia_get_raw(window, name_rx, control_type, index,
+                           runtime_id=runtime_id or "")
+    if cleared.get("value") not in ("", None):
+        raise RuntimeError(
+            f"keyboard replace: clear failed, read back "
+            f"{cleared.get('value')!r}")
+    _send_unicode(text)
+    after = _uia_get_raw(window, name_rx, control_type, index,
+                         runtime_id=runtime_id or "")
+    if after.get("value") != text:
+        raise RuntimeError(
+            f"keyboard replace verification failed: expected {text!r}, "
+            f"read back {after.get('value')!r}")
+    return {"ok": True, "method": "keyboard",
+            "name": after.get("name", ""), "value_after": text,
+            "verified": True}
+
+
 def _uia_set_text_verified(window: str, name_rx: str, text: str,
                            control_type: str = "",
                            index: int | None = None,
@@ -564,18 +612,25 @@ def _uia_set_text_verified(window: str, name_rx: str, text: str,
     """Verified UIA write (no approval — callers approve once).
 
     Mirrors the CDP fill() contract: after setting, read the field back
-    and raise unless it matches exactly. The helper's focus fallback
-    verifies UIA FocusedElement == target before this types into it.
-    Addressing (runtime_id, else name_rx+index) is identical for the
-    set and its read-back, so verification reads the same element.
+    and raise unless it matches exactly. Addressing (runtime_id, else
+    name_rx+index) is identical for the set and its read-back, so
+    verification reads the same element. Two pattern outcomes route
+    to _keyboard_replace: a 'value mismatch after SetValue' (the
+    insertive-contenteditable signature) and the helper's focus
+    fallback (typing must start from a cleared field to be exact).
     """
     res = _uia_invoke(_uia_payload(
         "set", window, name_rx, control_type, index,
         runtime_id=runtime_id or "", text=text))
     if not res.get("ok"):
+        err = res.get("error", "")
+        if err.startswith("value mismatch after SetValue"):
+            return _keyboard_replace(window, name_rx, text, control_type,
+                                     index, runtime_id=runtime_id or "")
         raise _uia_failure(res, "uia_set_text failed")
     if res.get("method") == "focus":
-        _send_unicode(text)  # helper verified focus is on the target
+        return _keyboard_replace(window, name_rx, text, control_type,
+                                 index, runtime_id=runtime_id or "")
     after = _uia_get_raw(window, name_rx, control_type, index,
                          runtime_id=runtime_id or "")
     value_after = after.get("value")
