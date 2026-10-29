@@ -504,7 +504,40 @@ if ($req.op -eq 'focused') {
 }
 $win = Find-Window $req.window
 if (-not $win) { @{ok=$false; error='window not found'} | ConvertTo-Json -Compress; exit 0 }
-$all = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+# Raw-view walk, document order, descendants of $win only. The
+# control view hides real text surfaces in some apps (Win11 Notepad's
+# RichEdit Document, Chromium/Electron editors); the raw view exposes
+# the full tree. Iterative DFS: descend to the first child, else take
+# the next sibling, else climb to the nearest ancestor that has a next
+# sibling ($depth tracks position so the climb never leaves $win's
+# subtree). $visited counts walked nodes; the cap stops the walk
+# gracefully on a pathological tree instead of walking forever.
+$UIA_MAX_VISITED_NODES = 20000
+$walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
+$all = New-Object System.Collections.ArrayList
+$visited = 0
+$depth = 1
+$el = $null
+try { $el = $walker.GetFirstChildElement($win) } catch { $el = $null }
+while ($null -ne $el -and $visited -lt $UIA_MAX_VISITED_NODES) {
+  $visited += 1
+  [void]$all.Add($el)
+  $next = $null
+  try { $next = $walker.GetFirstChildElement($el) } catch { $next = $null }
+  if ($null -ne $next) { $depth += 1; $el = $next; continue }
+  $cur = $el
+  while ($null -ne $cur) {
+    $sib = $null
+    try { $sib = $walker.GetNextSiblingElement($cur) } catch { $sib = $null }
+    if ($null -ne $sib) { $next = $sib; break }
+    if ($depth -le 1) { $cur = $null; break }
+    $par = $null
+    try { $par = $walker.GetParentElement($cur) } catch { $par = $null }
+    $cur = $par
+    $depth -= 1
+  }
+  $el = $next
+}
 $elems = @()
 $limit = [int]$req.max_results
 foreach ($el in $all) {
