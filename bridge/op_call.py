@@ -12,6 +12,7 @@ Usage:
   PC_BRIDGE_URL=... python3 op_call.py health
   PC_BRIDGE_URL=... python3 op_call.py tools
   PC_BRIDGE_URL=... python3 op_call.py call memory_recall '{"query":"x"}'
+  PC_BRIDGE_URL=... python3 op_call.py capture <window> [--name-rx R] [--control-type T] [--index N] [--overview]
   PC_BRIDGE_URL=... python3 op_call.py submit shell_pwsh '{"script":"..."}' [--key K] [--lineage L]
   PC_BRIDGE_URL=... python3 op_call.py calljob shell_pwsh '{"script":"..."}' [--key K] [--timeout S] [--lineage L]
   PC_BRIDGE_URL=... python3 op_call.py job <job_id>          (status)
@@ -28,17 +29,35 @@ connection loses nothing — `resume` picks the job back up by id.
 import hashlib
 import json
 import os
+import re
 import socket
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
 import http.client
+from pathlib import Path
 
 import token_store
 
 URL = os.environ["PC_BRIDGE_URL"].rstrip("/")
 TOKEN = token_store.resolve_token()  # None until paired; pair cmd handles it
+
+# Local output files. Capture files are UNLINKED before a capture request
+# and rewritten via temp-file + atomic rename on success, so a failed
+# capture can never leave a stale image behind (Q1).
+FULL_FILE = Path("/tmp/op-full.json")
+CAPTURE_FILE = Path("/tmp/shot-full.json")
+OVERVIEW_FILE = Path("/tmp/shot-overview.json")
+# S1 blob store: large results arrive by reference and are materialised
+# here, deterministically named by their content hash.
+BLOB_DIR = Path("/tmp/blobs")
+BLOB_CHUNK_SIZE = 256 * 1024
+_BLOB_MAX_ATTEMPTS = 3  # per chunk; the partial file survives exhaustion
+_BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+               "AppleWebKit/537.36 (KHTML, like Gecko) "
+               "Chrome/126.0.0.0 Safari/537.36")
 
 # Transient transport failures worth one more try: the Cloudflare tunnel
 # flaps for a minute or two at a time (home-network micro-outages), and
@@ -49,6 +68,35 @@ TOKEN = token_store.resolve_token()  # None until paired; pair cmd handles it
 _RETRYABLE = (urllib.error.URLError, TimeoutError, ConnectionError,
               http.client.RemoteDisconnected, http.client.IncompleteRead)
 _RETRY_BACKOFF_S = (5, 15)
+
+
+def _parse_rpc_payload(raw):
+    """Parse an MCP response body: plain JSON *or* SSE (Q4c).
+
+    The server is moving to json_response mode (one Content-Length-
+    delimited JSON body); the Cloudflare fallback still answers in SSE
+    (`data: {...}` lines) until it is redeployed, so accept both.
+    Plain JSON is tried first when the body opens with `{` — an SSE
+    frame never does — then the first `data:` line wins, matching the
+    historical behaviour."""
+    if not raw or not raw.strip():
+        return {}
+    stripped = raw.lstrip()
+    if stripped.startswith("{"):
+        try:
+            msg = json.loads(stripped)
+            if isinstance(msg, dict):
+                return msg
+        except ValueError:
+            pass  # not plain JSON after all — fall through to SSE
+    for line in raw.splitlines():
+        if line.startswith("data:"):
+            return json.loads(line[5:].strip())
+    try:
+        msg = json.loads(stripped)
+    except ValueError:
+        return {}
+    return msg if isinstance(msg, dict) else {}
 
 
 def post(path, body, session_id=None):
@@ -93,15 +141,331 @@ def post(path, body, session_id=None):
             raise
     else:
         raise last  # pragma: no cover - loop always breaks or raises
-    payload = None
-    for line in raw.splitlines():
-        if line.startswith("data:"):
-            payload = line[5:].strip()
-            break
-    msg = json.loads(payload) if payload else {}
+    msg = _parse_rpc_payload(raw)
     if "error" in msg:
         raise RuntimeError(msg["error"])
     return msg.get("result"), sid
+
+
+# ---- capture files: no stale images, ever (Q1) ------------------------
+
+def _unlink_quiet(path):
+    """Remove `path` if it exists; absence is not an error."""
+    try:
+        Path(path).unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        pass
+
+
+def _atomic_write_bytes(path, data):
+    """Write `data` (bytes) to `path` via a temp file in the same
+    directory + os.replace, so a reader never sees a half-written file
+    and a crash mid-write leaves the previous state untouched (which,
+    for captures, is *absent* — see _prepare_capture)."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent),
+                               prefix=path.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        _unlink_quiet(tmp)
+        raise
+    return path
+
+
+def _prepare_capture(*paths):
+    """Unlink capture output files BEFORE the request goes out: if the
+    capture then fails, the files stay absent instead of silently
+    holding the previous capture."""
+    for p in paths:
+        _unlink_quiet(p)
+
+
+def _save_capture(text, path):
+    """Atomically save a capture payload; returns (nbytes, sha256hex)
+    of the exact bytes on disk, for the success line."""
+    data = text.encode("utf-8") if isinstance(text, str) else bytes(text)
+    _atomic_write_bytes(path, data)
+    return len(data), hashlib.sha256(data).hexdigest()
+
+
+# ---- S1 client: bulk by reference — resumable blob fetch --------------
+# Contract: a tool result may carry {"blob_ref": "sha256:<hex>",
+# "size": <bytes>, "mime": "<type>"} instead of an inline body. The
+# bytes live at GET {URL}/blobs/<hex> (Bearer session token, Range
+# supported, 200/206 raw bytes). Fetch in <=256 KB chunks, each chunk
+# independently retryable; a partial file is KEPT across failures and
+# the next fetch resumes from its length; the assembled file is only
+# trusted once its SHA-256 equals the ref hex.
+
+def _blob_hex(blob_ref):
+    """Validate a blob_ref and return its hex digest."""
+    if not isinstance(blob_ref, str) or not blob_ref.startswith("sha256:"):
+        raise ValueError(f"bad blob_ref: {blob_ref!r}")
+    hexpart = blob_ref[len("sha256:"):].strip().lower()
+    if len(hexpart) != 64 or any(c not in "0123456789abcdef"
+                                 for c in hexpart):
+        raise ValueError(f"bad blob_ref digest: {blob_ref!r}")
+    return hexpart
+
+
+def blob_path_for(blob_ref, dest_dir=None):
+    """Deterministic local path for a blob: <blob dir>/<hex>."""
+    return Path(dest_dir or BLOB_DIR) / _blob_hex(blob_ref)
+
+
+def _sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def fetch_blob(blob_ref, size=None, *, base_url=None, token=None,
+               dest_dir=None, chunk_size=BLOB_CHUNK_SIZE,
+               max_attempts=_BLOB_MAX_ATTEMPTS, opener=None,
+               sleep=time.sleep):
+    """Fetch a blob by reference, resuming any partial file on disk.
+
+    Returns {"path": str, "size": int, "sha256": hex, "verified": True}.
+    Raises on exhausted chunk retries (partial file kept for resume)
+    and on hash mismatch (corrupt file removed, never presented as
+    verified)."""
+    hexpart = _blob_hex(blob_ref)
+    dest = blob_path_for(blob_ref, dest_dir)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    url = (base_url or URL).rstrip("/") + "/blobs/" + hexpart
+    auth = token if token is not None else TOKEN
+    open_fn = opener or urllib.request.urlopen
+    expected = int(size) if size is not None else None
+
+    offset = dest.stat().st_size if dest.exists() else 0
+    if expected is not None and offset > expected:
+        _unlink_quiet(dest)  # cannot be a prefix of the blob — restart
+        offset = 0
+    if expected is not None and offset == expected and offset > 0:
+        if _sha256_file(dest) == hexpart:
+            return {"path": str(dest), "size": offset,
+                    "sha256": hexpart, "verified": True}
+        _unlink_quiet(dest)  # full length but wrong bytes — refetch
+        offset = 0
+
+    while expected is None or offset < expected:
+        end = offset + chunk_size - 1
+        if expected is not None:
+            end = min(end, expected - 1)
+        want = end - offset + 1
+        data = None
+        last = None
+        for attempt in range(max_attempts):
+            req = urllib.request.Request(
+                url, headers={"Authorization": f"Bearer {auth}",
+                              "User-Agent": _BROWSER_UA,
+                              "Range": f"bytes={offset}-{end}"},
+                method="GET")
+            try:
+                with open_fn(req, timeout=120) as r:
+                    status = getattr(r, "status", None) or r.getcode()
+                    data = r.read()
+                break
+            except urllib.error.HTTPError as e:
+                if e.code < 500:
+                    raise
+                last = e  # server-side — retry this chunk only
+            except _RETRYABLE as e:
+                last = e
+            if attempt + 1 < max_attempts:
+                sleep(min(2 ** attempt, 5))
+        else:
+            raise RuntimeError(
+                f"blob {hexpart[:12]}…: chunk at {offset} failed after "
+                f"{max_attempts} attempts ({type(last).__name__}); "
+                f"partial file kept at {dest} — re-run to resume")
+        if status == 200 and offset > 0:
+            # Server ignored Range and sent the whole blob: restart
+            # from its body rather than appending a duplicate prefix.
+            with open(dest, "wb") as f:
+                f.write(data)
+            offset = len(data)
+        elif not data:
+            raise RuntimeError(
+                f"blob {hexpart[:12]}…: empty chunk at {offset}; "
+                f"partial file kept at {dest} — re-run to resume")
+        else:
+            with open(dest, "ab") as f:
+                f.write(data)
+            offset += len(data)
+        if status == 200:
+            break  # whole body arrived in one response — verify below
+        if expected is None and len(data) < want:
+            break  # short read = end of blob
+
+    total = dest.stat().st_size
+    if expected is not None and total != expected:
+        raise RuntimeError(
+            f"blob {hexpart[:12]}…: size mismatch — got {total}, "
+            f"expected {expected}; partial file kept at {dest}")
+    digest = _sha256_file(dest)
+    if digest != hexpart:
+        _unlink_quiet(dest)
+        raise RuntimeError(
+            f"blob {hexpart[:12]}…: SHA-256 mismatch (got {digest}) — "
+            f"corrupt file removed, blob NOT saved")
+    return {"path": str(dest), "size": total,
+            "sha256": digest, "verified": True}
+
+
+def _materialize_blobs(obj, fetcher=None):
+    """Recursively replace every {"blob_ref": …} dict in a result with
+    the same dict plus the verified local `path` (fetching the bytes).
+    Results without a blob_ref pass through unchanged."""
+    fetch = fetcher or fetch_blob
+    if isinstance(obj, dict):
+        if isinstance(obj.get("blob_ref"), str):
+            info = fetch(obj["blob_ref"], obj.get("size"))
+            merged = dict(obj)
+            merged.update({"path": info["path"],
+                           "verified": info["verified"]})
+            return merged
+        return {k: _materialize_blobs(v, fetch) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_materialize_blobs(v, fetch) for v in obj]
+    return obj
+
+
+def _blob_paths(obj):
+    """All materialised blob dicts (carrying path + verified) in a
+    result, for the success lines."""
+    found = []
+    if isinstance(obj, dict):
+        if isinstance(obj.get("blob_ref"), str) and "path" in obj:
+            found.append(obj)
+        for v in obj.values():
+            found.extend(_blob_paths(v))
+    elif isinstance(obj, list):
+        for v in obj:
+            found.extend(_blob_paths(v))
+    return found
+
+
+# ---- Q3: ROI-first capture ---------------------------------------------
+# Resolve a target window, capture its REGION at native resolution;
+# fall back to a full-screen capture when no region can be resolved.
+
+def _resolve_window(windows, spec):
+    """Pick a window from a list_windows payload: exact hwnd digits,
+    else title regex, else title substring (case-insensitive)."""
+    wins = (windows or {}).get("windows") or []
+    spec = str(spec).strip()
+    if spec.isdigit():
+        for w in wins:
+            if int(w.get("hwnd", -1)) == int(spec):
+                return w
+        return {"hwnd": int(spec), "title": ""}
+    try:
+        rx = re.compile(spec, re.IGNORECASE)
+    except re.error:
+        rx = None
+    for w in wins:
+        if rx and rx.search(str(w.get("title", ""))):
+            return w
+    for w in wins:
+        if spec.lower() in str(w.get("title", "")).lower():
+            return w
+    return None
+
+
+def _clamp_region(x, y, width, height):
+    """Clamp a UIA rect to the visible screen quadrant (negative
+    origins shrink the rect, as the server clamps the origin too)."""
+    if x < 0:
+        width += x
+        x = 0
+    if y < 0:
+        height += y
+        y = 0
+    if width <= 0 or height <= 0:
+        return None
+    return {"x": int(x), "y": int(y),
+            "width": int(width), "height": int(height)}
+
+
+def _region_from_elements(elements, index=None, union=False):
+    """Region for a UIA element list: one element (index, default 0),
+    or the union bounding box of all of them (window-content estimate
+    when no specific element was asked for)."""
+    elems = [e for e in (elements or [])
+             if int(e.get("width", 0)) > 0 and int(e.get("height", 0)) > 0]
+    if not elems:
+        return None
+    if union and index is None:
+        x0 = min(int(e["x"]) for e in elems)
+        y0 = min(int(e["y"]) for e in elems)
+        x1 = max(int(e["x"]) + int(e["width"]) for e in elems)
+        y1 = max(int(e["y"]) + int(e["height"]) for e in elems)
+        return _clamp_region(x0, y0, x1 - x0, y1 - y0)
+    idx = 0 if index is None else int(index)
+    if idx < 0 or idx >= len(elems):
+        return None
+    e = elems[idx]
+    return _clamp_region(int(e["x"]), int(e["y"]),
+                         int(e["width"]), int(e["height"]))
+
+
+def capture_window(call, spec, *, name_rx="", control_type="",
+                   index=None, overview=False):
+    """ROI-first capture via a tool-call callable `call(name, args)`.
+
+    1. list_windows resolves `spec` (title regex/substring or hwnd).
+    2. uia_find on that window yields rects: a filtered find
+       (name_rx / control_type / index) captures that element's rect;
+       an unfiltered find captures the union of the window's elements.
+    3. screenshot(region=…) at native resolution (scale 1.0).
+    4. No resolvable region → full-screen capture (orientation
+       fallback). `overview=True` additionally takes a full-screen
+       overview alongside a region capture (downscale attempted,
+       native resolution if the server cannot scale)."""
+    win = None
+    try:
+        win = _resolve_window(call("list_windows", {}), spec)
+    except Exception:
+        win = None
+    uia_spec = str(win["hwnd"]) if win and win.get("hwnd") else str(spec)
+    region, region_source = None, None
+    try:
+        found = call("uia_find", {
+            "window": uia_spec, "name_rx": name_rx or "",
+            "control_type": control_type or "", "max_results": 50})
+        filtered = bool(name_rx or control_type or index is not None)
+        region = _region_from_elements(found.get("elements"),
+                                       index=index, union=not filtered)
+        if region:
+            region_source = "element" if filtered else "window-union"
+    except Exception:
+        region = None
+    out = {"window": win, "spec": str(spec)}
+    if region:
+        shot = _materialize_blobs(call(
+            "screenshot", {"region": region, "scale": 1.0}))
+        out.update({"mode": "region", "region": region,
+                    "region_source": region_source, "screenshot": shot})
+    else:
+        shot = _materialize_blobs(call("screenshot", {}))
+        out.update({"mode": "fullscreen-fallback", "region": None,
+                    "region_source": None, "screenshot": shot})
+    if overview and region:
+        try:
+            over = call("screenshot", {"scale": 0.5})
+        except Exception:
+            over = call("screenshot", {})
+        out["overview"] = _materialize_blobs(over)
+    return out
 
 
 # ---- job client: submit+poll with resume-by-job_id -------------------
@@ -234,8 +598,9 @@ def _print_job_result(out):
     Returns True iff the job succeeded."""
     state = out.get("state")
     if state == "succeeded":
-        text = json.dumps(out.get("result"), indent=1, default=str)
-        with open("/tmp/op-full.json", "w", encoding="utf-8") as f:
+        result = _materialize_blobs(out.get("result"))
+        text = json.dumps(result, indent=1, default=str)
+        with open(FULL_FILE, "w", encoding="utf-8") as f:
             f.write(text)
         print(text[:4000])
         return True
@@ -352,22 +717,78 @@ def main():
     elif cmd == "call":
         name = sys.argv[2]
         args = json.loads(sys.argv[3]) if len(sys.argv) > 3 else {}
+        if name == "screenshot":
+            # Q1: unlink BEFORE the request — a failed capture must
+            # leave NO file, never the previous capture.
+            _prepare_capture(FULL_FILE, CAPTURE_FILE)
         res, _ = post("/mcp", {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
                                "params": {"name": name, "arguments": args}}, sid)
         text = res["content"][0]["text"]
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            parsed = None
+        if isinstance(parsed, (dict, list)):
+            # S1: fetch any by-reference payloads; the printed/saved
+            # result then carries the local path + verified flag.
+            parsed = _materialize_blobs(parsed)
+            if _blob_paths(parsed):
+                text = json.dumps(parsed)
         # Always stash the full response; print is capped for readability.
-        with open("/tmp/op-full.json", "w", encoding="utf-8") as f:
-            f.write(text)
+        _atomic_write_bytes(FULL_FILE, text.encode("utf-8"))
         if name == "screenshot":
             # Screenshots are huge base64 — never truncate, dump to file instead.
-            with open("/tmp/shot-full.json", "w") as f:
-                f.write(text)
-            print("screenshot saved to /tmp/shot-full.json (%d bytes)" % len(text))
+            nbytes, digest = _save_capture(text, CAPTURE_FILE)
+            print(f"screenshot saved to {CAPTURE_FILE} "
+                  f"({nbytes} bytes, sha256 {digest})")
+            for info in _blob_paths(parsed):
+                print(f"blob saved to {info['path']} "
+                      f"(verified: {info['verified']})")
             return
         try:
             print(json.dumps(json.loads(text), indent=1)[:4000])
         except Exception:
             print(text[:4000])
+    elif cmd == "capture":
+        # Q3 ROI-first capture: resolve the window (list_windows),
+        # take its region from UIA rects, capture that region at
+        # native resolution; full-screen only as fallback/overview.
+        #   capture <window title regex | hwnd> [--name-rx R]
+        #           [--control-type T] [--index N] [--overview]
+        argv = list(sys.argv[2:])
+        overview = "--overview" in argv
+        if overview:
+            argv.remove("--overview")
+        flags, rest = _parse_flags(argv, ("--name-rx", "--control-type",
+                                          "--index"))
+        if not rest:
+            raise SystemExit("usage: op_call.py capture <window> "
+                             "[--name-rx R] [--control-type T] "
+                             "[--index N] [--overview]")
+        _prepare_capture(FULL_FILE, CAPTURE_FILE, OVERVIEW_FILE)
+        out = capture_window(
+            lambda n, a: _tool_call(n, a, sid), rest[0],
+            name_rx=flags.get("--name-rx", ""),
+            control_type=flags.get("--control-type", ""),
+            index=(int(flags["--index"]) if "--index" in flags else None),
+            overview=overview)
+        _atomic_write_bytes(FULL_FILE,
+                            json.dumps(out, indent=1).encode("utf-8"))
+        nbytes, digest = _save_capture(json.dumps(out["screenshot"]),
+                                       CAPTURE_FILE)
+        win = out.get("window") or {}
+        print(f"capture mode={out['mode']} "
+              f"window={win.get('title', '')!r} region={out.get('region')}")
+        print(f"screenshot saved to {CAPTURE_FILE} "
+              f"({nbytes} bytes, sha256 {digest})")
+        for info in _blob_paths(out["screenshot"]):
+            print(f"blob saved to {info['path']} "
+                  f"(verified: {info['verified']})")
+        if "overview" in out:
+            nbytes, digest = _save_capture(json.dumps(out["overview"]),
+                                           OVERVIEW_FILE)
+            print(f"overview saved to {OVERVIEW_FILE} "
+                  f"({nbytes} bytes, sha256 {digest})")
     elif cmd == "submit":
         flags, rest = _parse_flags(sys.argv[2:], ("--key", "--lineage"))
         name = rest[0]
@@ -415,6 +836,8 @@ def main():
             raise SystemExit(1)
     else:
         raise SystemExit("usage: op_call.py tools | call <name> '<json>' "
+                         "| capture <window> [--name-rx R] "
+                         "[--control-type T] [--index N] [--overview] "
                          "| submit|calljob <name> '<json>' [--key K] "
                          "| job|job-result|job-cancel <job_id> "
                          "| resume [job_id|--key K]")
