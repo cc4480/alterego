@@ -10,6 +10,7 @@ exist once both slices and the jobs layer share one tree:
 - >2048-byte job-result blob round-trip for both ops, with the MF-5
   senses registration + watchdog purge cadence wired in jobs.py
 """
+import json
 import threading
 import time
 
@@ -43,7 +44,7 @@ def test_mock_strict_resolves_every_definition():
     for defn in definitions.ALL_DEFS:
         fn = registry.resolve(defn.name)
         assert callable(fn), defn.name
-    assert len(definitions.ALL_DEFS) == 65  # counted on the merged tree
+    assert len(definitions.ALL_DEFS) == 68  # counted on the merged tree
 
 
 def test_result_keys_exact_for_both_ops():
@@ -132,9 +133,15 @@ def test_job_blob_roundtrip_and_senses_registration(tmp_path, tool_name,
         _wait(mgr, jid)
         row = mgr.result(jid)
         result = row["result"]
-        assert result[key] == big  # round-trip intact via blob ref
         ref = mgr.journal.get(jid)["result_ref"]
         assert ref and ref.startswith("sha256:")
+        # S1 contract (flawless merge): job_result never re-inlines a
+        # large payload — it returns the {blob_ref, size, mime}
+        # envelope, and the round-trip completes by fetching the blob
+        # by reference (byte-identical to the stored payload).
+        assert result["blob_ref"] == ref
+        fetched = json.loads(blob_store.get(ref))
+        assert fetched[key] == big  # round-trip intact via blob ref
         # MF-5 wiring: the jobs layer registered this senses blob.
         assert ref in blob_store._load_senses_index()
         # ...and the purge path can expire it (TTL from registration).
