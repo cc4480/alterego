@@ -71,6 +71,8 @@ def _verify(entries) -> dict:
     return {"task_id": header["task_id"], "goal": header["goal"],
             "plan": header["plan"], "created_ts": header["created_ts"],
             "checkpoints": checkpoints,
+            # Stored checkpoint steps are 1-based (step 1 = first
+            # plan step), so done_steps is 1-based as stored.
             "done_steps": [c["step"] for c in checkpoints if c.get("done")]}
 
 
@@ -97,12 +99,20 @@ def create(goal: str, plan: list) -> dict:
 
 
 def checkpoint(task_id: str, step: int, result: str, done: bool = True) -> dict:
-    """Append a signed checkpoint. No approval."""
+    """Append a signed checkpoint. No approval.
+
+    `step` is 1-based: step=1 is the first plan step. The stored
+    checkpoint records that same 1-based step plus plan_step, the
+    text of plan[step - 1], so status reporting stays 1-based too.
+    """
     t = _verify(_read(task_id))
-    if not isinstance(step, int) or not 0 <= step < len(t["plan"]):
-        raise ValueError(f"step must be 0..{len(t['plan']) - 1}")
+    if isinstance(step, bool) or not isinstance(step, int) \
+            or not 1 <= step <= len(t["plan"]):
+        raise ValueError(
+            f"step must be 1..{len(t['plan'])} "
+            f"(1-based: step 1 is the first plan step), got {step!r}")
     _append(task_id, "checkpoint",
-            {"step": step, "plan_step": t["plan"][step],
+            {"step": step, "plan_step": t["plan"][step - 1],
              "result": str(result)[:2000], "done": bool(done),
              "ts": int(time.time())})
     return {"task_id": task_id, "step": step, "done": bool(done)}
@@ -127,21 +137,27 @@ def status(task_id: str = "") -> dict:
 
 
 # ---- MCP wrappers (registered via tool_wrappers.ALL_TOOLS) ----
-def task_create(goal: str, plan: list) -> dict:
-    """Create a signed task record with a step plan. No approval."""
+def task_create(goal: str, plan: list[str]) -> dict:
+    """Create a signed task record with a step plan. No approval.
+    Plan steps are numbered from 1: the first plan step is step 1
+    for task_checkpoint and task_status."""
     return toolcall.call("task_create", {"goal": goal, "plan": plan})
 
 
 def task_checkpoint(task_id: str, step: int, result: str,
                     done: bool = True) -> dict:
-    """Append a signed checkpoint to a task. No approval."""
+    """Append a signed checkpoint to a task. No approval.
+    step is 1-based: step=1 is the first plan step; step must be
+    between 1 and the number of plan steps inclusive."""
     return toolcall.call("task_checkpoint",
                          {"task_id": task_id, "step": step,
                           "result": result, "done": done})
 
 
 def task_status(task_id: str = "") -> dict:
-    """Get a task's verified status, or list all tasks. No approval."""
+    """Get a task's verified status, or list all tasks. No approval.
+    Each checkpoint's step and done_steps are 1-based plan step
+    numbers, and each checkpoint carries plan_step, the step's text."""
     return toolcall.call("task_status", {"task_id": task_id})
 
 
