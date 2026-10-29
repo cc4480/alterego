@@ -86,28 +86,97 @@ def resolve_uia_window(window) -> int:
     raise RuntimeError("window not found")
 
 
+def _control_type_matches(el_control_type: str, control_type: str) -> bool:
+    """Shared control-type filter: the filter matches the element's
+    full ProgrammaticName ("ControlType.Edit") OR its short segment
+    after "ControlType." ("Edit"), case-insensitive."""
+    if not control_type:
+        return True
+    full = (el_control_type or "").lower()
+    short = full.rsplit(".", 1)[-1]
+    want = control_type.lower()
+    want_short = want.rsplit(".", 1)[-1]
+    return full == want or short == want_short
+
+
+def _name_tier_match(name: str, name_rx: str) -> bool:
+    """True when `name` is in the winning name tier for `name_rx`:
+    Tier A literal equality, else Tier B anchored regex full match
+    (both case-insensitive). Used for the message-list entries, which
+    are not part of UIA["elements"]."""
+    import re as _re
+    if name.lower() == name_rx.lower():
+        return True
+    return _re.fullmatch(name_rx, name, _re.IGNORECASE) is not None
+
+
+def resolve_uia_elements(name_rx: str = "", control_type: str = "",
+                         contains: str = "") -> list:
+    """The shared UIA resolution: the winning candidate set, in
+    document (fixture) order. Mirrors the Windows helper exactly.
+
+    Candidates are UIA["elements"] filtered by control type. When
+    `contains` is set there is no name filter: the set is elements
+    whose name, value, or text contains the string (case-sensitive
+    substring — the send_message confirmation probe). Otherwise name
+    matching is tiered: Tier A = case-insensitive literal equality
+    with name_rx; Tier B = case-insensitive regex FULL match
+    (anchored). The first non-empty tier wins; an empty name_rx means
+    no name filter. There is NO substring/unanchored fallback.
+    """
+    import re as _re
+    cands = [el for el in UIA["elements"]
+             if _control_type_matches(el["control_type"], control_type)]
+    if contains:
+        return [el for el in cands
+                if contains in (el["name"] or "")
+                or contains in (el.get("value") or "")
+                or contains in (el.get("text") or el.get("value") or "")]
+    if not name_rx:
+        return cands
+    tier_a = [el for el in cands
+              if el["name"].lower() == name_rx.lower()]
+    if tier_a:
+        return tier_a
+    rx = _re.compile(name_rx, _re.IGNORECASE)
+    return [el for el in cands if rx.fullmatch(el["name"])]
+
+
 def find_uia_element(name_rx: str = "", control_type: str = "",
-                     index: int = 0, runtime_id: str = "") -> dict:
+                     index: int | None = None,
+                     runtime_id: str = "") -> dict:
     """Address a mock UIA element like the Windows helper does.
 
     One enumeration (UIA["elements"], in fixture order — the same list
     uia_find projects): a runtime_id wins when given and resolves over
-    the whole enumeration; otherwise name regex + optional control
-    type, index-th match. Raises RuntimeError when the address does
-    not resolve (mirrors the helper's errors)."""
-    import re as _re
+    the whole enumeration. Otherwise the element is picked from the
+    winning set of resolve_uia_elements: an explicitly given index
+    indexes into it ('element index out of range' outside it); with no
+    index, exactly one candidate resolves, zero is 'element not
+    found', and more than one raises a structured ambiguity error
+    naming the candidates."""
     if runtime_id:
         for el in UIA["elements"]:
             if el["runtime_id"] == runtime_id:
                 return el
         raise RuntimeError("element runtime_id not found")
-    matches = [el for el in UIA["elements"]
-               if (not name_rx or _re.search(name_rx, el["name"], _re.IGNORECASE))
-               and (not control_type
-                    or el["control_type"] == control_type)]
-    if index < 0 or index >= len(matches):
-        raise RuntimeError("element index out of range")
-    return matches[index]
+    matches = resolve_uia_elements(name_rx, control_type)
+    if index is not None:
+        if index < 0 or index >= len(matches):
+            raise RuntimeError("element index out of range")
+        return matches[index]
+    if not matches:
+        raise RuntimeError("element not found")
+    if len(matches) > 1:
+        named = ", ".join(
+            f"{el['name']!r} ({el['control_type']}, "
+            f"automation_id={el['automation_id']!r}, "
+            f"runtime_id={el['runtime_id']!r})"
+            for el in matches[:10])
+        raise RuntimeError(
+            f"ambiguous target: {len(matches)} elements match "
+            f"name_rx={name_rx!r} control_type={control_type!r}: {named}")
+    return matches[0]
 
 
 def focused_uia_element() -> dict | None:

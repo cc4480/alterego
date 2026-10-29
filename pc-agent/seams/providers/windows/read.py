@@ -507,27 +507,70 @@ if (-not $win) { @{ok=$false; error='window not found'} | ConvertTo-Json -Compre
 $all = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
 $elems = @()
 $limit = [int]$req.max_results
+$ctFilter = ''
+try { $ctFilter = [string]$req.control_type } catch { $ctFilter = '' }
+$ctFilterShort = $ctFilter -replace '^ControlType\.', ''
+$contains = ''
+try { $contains = [string]$req.contains } catch { $contains = '' }
 foreach ($el in $all) {
   try { $n = $el.Current.Name } catch { continue }
-  if ($req.name_rx -ne '' -and ($n -notmatch $req.name_rx)) { continue }
   try { $ct = $el.Current.ControlType.ProgrammaticName } catch { $ct = '' }
-  if ($req.control_type -ne '' -and ($ct -ne $req.control_type)) { continue }
+  if ($ctFilter -ne '') {
+    # Filter matches the full ProgrammaticName OR its short segment
+    # after 'ControlType.', case-insensitive ('Edit' works).
+    $ctShort = $ct -replace '^ControlType\.', ''
+    if (($ct -ine $ctFilter) -and ($ctShort -ine $ctFilterShort)) { continue }
+  }
   try { $r = $el.Current.BoundingRectangle } catch { continue }
   try { $aid = $el.Current.AutomationId } catch { $aid = '' }
-  $elems += [pscustomobject]@{el=$el; name=$n; control_type=$ct; automation_id=$aid; x=[int]$r.X; y=[int]$r.Y; width=[int]$r.Width; height=[int]$r.Height; value=(El-Value $el); text=(El-Text $el); has_keyboard_focus=(El-Focus $el); runtime_id=(El-Rid $el); patterns=@(El-Patterns $el)}
+  $val = El-Value $el
+  $txt = El-Text $el
+  if ($contains -ne '') {
+    # Contains probe (send_message confirmation): no name filter;
+    # the set is elements whose name, value, or text contains the
+    # string (case-sensitive substring).
+    $hit = $false
+    if (($null -ne $n) -and $n.Contains($contains)) { $hit = $true }
+    if (($null -ne $val) -and ($val -is [string]) -and $val.Contains($contains)) { $hit = $true }
+    if (($null -ne $txt) -and $txt.Contains($contains)) { $hit = $true }
+    if (-not $hit) { continue }
+  }
+  $elems += [pscustomobject]@{el=$el; name=$n; control_type=$ct; automation_id=$aid; x=[int]$r.X; y=[int]$r.Y; width=[int]$r.Width; height=[int]$r.Height; value=$val; text=$txt; has_keyboard_focus=(El-Focus $el); runtime_id=(El-Rid $el); patterns=@(El-Patterns $el)}
   if ($elems.Count -ge $limit) { break }
+}
+# Shared resolution: name matching is tiered over the control-type
+# filtered candidates (document order preserved). Tier A = literal
+# case-insensitive equality with name_rx as given; Tier B =
+# case-insensitive regex FULL match (anchored). The first non-empty
+# tier is the winning set; an empty name_rx (or a contains probe)
+# means no name filter. There is NO substring/unanchored fallback.
+$sel = @($elems)
+$nameRx = ''
+try { $nameRx = [string]$req.name_rx } catch { $nameRx = '' }
+if (($contains -eq '') -and ($nameRx -ne '')) {
+  $tierA = @($elems | Where-Object { $_.name -ieq $nameRx })
+  if ($tierA.Count -gt 0) { $sel = $tierA }
+  else {
+    $anchored = '^(?:' + $nameRx + ')$'
+    $sel = @($elems | Where-Object { $_.name -match $anchored })
+  }
 }
 $op = $req.op
 if ($op -eq 'find') {
-  $proj = @($elems | ForEach-Object { [pscustomobject]@{name=$_.name; control_type=$_.control_type; automation_id=$_.automation_id; x=$_.x; y=$_.y; width=$_.width; height=$_.height; value=$_.value; has_keyboard_focus=$_.has_keyboard_focus; runtime_id=$_.runtime_id} })
+  $retLimit = $limit
+  if (($req.PSObject.Properties.Name -contains 'return_limit') -and $req.return_limit) { $retLimit = [int]$req.return_limit }
+  $winSet = @($sel | Select-Object -First $retLimit)
+  $proj = @($winSet | ForEach-Object { [pscustomobject]@{name=$_.name; control_type=$_.control_type; automation_id=$_.automation_id; x=$_.x; y=$_.y; width=$_.width; height=$_.height; value=$_.value; has_keyboard_focus=$_.has_keyboard_focus; runtime_id=$_.runtime_id} })
   @{ok=$true; count=$proj.Count; elements=$proj} | ConvertTo-Json -Compress -Depth 4
   exit 0
 }
-# One enumeration, two addresses: a RuntimeId (stable across
-# re-enumeration, returned by 'find') wins when supplied; otherwise the
-# index into THIS enumeration -- collected with the same query, filters
-# and ordering 'find' uses, so a find index always names the same
-# element here.
+# One enumeration, three addresses: a RuntimeId (stable across
+# re-enumeration, returned by 'find') wins when supplied; otherwise an
+# explicitly given index into the winning set -- collected with the
+# same query, filters and ordering 'find' uses, so a find index
+# always names the same element here; with no index, exactly one
+# candidate resolves, zero is 'element not found', and more than one
+# is a structured ambiguity error listing the candidates.
 $ridWanted = ''
 try { $ridWanted = [string]$req.runtime_id } catch { $ridWanted = '' }
 if ($ridWanted -ne '') {
@@ -535,9 +578,20 @@ if ($ridWanted -ne '') {
   foreach ($cand in $elems) { if ($cand.runtime_id -eq $ridWanted) { $t = $cand; break } }
   if (-not $t) { @{ok=$false; error='element runtime_id not found'} | ConvertTo-Json -Compress; exit 0 }
 } else {
-  $idx = [int]$req.index
-  if ($idx -lt 0 -or $idx -ge $elems.Count) { @{ok=$false; error='element index out of range'} | ConvertTo-Json -Compress; exit 0 }
-  $t = $elems[$idx]
+  $indexGiven = $false
+  if ($req.PSObject.Properties.Name -contains 'index_given') { $indexGiven = [bool]$req.index_given }
+  if ($indexGiven) {
+    $idx = [int]$req.index
+    if ($idx -lt 0 -or $idx -ge $sel.Count) { @{ok=$false; error='element index out of range'} | ConvertTo-Json -Compress; exit 0 }
+    $t = $sel[$idx]
+  } elseif ($sel.Count -eq 0) {
+    @{ok=$false; error='element not found'} | ConvertTo-Json -Compress; exit 0
+  } elseif ($sel.Count -gt 1) {
+    $cands = @($sel | Select-Object -First 10 | ForEach-Object { [pscustomobject]@{name=$_.name; control_type=$_.control_type; automation_id=$_.automation_id; runtime_id=$_.runtime_id; x=$_.x; y=$_.y; width=$_.width; height=$_.height} })
+    @{ok=$false; error_code='ambiguous_target'; error=('ambiguous target: ' + $sel.Count + ' elements match name_rx "' + $nameRx + '" control_type "' + $ctFilter + '"'); candidates=$cands} | ConvertTo-Json -Compress -Depth 4; exit 0
+  } else {
+    $t = $sel[0]
+  }
 }
 $cx = $t.x + [int]($t.width / 2)
 $cy = $t.y + [int]($t.height / 2)
@@ -603,34 +657,65 @@ def _uia_invoke(payload: dict, timeout_s: int = 30) -> dict:
         raise RuntimeError("UIA helper returned bad JSON: %s" % out[-300:])
 
 
-# Addressing ops (click/get/set) enumerate with this cap — the same
-# cap uia_find clamps to — never index+1. The old index+1 truncation
-# made click/set re-enumerate a different (shorter) list than the one
-# find reported, so an index taken from a find result could fall out
-# of range or name a different element. With one cap, one query, one
-# filter set and one ordering, the collected list's prefix is exactly
-# find's list, and any find index resolves to the same element.
+# Addressing ops (click/get/set) and find enumerate with this one
+# cap — never index+1, never the find caller's max_results. The old
+# split caps (find clamped to its max_results param, default 50)
+# made find and get/set enumerate different lists, so they disagreed
+# on the same query. With one cap, one query, one filter set and one
+# ordering, find's list is the resolution list, and any find index
+# resolves to the same element in get/set/click. uia_find's
+# max_results remains only as a cap on RETURNED results.
 UIA_ENUM_MAX_RESULTS = 200
 
 
+def _uia_failure(res: dict, fallback: str) -> RuntimeError:
+    """Build the RuntimeError for a failed UIA helper response.
+
+    An ambiguous_target response becomes a RuntimeError whose message
+    starts 'ambiguous target:' and names the candidates (the helper's
+    candidate list is capped at 10), mirroring the mock resolver.
+    """
+    err = res.get("error") or fallback
+    if res.get("error_code") == "ambiguous_target" or \
+            str(err).startswith("ambiguous target"):
+        cands = res.get("candidates") or []
+        named = ", ".join(
+            "%r (%s, automation_id=%r, runtime_id=%r)"
+            % (c.get("name", ""), c.get("control_type", ""),
+               c.get("automation_id", ""), c.get("runtime_id", ""))
+            for c in cands)
+        msg = str(err)
+        if named:
+            msg = "%s: %s" % (msg, named)
+        if not msg.startswith("ambiguous target:"):
+            msg = "ambiguous target: " + msg
+        return RuntimeError(msg)
+    return RuntimeError(err)
+
+
 def _uia_payload(op: str, window, name_rx: str = "",
-                 control_type: str = "", index: int = 0,
+                 control_type: str = "", index: int | None = None,
                  runtime_id: str = "", **extra) -> dict:
     """Build a UIA helper request with the shared enumeration.
 
     When runtime_id is given it is the sole address: filters are
     cleared so the element is resolved by RuntimeId over the full
     enumeration (RuntimeIds are stable across re-enumeration).
+
+    index=None means 'not given': the payload carries index_given so
+    the helper applies single-element resolution (unique match, or a
+    structured ambiguity / not-found error) instead of indexing.
     """
     if runtime_id:
         payload = {"op": op, "window": window, "name_rx": "",
-                   "control_type": "", "index": 0,
+                   "control_type": "", "index": 0, "index_given": False,
                    "max_results": UIA_ENUM_MAX_RESULTS,
                    "runtime_id": str(runtime_id)}
     else:
         payload = {"op": op, "window": window, "name_rx": name_rx or "",
                    "control_type": control_type or "",
-                   "index": int(index),
+                   "index": int(index) if index is not None else 0,
+                   "index_given": index is not None,
                    "max_results": UIA_ENUM_MAX_RESULTS,
                    "runtime_id": ""}
     payload.update(extra)
@@ -638,11 +723,16 @@ def _uia_payload(op: str, window, name_rx: str = "",
 
 
 def uia_find(window: str, name_rx: str = "", control_type: str = "",
-             max_results: int = 50) -> dict:
+             max_results: int = 50, contains: str = "") -> dict:
     """Find UI elements in a window via UI Automation (read-only).
 
-    window: window title regex, or hwnd digits. Returns matching elements
-    with name, control type, automation id, and bounding rect.
+    window: window title regex, or hwnd digits. Returns the winning
+    set of the shared tiered resolution (exact-name tier, then
+    anchored-regex tier — no substring fallback) with name, control
+    type, automation id, and bounding rect. max_results caps the
+    returned results; enumeration always uses UIA_ENUM_MAX_RESULTS.
+    With `contains` set there is no name filter: the set is elements
+    whose name, value, or text contains the string (case-sensitive).
     """
     if not isinstance(window, str) or not window.strip():
         raise ValueError("window must be a non-empty title regex or hwnd")
@@ -650,15 +740,17 @@ def uia_find(window: str, name_rx: str = "", control_type: str = "",
     res = _uia_invoke({"op": "find", "window": window,
                        "name_rx": name_rx or "",
                        "control_type": control_type or "",
-                       "max_results": max_results})
+                       "contains": contains or "",
+                       "max_results": UIA_ENUM_MAX_RESULTS,
+                       "return_limit": max_results})
     if not res.get("ok"):
-        raise RuntimeError(res.get("error", "uia_find failed"))
+        raise _uia_failure(res, "uia_find failed")
     return {"ok": True, "count": int(res.get("count", 0)),
             "elements": res.get("elements") or []}
 
 
 def uia_get(window: str, name_rx: str = "", control_type: str = "",
-            index: int = 0) -> dict:
+            index: int | None = None) -> dict:
     """Read one UI element via UI Automation (read-only).
 
     Same addressing as uia_find/uia_set_text. Returns the element's
@@ -670,7 +762,7 @@ def uia_get(window: str, name_rx: str = "", control_type: str = "",
     res = _uia_invoke(_uia_payload("get", window, name_rx, control_type,
                                    index))
     if not res.get("ok"):
-        raise RuntimeError(res.get("error", "uia_get failed"))
+        raise _uia_failure(res, "uia_get failed")
     return {"ok": True, "name": res.get("name", ""),
             "control_type": res.get("control_type", ""),
             "automation_id": res.get("automation_id", ""),
