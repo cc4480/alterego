@@ -361,34 +361,41 @@ def _uia_projection(el: dict) -> dict:
 
 
 def uia_find(window: str, name_rx: str = "", control_type: str = "",
-             max_results: int = 50) -> dict:
-    from seams.providers.mock import UIA, resolve_uia_window
+             max_results: int = 50, contains: str = "") -> dict:
+    """Winning-set find, mirroring the Windows helper: candidates are
+    resolved through the shared tiered resolution (exact tier, then
+    anchored-regex tier, no substring fallback); max_results caps the
+    returned results. With `contains` set there is no name filter —
+    the set is elements (and message-list entries) whose name, value,
+    or text contains the string, case-sensitive (the send_message
+    confirmation probe)."""
+    from seams.providers.mock import (
+        UIA, _name_tier_match, resolve_uia_elements, resolve_uia_window)
     resolve_uia_window(window)
-    out = []
-    for el in UIA["elements"]:
-        if name_rx and not re.search(name_rx, el["name"], re.IGNORECASE):
-            continue
-        if control_type and el["control_type"] != control_type:
-            continue
-        out.append(_uia_projection(el))
-        if len(out) >= max(1, int(max_results)):
-            break
+    limit = max(1, int(max_results))
+    out = [_uia_projection(el) for el in
+           resolve_uia_elements(name_rx, control_type, contains)][:limit]
     # Sent messages live in the window's message list: they are
     # findable by their text, like real UIA list items.
-    if name_rx:
+    def _msg_entry(msg):
+        return {"name": msg, "control_type": "ControlType.ListItem",
+                "automation_id": "", "x": 0, "y": 0, "width": 0,
+                "height": 0, "value": msg, "has_keyboard_focus": False,
+                "runtime_id": "7,12345,900"}
+
+    if contains:
         for msg in UIA["messages"]:
-            if re.search(name_rx, msg, re.IGNORECASE):
-                out.append({"name": msg,
-                            "control_type": "ControlType.ListItem",
-                            "automation_id": "", "x": 0, "y": 0,
-                            "width": 0, "height": 0, "value": msg,
-                            "has_keyboard_focus": False,
-                            "runtime_id": "7,12345,900"})
+            if contains in msg:
+                out.append(_msg_entry(msg))
+    elif name_rx:
+        for msg in UIA["messages"]:
+            if _name_tier_match(msg, name_rx):
+                out.append(_msg_entry(msg))
     return {"ok": True, "count": len(out), "elements": out}
 
 
 def uia_get(window: str, name_rx: str = "", control_type: str = "",
-            index: int = 0) -> dict:
+            index: int | None = None) -> dict:
     from seams.providers.mock import (
         UIA, find_uia_element, resolve_uia_window)
     resolve_uia_window(window)
