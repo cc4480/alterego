@@ -275,7 +275,7 @@ def test_windows_uia_payload_uses_one_enumeration():
 
     # Index path: same cap as uia_find's clamp, never index+1.
     p = win_read._uia_payload("click", "Notepad", "File", "", 3)
-    assert p["max_results"] == win_read.UIA_ENUM_MAX_RESULTS == 200
+    assert p["max_results"] == win_read.UIA_ENUM_MAX_RESULTS == 5000
     assert p["index"] == 3 and p["runtime_id"] == ""
     # RuntimeId path: filters cleared, rid is the sole address.
     p2 = win_read._uia_payload("set", "Notepad", "StaleName",
@@ -283,7 +283,7 @@ def test_windows_uia_payload_uses_one_enumeration():
                                runtime_id="7,42,1", text="hi")
     assert p2["runtime_id"] == "7,42,1"
     assert p2["name_rx"] == "" and p2["control_type"] == ""
-    assert p2["max_results"] == 200 and p2["text"] == "hi"
+    assert p2["max_results"] == 5000 and p2["text"] == "hi"
 
 
 def test_windows_uia_helper_script_addresses_by_runtime_id():
