@@ -164,20 +164,61 @@ def clipboard_set(text: str) -> dict:
     return {"clipboard_chars": len(text)}
 
 
+def _paste_readback(text: str) -> bool:
+    """Mock read-back, mirroring the Windows provider: True only
+    when the focused element's value/text contains the pasted text
+    OR the focused read path's expect-escalation found it elsewhere
+    in the window (verified_via "ancestor"/"window"). Any failure
+    to resolve is False — never an implied success."""
+    try:
+        from seams.providers.mock.read import uia_focused
+        foc = uia_focused(expect=text)
+    except Exception:
+        return False
+    if not foc.get("ok"):
+        return False
+    for key in ("value", "text"):
+        candidate = foc.get(key)
+        if isinstance(candidate, str) and text in candidate:
+            return True
+    return foc.get("verified_via") in ("ancestor", "window")
+
+
 def paste_text(text: str) -> dict:
-    """Mock paste with the verified-write bar: the paste lands in the
-    focused element, then it is read back — verified only when a
-    value/text-bearing focused element is resolvable AND its value
-    contains the pasted text. UIA["paste_corrupt"] makes different
-    text land; an unresolvable focus (unknown runtime_id, or a
-    focused element without Value/Text patterns) is verified=False."""
+    """Mock paste with the verified-write bar, mirroring the Windows
+    provider's expect-escalation semantics.
+
+    Landing: the paste lands in the focused element when it bears a
+    Value/Text pattern. When focus sits on a pattern-less Pane
+    (Notepad's shape), the paste instead lands in the window's
+    Document/Edit sibling — the control that actually hosts the
+    text. Otherwise (focus on a non-text control like a Button, or
+    an unresolvable focus) the paste drops and lands nowhere.
+
+    Read-back: verified only when the focused element's value/text
+    contains the pasted text, or the window search finds it in
+    another element (see _paste_readback / mock read.uia_focused;
+    the mock's flat element list is one window). UIA["paste_corrupt"]
+    makes different text land, so no element contains the pasted
+    text and the result is verified=False."""
     el = focused_uia_element()
     resolvable = el is not None and bool(
         {"ValuePattern", "TextPattern"} & set(el.get("patterns") or []))
+    target = None
     if resolvable:
+        target = el
+    elif el is not None and el.get("control_type") == "ControlType.Pane":
+        # Notepad shape: keyboard focus reports on the pattern-less
+        # client Pane; the sibling Document/Edit hosts the text.
+        for cand in UIA["elements"]:
+            if cand is not el and cand.get("control_type") in (
+                    "ControlType.Document", "ControlType.Edit"):
+                target = cand
+                break
+    if target is not None:
         landed = "<different text>" if UIA["paste_corrupt"] else text
-        el["value"] = (el["value"] or "") + landed
-    verified = bool(resolvable and text in (el["value"] or ""))
+        target["value"] = (target["value"] or "") + landed
+    verified = _paste_readback(text)
     return _ui("paste_text", {"text": text},
                {"pasted_chars": len(text), "verified": verified})
 
