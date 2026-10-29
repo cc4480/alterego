@@ -62,14 +62,14 @@ def test_eval_returns_value():
 
 
 def test_no_edge_gives_clear_error():
-    try:
-        browser_cdp.snapshot()
-    except browser_cdp.CDPError as e:
-        # either "not installed" or "cannot reach Edge" — both mention the fix
-        assert "9222" in str(e) or "websocket-client" in str(e), str(e)
-        print("PASS no-edge error")
-    else:
-        raise AssertionError("should have raised")
+    # Wave 2/H: snapshot no longer raises a raw CDPError to callers —
+    # it returns the structured receipt, CDP message preserved in
+    # detail ("not installed" or "cannot reach Edge": both name the fix).
+    r = browser_cdp.snapshot()
+    assert r["status"] == "error", r
+    assert r["elements"] == [] and r["detail"], r
+    assert "9222" in r["detail"] or "websocket-client" in r["detail"], r
+    print("PASS no-edge clean receipt")
 
 
 def test_js_snippets_present():

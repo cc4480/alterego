@@ -227,33 +227,122 @@ _SNAPSHOT = """() => {
 }"""
 
 
+# --- dialog guard + clean receipts -----------------------------------------
+#
+# Live evidence (2026-10-29): after a navigate, Edge can intercept the tab
+# with an internal dialog page (edge://sync-confirmation-dialog/). Acting
+# on that surface searches the wrong page and surfaces misleading
+# receipts (NOT-FOUND for an element that was never on the live page, or
+# a raw "CDPError: Uncaught" for a field that does not exist). So:
+# (a) click/fill/snapshot check the tab's current URL first and, on an
+# internal/dialog surface, return a structured blocked receipt naming
+# the intercepting URL instead of acting on it;
+# (b) CDP-layer exceptions are wrapped into the same receipt shape:
+# status distinguishes ok / not_found / blocked_dialog / error, and the
+# underlying message is preserved in `detail` — a raised CDPError (which
+# the pipeline would surface as "CDPError: Uncaught") never escapes
+# these entry points.
+_INTERNAL_PREFIXES = ("edge://", "chrome://", "chrome-extension://",
+                      "devtools://")
+# about:blank / about:srcdoc are ordinary empty documents, not internal
+# dialog surfaces — acting on them is legitimate (and snapshot of a
+# fresh tab reports about:blank).
+_ABOUT_OK = ("about:blank", "about:srcdoc")
+
+
+def _is_internal_url(url) -> bool:
+    """True for internal/dialog surfaces browser actions must not touch."""
+    if not url or not isinstance(url, str):
+        return False
+    u = url.strip().lower()
+    if u in _ABOUT_OK:
+        return False
+    return u.startswith(_INTERNAL_PREFIXES) or u.startswith("about:")
+
+
+def _blocked_detail(page_url: str) -> str:
+    return (f"tab is showing an internal/dialog page ({page_url}); "
+            "browser actions are not run against it — dismiss the "
+            "dialog or navigate the tab to a web page first")
+
+
+def _action_receipt(page_url, result, status, detail=None) -> dict:
+    return {"page_url": page_url or "", "result": result,
+            "status": status, "detail": detail}
+
+
+def _snapshot_receipt(page_url, status, detail=None, val=None) -> dict:
+    val = val or {}
+    return {"page_url": page_url or "",
+            "url": val.get("url", page_url or ""),
+            "title": val.get("title", ""),
+            "elements": val.get("elements", []),
+            "cross_origin_iframes": val.get("cross_origin_iframes", 0),
+            "status": status, "detail": detail}
+
+
 def snapshot(url_contains=None):
-    b = Browser(url_contains)
+    b = None
     try:
+        b = Browser(url_contains)
+        if _is_internal_url(b.page_url):
+            return _snapshot_receipt(
+                b.page_url, "blocked_dialog",
+                detail=_blocked_detail(b.page_url))
         # NB: the arrow IIFE must be wrapped in parens — `() => {}()`
         # is a SyntaxError, which CDP reports as protocol error "Uncaught".
         val, _ = b.eval(_DEEP + "(" + _SNAPSHOT + ")()")
-        return {"page_url": b.page_url, **(val or {})}
+        val = val or {}
+        live_url = val.get("url") or b.page_url
+        if _is_internal_url(live_url):
+            return _snapshot_receipt(
+                b.page_url, "blocked_dialog",
+                detail=_blocked_detail(live_url))
+        return _snapshot_receipt(b.page_url, "ok", val=val)
+    except CDPError as exc:
+        return _snapshot_receipt(getattr(b, "page_url", "") or "",
+                                 "error", detail=str(exc))
     finally:
-        b.close()
+        if b is not None:
+            b.close()
 
 
 def click_text(text, url_contains=None):
-    b = Browser(url_contains)
+    b = None
     try:
+        b = Browser(url_contains)
+        if _is_internal_url(b.page_url):
+            return _action_receipt(
+                b.page_url, "BLOCKED", "blocked_dialog",
+                detail=_blocked_detail(b.page_url))
         val, _ = b.eval(_DEEP + f"({_FIND_CLICK})({json.dumps(text)})")
-        return {"page_url": b.page_url, "result": val}
+        status = "not_found" if val == "NOT-FOUND" else "ok"
+        return _action_receipt(b.page_url, val, status)
+    except CDPError as exc:
+        return _action_receipt(getattr(b, "page_url", "") or "",
+                               "ERROR", "error", detail=str(exc))
     finally:
-        b.close()
+        if b is not None:
+            b.close()
 
 
 def fill_field(label, text, url_contains=None):
-    b = Browser(url_contains)
+    b = None
     try:
+        b = Browser(url_contains)
+        if _is_internal_url(b.page_url):
+            return _action_receipt(
+                b.page_url, "BLOCKED", "blocked_dialog",
+                detail=_blocked_detail(b.page_url))
         val, _ = b.eval(_DEEP + f"({_FIND_FILL})({json.dumps(label)}, {json.dumps(text)})")
-        return {"page_url": b.page_url, "result": val}
+        status = "not_found" if val == "NOT-FOUND" else "ok"
+        return _action_receipt(b.page_url, val, status)
+    except CDPError as exc:
+        return _action_receipt(getattr(b, "page_url", "") or "",
+                               "ERROR", "error", detail=str(exc))
     finally:
-        b.close()
+        if b is not None:
+            b.close()
 
 
 def navigate(url, url_contains=None):
