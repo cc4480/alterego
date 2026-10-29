@@ -7,7 +7,7 @@ import hashlib
 import re
 
 from seams.providers.mock import (
-    CLIPBOARD, FS, PROFILE_ROOT, is_dir, list_children, norm_path,
+    CLIPBOARD, FS, PROFILE_ROOT, is_dir, list_children, norm_path, record,
 )
 
 # 1x1 red frames (base64). Valid encoded bytes per format, tiny — enough
@@ -173,6 +173,53 @@ def screenshot_tiles(region: dict | None = None, tile_size: int = 512,
         manifest["changed"] = changed
         manifest["unchanged"] = unchanged
     return manifest
+
+
+def camera_snapshot(device=None, max_width=None) -> dict:
+    # Mock mirror of the windows provider's contract: same arg
+    # validation, same audit-or-refuse pre-flight (MF-4) and consent
+    # event (MF-3) — but, like every mock, no approval dialog and no
+    # real device. The canned frame is the 1x1 red PNG (never blank,
+    # so the mock always passes the MF-7 check the real provider runs).
+    import os
+    if isinstance(device, bool) or (
+            device is not None and not isinstance(device, (int, str))):
+        raise ValueError(
+            "device must be a camera index (int) or name (str)")
+    if isinstance(device, int) and device < 0:
+        raise ValueError("device index must be >= 0")
+    if isinstance(device, str) and not device.strip():
+        raise ValueError("device name must be non-empty")
+    if max_width is not None:
+        if isinstance(max_width, bool) or not isinstance(max_width, int):
+            raise ValueError("max_width must be an int (pixels)")
+        if not 16 <= max_width <= 7680:
+            raise ValueError("max_width must be 16-7680")
+    if os.environ.get("EVENT_LOG_ENABLED", "1") == "0":
+        raise RuntimeError(
+            "camera_snapshot refused: event log is disabled "
+            "(EVENT_LOG_ENABLED=0); senses captures require an audit "
+            "record (privacy MF-4)")
+    import approval
+    import events
+    label = ("default (first camera)" if device is None
+             else f"index {device}" if isinstance(device, int)
+             else str(device))
+    event_id = events.append("MediaCaptureConsent", {
+        "tool": "camera_snapshot",
+        "permission_mode": approval.get_permission_mode(),
+        "consent": ("session_level" if approval.is_full_access()
+                    else "per_capture_dialog"),
+        "device": label,
+        "provider": "mock",
+    })
+    if event_id is None:
+        raise RuntimeError(
+            "camera_snapshot refused: could not write the capture "
+            "consent event to the event log (privacy MF-4)")
+    record("camera_snapshot", {"device": device, "max_width": max_width})
+    return {"device": "Mock Camera", "backend": "mock", "width": 1,
+            "height": 1, "png_base64": _RED_PNG_B64}
 
 
 def list_windows() -> dict:

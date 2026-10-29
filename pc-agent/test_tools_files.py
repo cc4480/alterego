@@ -119,7 +119,8 @@ def test_wrappers_register_all():
               "memory_recall", "shell_pwsh", "batch",
               "http_headers", "dns_query", "tls_info", "tcp_check",
               "active_window", "idle_seconds", "list_processes",
-              "notify", "speak", "set_volume", "power"):
+              "notify", "speak", "record_audio", "set_volume", "power",
+              "camera_snapshot"):
         assert n in names, n
     print("PASS wrappers: 52 tools registered")
 
@@ -156,6 +157,7 @@ def test_pc_tools_validation():
     # validation paths only (windll calls need Windows); approval must not fire
     for fn, bad in ((P.notify, [("", "m"), ("t", ""), (None, "m")]),
                     (P.speak, ["", "   ", None, "x" * 501]),
+                    (P.record_audio, [0, -1, 31, "5", None, True]),
                     (P.power, ["explode", "", None])):
         for b in bad:
             try:
