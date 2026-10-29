@@ -494,11 +494,81 @@ if ($req.op -eq 'focused') {
   # Focus is global: no window lookup (paste_text read-back has no
   # window spec). value/text are included so callers can verify what
   # actually landed in the focused element.
+  # Optional expect: when non-empty and the focused element's
+  # value/text does not contain it, escalate before answering:
+  # (a) walk the focused element's ancestors checking each one's
+  # value/text, then (b) search the top-level window's descendants
+  # for any element whose value/text contains it. This covers apps
+  # like Notepad, where keyboard focus sits on a pattern-less client
+  # Pane while the text lives in a sibling Document control.
+  # Ancestors are walked with RawViewWalker, not ControlViewWalker:
+  # the control view filters out exactly those pattern-less
+  # intermediate panes, which would break the parent chain.
+  # The extra fields (verified_via, and source_name /
+  # source_control_type when found via escalation) are only added
+  # when expect is supplied; without it the response is unchanged.
   try {
     $fe = $AE::FocusedElement
     $fh = 0
     try { $fh = [int]$fe.Current.NativeWindowHandle } catch { }
-    @{ok=$true; runtime_id=(El-Rid $fe); name=$fe.Current.Name; control_type=$fe.Current.ControlType.ProgrammaticName; has_keyboard_focus=(El-Focus $fe); value=(El-Value $fe); text=(El-Text $fe); window_hwnd=$fh} | ConvertTo-Json -Compress
+    $resp = @{ok=$true; runtime_id=(El-Rid $fe); name=$fe.Current.Name; control_type=$fe.Current.ControlType.ProgrammaticName; has_keyboard_focus=(El-Focus $fe); value=(El-Value $fe); text=(El-Text $fe); window_hwnd=$fh}
+    $expect = ''
+    try { $expect = [string]$req.expect } catch { $expect = '' }
+    if ($expect -eq '') { $resp | ConvertTo-Json -Compress; exit 0 }
+    $fv = $resp['value']
+    $ft = $resp['text']
+    $via = 'none'
+    $srcName = $null
+    $srcType = $null
+    if ((($null -ne $fv) -and $fv.Contains($expect)) -or (($null -ne $ft) -and $ft.Contains($expect))) {
+      $via = 'focused'
+    } else {
+      $walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
+      $winEl = $null
+      $anc = $null
+      try { $anc = $walker.GetParent($fe) } catch { $anc = $null }
+      $guard = 0
+      while (($null -ne $anc) -and ($guard -lt 100)) {
+        $guard += 1
+        try { if (($null -eq $winEl) -and ($anc.Current.ControlType -eq [System.Windows.Automation.ControlType]::Window)) { $winEl = $anc } } catch { }
+        if ($via -eq 'none') {
+          $av = El-Value $anc
+          $at = El-Text $anc
+          if ((($null -ne $av) -and $av.Contains($expect)) -or (($null -ne $at) -and $at.Contains($expect))) {
+            $via = 'ancestor'
+            try { $srcName = $anc.Current.Name } catch { $srcName = $null }
+            try { $srcType = $anc.Current.ControlType.ProgrammaticName } catch { $srcType = $null }
+          }
+        }
+        try { $anc = $walker.GetParent($anc) } catch { $anc = $null }
+      }
+      if ($via -eq 'none') {
+        if ($null -eq $winEl) {
+          try { if ($fh -ne 0) { $winEl = $AE::FromHandle((New-Object IntPtr $fh)) } } catch { $winEl = $null }
+        }
+        if ($null -ne $winEl) {
+          try {
+            $desc = $winEl.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+            foreach ($d in $desc) {
+              $dv = El-Value $d
+              $dt = El-Text $d
+              if ((($null -ne $dv) -and $dv.Contains($expect)) -or (($null -ne $dt) -and $dt.Contains($expect))) {
+                $via = 'window'
+                try { $srcName = $d.Current.Name } catch { $srcName = $null }
+                try { $srcType = $d.Current.ControlType.ProgrammaticName } catch { $srcType = $null }
+                break
+              }
+            }
+          } catch { }
+        }
+      }
+    }
+    $resp['verified_via'] = $via
+    if (($via -eq 'ancestor') -or ($via -eq 'window')) {
+      $resp['source_name'] = $srcName
+      $resp['source_control_type'] = $srcType
+    }
+    $resp | ConvertTo-Json -Compress
   } catch { @{ok=$false; error='focused element unavailable'} | ConvertTo-Json -Compress }
   exit 0
 }
