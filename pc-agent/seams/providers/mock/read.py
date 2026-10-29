@@ -200,9 +200,57 @@ def read_file_range(path: str, start_line: int,
     }
 
 
+def _uia_projection(el: dict) -> dict:
+    from seams.providers.mock import UIA
+    return {"name": el["name"], "control_type": el["control_type"],
+            "automation_id": el["automation_id"], "x": el["x"],
+            "y": el["y"], "width": el["width"], "height": el["height"],
+            "value": el["value"],
+            "has_keyboard_focus":
+                UIA["focused_runtime_id"] == el["runtime_id"],
+            "runtime_id": el["runtime_id"]}
+
+
 def uia_find(window: str, name_rx: str = "", control_type: str = "",
              max_results: int = 50) -> dict:
-    return {"ok": True, "count": 1, "elements": [
-        {"name": "mock", "control_type": "ControlType.Button",
-         "automation_id": "mock1", "x": 1, "y": 2,
-         "width": 3, "height": 4}]}
+    from seams.providers.mock import UIA, resolve_uia_window
+    resolve_uia_window(window)
+    out = []
+    for el in UIA["elements"]:
+        if name_rx and not re.search(name_rx, el["name"], re.IGNORECASE):
+            continue
+        if control_type and el["control_type"] != control_type:
+            continue
+        out.append(_uia_projection(el))
+        if len(out) >= max(1, int(max_results)):
+            break
+    # Sent messages live in the window's message list: they are
+    # findable by their text, like real UIA list items.
+    if name_rx:
+        for msg in UIA["messages"]:
+            if re.search(name_rx, msg, re.IGNORECASE):
+                out.append({"name": msg,
+                            "control_type": "ControlType.ListItem",
+                            "automation_id": "", "x": 0, "y": 0,
+                            "width": 0, "height": 0, "value": msg,
+                            "has_keyboard_focus": False,
+                            "runtime_id": "7,12345,900"})
+    return {"ok": True, "count": len(out), "elements": out}
+
+
+def uia_get(window: str, name_rx: str = "", control_type: str = "",
+            index: int = 0) -> dict:
+    from seams.providers.mock import (
+        UIA, find_uia_element, resolve_uia_window)
+    resolve_uia_window(window)
+    el = find_uia_element(name_rx, control_type, index)
+    proj = _uia_projection(el)
+    return {"ok": True, "name": proj["name"],
+            "control_type": proj["control_type"],
+            "automation_id": proj["automation_id"],
+            "value": el["value"], "text": el["value"],
+            "has_keyboard_focus": proj["has_keyboard_focus"],
+            "runtime_id": proj["runtime_id"],
+            "patterns": list(el["patterns"]),
+            "x": proj["x"], "y": proj["y"],
+            "width": proj["width"], "height": proj["height"]}

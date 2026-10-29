@@ -1,7 +1,9 @@
 """Write tools. EVERY call requires native approval (fail closed)."""
 import ctypes
 import os
+import re
 import subprocess
+import time
 from ctypes import wintypes  # pure type aliases; windll itself is Windows-only
 
 import subproc
@@ -59,20 +61,61 @@ def _approved(tool: str, summary: str) -> None:
         raise PermissionError("denied by local approval (or timed out)")
 
 
+def _window_title(hwnd: int) -> str:
+    """Title of a window handle ('' when unknown). Pure ctypes."""
+    u32 = ctypes.windll.user32
+    n = u32.GetWindowTextLengthW(int(hwnd))
+    if not n:
+        return ""
+    buf = ctypes.create_unicode_buffer(n + 1)
+    u32.GetWindowTextW(int(hwnd), buf, n + 1)
+    return buf.value
+
+
 def focus_window(hwnd: int) -> dict:
+    """Bring a window to the foreground — verified, or an error.
+
+    Every Win32 return value is checked and GetForegroundWindow() is
+    polled for ~500 ms. Failure raises RuntimeError naming the actual
+    foreground window (hwnd + title): a silent {"focused": false}
+    success payload is the bug this replaces (a background process can
+    be denied foreground even when it follows the rules).
+    """
     _approved("focus_window", f"Bring window handle {hwnd} to the foreground.")
     u32, hwnd = ctypes.windll.user32, int(hwnd)
     u32.ShowWindow(hwnd, 9)  # SW_RESTORE: unminimize first
     me = ctypes.windll.kernel32.GetCurrentThreadId()
     fg = u32.GetForegroundWindow()
     ft = u32.GetWindowThreadProcessId(fg, None)
+    errors = []
+    attached = False
     if fg and ft != me:
-        u32.AttachThreadInput(me, ft, True)  # bypass the foreground lock
-    u32.SetForegroundWindow(hwnd)
-    u32.BringWindowToTop(hwnd)
-    if fg and ft != me:
-        u32.AttachThreadInput(me, ft, False)
-    return {"hwnd": hwnd, "focused": u32.GetForegroundWindow() == hwnd}
+        # bypass the foreground lock
+        if u32.AttachThreadInput(me, ft, True):
+            attached = True
+        else:
+            errors.append("AttachThreadInput(attach) returned 0")
+    try:
+        if not u32.SetForegroundWindow(hwnd):
+            errors.append("SetForegroundWindow returned 0")
+        if not u32.BringWindowToTop(hwnd):
+            errors.append("BringWindowToTop returned 0")
+    finally:
+        if attached and not u32.AttachThreadInput(me, ft, False):
+            errors.append("AttachThreadInput(detach) returned 0")
+    deadline = time.monotonic() + 0.5
+    while True:
+        if u32.GetForegroundWindow() == hwnd:
+            return {"hwnd": hwnd, "focused": True}
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.05)
+    actual = u32.GetForegroundWindow()
+    detail = ("; " + "; ".join(errors)) if errors else ""
+    raise RuntimeError(
+        f"focus_window failed: hwnd {hwnd} did not become foreground; "
+        f"actual foreground is hwnd {actual} "
+        f"({_window_title(actual)!r}){detail}")
 
 
 def close_window(hwnd: int) -> dict:
@@ -83,30 +126,144 @@ def close_window(hwnd: int) -> dict:
     return {"hwnd": int(hwnd), "close_requested": ok}
 
 
-def type_text(text: str) -> dict:
+def _resolve_target_hwnd(window) -> int | None:
+    """Window spec (hwnd digits or title regex) -> hwnd, or None."""
+    if window is None:
+        return None
+    s = str(window).strip()
+    if not s:
+        return None
+    if s.isdigit():
+        return int(s)
+    from seams.providers.windows.read import list_windows
+    for w in list_windows()["windows"]:
+        if re.search(s, w["title"]):
+            return int(w["hwnd"])
+    raise RuntimeError(f"focus gate: window not found: {window!r}")
+
+
+def _focus_gate(window=None, name_rx: str = "", control_type: str = "",
+                index: int = 0, timeout_s: float = 0.5) -> dict:
+    """Verify input will land on the target — or raise, typing nothing.
+
+    Gate: the foreground hwnd must be the target window AND (when an
+    element is addressed) the UIA FocusedElement's RuntimeId must equal
+    the target element's. Polled for ~timeout_s, then RuntimeError
+    naming the actual foreground window / focused element.
+    """
+    target_hwnd = _resolve_target_hwnd(window)
+    target_rid = ""
+    if name_rx:
+        info = _uia_invoke({"op": "get", "window": window,
+                            "name_rx": name_rx,
+                            "control_type": control_type or "",
+                            "index": int(index),
+                            "max_results": int(index) + 1})
+        if not info.get("ok"):
+            raise RuntimeError(info.get("error", "focus gate: element "
+                                              "not found"))
+        target_rid = info.get("runtime_id", "")
+        if target_hwnd is None and info.get("window_hwnd"):
+            target_hwnd = int(info["window_hwnd"])
+    u32 = ctypes.windll.user32
+    deadline = time.monotonic() + timeout_s
+    fg = rid = None
+    while True:
+        fg = u32.GetForegroundWindow()
+        fg_ok = target_hwnd is None or fg == target_hwnd
+        rid_ok = True
+        if target_rid:
+            foc = _uia_invoke({"op": "focused", "window": window,
+                               "name_rx": "", "control_type": "",
+                               "index": 0, "max_results": 1})
+            rid = foc.get("runtime_id", "") if foc.get("ok") else ""
+            rid_ok = rid == target_rid
+        if fg_ok and rid_ok:
+            return {"hwnd": target_hwnd, "runtime_id": target_rid}
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.05)
+    raise RuntimeError(
+        f"focus gate failed: foreground hwnd {fg} "
+        f"({_window_title(fg) if fg else ''!r}) vs target hwnd "
+        f"{target_hwnd}; focused element RuntimeId {rid!r} vs target "
+        f"{target_rid!r} — aborting, nothing typed")
+
+
+def _target_args(window, name_rx, control_type, index) -> dict:
+    """Normalize the optional target shared by type_text/hotkey."""
+    if window is not None and (not isinstance(window, str)
+                               or not window.strip()):
+        raise ValueError("window must be a non-empty title regex or hwnd")
+    if name_rx and not isinstance(name_rx, str):
+        raise ValueError("name_rx must be a regex string")
+    return {"window": window, "name_rx": name_rx or "",
+            "control_type": control_type or "", "index": int(index)}
+
+
+def type_text(text: str, window: str | None = None, name_rx: str = "",
+              control_type: str = "", index: int = 0) -> dict:
+    """Type text. With a target, a focus gate runs first (abort on
+    failure — never type blind) and the landing is spot-read back where
+    the element exposes a value. Without a target the result is
+    labelled verified:false."""
     if not isinstance(text, str) or not text or len(text) > 2000:
         raise ValueError("text must be a non-empty string up to 2000 chars")
+    tgt = _target_args(window, name_rx, control_type, index)
+    targeted = tgt["window"] is not None or bool(tgt["name_rx"])
     preview = text if len(text) <= 300 else text[:300] + "..."
     _approved("type_text", f"Type {len(text)} chars into the focused window:\n{preview}")
+    if not targeted:
+        _send_unicode(text)
+        return {"typed_chars": len(text), "verified": False}
+    _focus_gate(**tgt)
     _send_unicode(text)
-    return {"typed_chars": len(text)}
+    verified = True  # gate passed; upgraded by read-back when feasible
+    if tgt["name_rx"]:
+        after = _uia_invoke({"op": "get", "window": tgt["window"],
+                             "name_rx": tgt["name_rx"],
+                             "control_type": tgt["control_type"],
+                             "index": tgt["index"],
+                             "max_results": tgt["index"] + 1})
+        value = after.get("value") if after.get("ok") else None
+        if isinstance(value, str) and "ValuePattern" in (
+                after.get("patterns") or []):
+            if text not in value:
+                raise RuntimeError(
+                    f"type_text verification failed: typed text not in "
+                    f"target value (read back {value!r})")
+    return {"typed_chars": len(text), "verified": verified}
+
+
+def _send_inputs(inputs: list) -> None:
+    """One batched SendInput call for a whole event sequence.
+
+    Per-code-unit calls let real user keystrokes interleave mid-string;
+    a single call injects the sequence atomically."""
+    # Win64 requires sizeof(INPUT) == 40; a flat struct is 32 and SendInput rejects it.
+    assert ctypes.sizeof(INPUT) == 40, f"INPUT size {ctypes.sizeof(INPUT)} != 40"
+    if not inputs:
+        return
+    arr = (INPUT * len(inputs))(*inputs)
+    sent = ctypes.windll.user32.SendInput(
+        len(inputs), arr, ctypes.sizeof(INPUT))
+    if sent != len(inputs):
+        raise OSError(f"SendInput injected {sent} of {len(inputs)} events")
 
 
 def _send_unicode(text: str) -> None:
     """Type via SendInput with KEYEVENTF_UNICODE (handles all of Unicode)."""
-    # Win64 requires sizeof(INPUT) == 40; a flat struct is 32 and SendInput rejects it.
-    assert ctypes.sizeof(INPUT) == 40, f"INPUT size {ctypes.sizeof(INPUT)} != 40"
-
     KEYEVENTF_UNICODE = 0x0004
-    user32 = ctypes.windll.user32
     units = text.encode("utf-16-le")  # surrogate pairs handled correctly
+    inputs = []
     for i in range(0, len(units), 2):
         code = int.from_bytes(units[i : i + 2], "little")
         for keyup in (False, True):
             flags = KEYEVENTF_UNICODE | (KEYEVENTF_KEYUP if keyup else 0)
-            inp = INPUT(INPUT_KEYBOARD, _INPUT_UNION(ki=_KEYBDINPUT(0, code, flags, 0, None)))
-            if user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(inp)) != 1:
-                raise OSError("SendInput failed")
+            inputs.append(INPUT(
+                INPUT_KEYBOARD,
+                _INPUT_UNION(ki=_KEYBDINPUT(0, code, flags, 0, None))))
+    _send_inputs(inputs)
 
 
 def shell_exec(command: str, timeout_s: int = 60,
@@ -161,30 +318,38 @@ def _parse_hotkey(spec: str):
     return [_VK[m] for m in mods], vk
 
 
-def _key_event(vk: int, down: bool) -> None:
+def _vk_input(vk: int, down: bool) -> INPUT:
     ki = _KEYBDINPUT(wVk=vk, wScan=0, dwFlags=0 if down else KEYEVENTF_KEYUP,
                      time=0, dwExtraInfo=None)
-    inp = INPUT(INPUT_KEYBOARD, _INPUT_UNION(ki=ki))
-    if ctypes.windll.user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(inp)) != 1:
-        raise OSError("SendInput failed")
+    return INPUT(INPUT_KEYBOARD, _INPUT_UNION(ki=ki))
+
+
+def _key_event(vk: int, down: bool) -> None:
+    _send_inputs([_vk_input(vk, down)])
 
 
 def _tap_vk(vk: int) -> None:
-    _key_event(vk, True); _key_event(vk, False)
+    _send_inputs([_vk_input(vk, True), _vk_input(vk, False)])
 
 
-def hotkey(keys: str) -> dict:
-    """Press a key combo: 'enter', 'esc', 'tab', 'ctrl+c', 'alt+f4', 'win+r'."""
+def hotkey(keys: str, window: str | None = None, name_rx: str = "",
+           control_type: str = "", index: int = 0) -> dict:
+    """Press a key combo: 'enter', 'esc', 'tab', 'ctrl+c', 'alt+f4', 'win+r'.
+
+    With a target, the focus gate runs first (abort on failure); the
+    whole combo is injected as ONE batched SendInput call. Without a
+    target the result is labelled verified:false."""
     mods, vk = _parse_hotkey(keys)
+    tgt = _target_args(window, name_rx, control_type, index)
+    targeted = tgt["window"] is not None or bool(tgt["name_rx"])
     _approved("hotkey", f"Press key combo:\n{keys}")
-    try:
-        for m in mods:
-            _key_event(m, True)
-        _tap_vk(vk)
-    finally:
-        for m in reversed(mods):
-            _key_event(m, False)
-    return {"hotkey": keys, "pressed": True}
+    if targeted:
+        _focus_gate(**tgt)
+    inputs = ([_vk_input(m, True) for m in mods]
+              + [_vk_input(vk, True), _vk_input(vk, False)]
+              + [_vk_input(m, False) for m in reversed(mods)])
+    _send_inputs(inputs)
+    return {"hotkey": keys, "pressed": True, "verified": targeted}
 
 
 def _mouse_event(flags: int, data: int = 0) -> None:
@@ -327,23 +492,33 @@ def uia_click(window: str, name_rx: str, control_type: str = "",
             "name": res.get("name", ""), "x": x, "y": y}
 
 
-def uia_set_text(window: str, name_rx: str, text: str,
-                 control_type: str = "", index: int = 0) -> dict:
-    """Set text of an edit control found by name regex, via UI Automation.
-
-    Prefers ValuePattern.SetValue (instant, no keystrokes); falls back to
-    focusing the element and typing via SendInput KEYEVENTF_UNICODE.
-    """
+def _validate_uia_target(window, name_rx, text) -> None:
     if not isinstance(text, str) or not text or len(text) > 2000:
         raise ValueError("text must be a non-empty string up to 2000 chars")
     if not isinstance(name_rx, str) or not name_rx:
         raise ValueError("name_rx must be a non-empty regex")
     if not isinstance(window, str) or not window.strip():
         raise ValueError("window must be a non-empty title regex or hwnd")
-    preview = text if len(text) <= 120 else text[:120] + "..."
-    _approved("uia_set_text",
-              "UIA set %d chars into /%s/ in window /%s/:\n%s"
-              % (len(text), name_rx, window, preview))
+
+
+def _uia_get_raw(window, name_rx, control_type, index) -> dict:
+    res = _uia_invoke({"op": "get", "window": window, "name_rx": name_rx,
+                       "control_type": control_type or "",
+                       "index": int(index),
+                       "max_results": int(index) + 1})
+    if not res.get("ok"):
+        raise RuntimeError(res.get("error", "uia read-back failed"))
+    return res
+
+
+def _uia_set_text_verified(window: str, name_rx: str, text: str,
+                           control_type: str = "", index: int = 0) -> dict:
+    """Verified UIA write (no approval — callers approve once).
+
+    Mirrors the CDP fill() contract: after setting, read the field back
+    and raise unless it matches exactly. The helper's focus fallback
+    verifies UIA FocusedElement == target before this types into it.
+    """
     res = _uia_invoke({"op": "set", "window": window, "name_rx": name_rx,
                        "control_type": control_type or "",
                        "index": int(index), "max_results": int(index) + 1,
@@ -351,6 +526,80 @@ def uia_set_text(window: str, name_rx: str, text: str,
     if not res.get("ok"):
         raise RuntimeError(res.get("error", "uia_set_text failed"))
     if res.get("method") == "focus":
-        _send_unicode(text)  # helper focused the element; type directly
+        _send_unicode(text)  # helper verified focus is on the target
+    after = _uia_get_raw(window, name_rx, control_type, index)
+    value_after = after.get("value")
+    if value_after != text:
+        raise RuntimeError(
+            f"uia_set_text verification failed: expected {text!r}, "
+            f"read back {value_after!r}")
     return {"ok": True, "method": res.get("method", "?"),
-            "name": res.get("name", "")}
+            "name": res.get("name", ""), "value_after": value_after,
+            "verified": True}
+
+
+def uia_set_text(window: str, name_rx: str, text: str,
+                 control_type: str = "", index: int = 0) -> dict:
+    """Set text of an edit control found by name regex, via UI Automation.
+
+    Prefers ValuePattern.SetValue (instant, no keystrokes); falls back to
+    focusing the element and typing via SendInput KEYEVENTF_UNICODE.
+    Verified: the value is read back and a mismatch raises.
+    """
+    _validate_uia_target(window, name_rx, text)
+    preview = text if len(text) <= 120 else text[:120] + "..."
+    _approved("uia_set_text",
+              "UIA set %d chars into /%s/ in window /%s/:\n%s"
+              % (len(text), name_rx, window, preview))
+    return _uia_set_text_verified(window, name_rx, text, control_type,
+                                  index)
+
+
+def send_message(window: str, name_rx: str, text: str,
+                 control_type: str = "", index: int = 0) -> dict:
+    """Send a message through a window's composer control, verified.
+
+    Composite: resolve target -> focus gate -> verified write ->
+    Enter -> confirmation. Confirmation requires ALL of: the control's
+    value cleared, the sent text appearing in the window's message list
+    (a UIA descendant whose name/value carries the text), and focus
+    still on the control. Any failed check is an error, not success.
+    """
+    _validate_uia_target(window, name_rx, text)
+    preview = text if len(text) <= 120 else text[:120] + "..."
+    _approved("send_message",
+              "Send message via /%s/ in window /%s/:\n%s"
+              % (name_rx, window, preview))
+    info = _uia_get_raw(window, name_rx, control_type, index)
+    target_rid = info.get("runtime_id", "")
+    _focus_gate(window=window, name_rx=name_rx,
+                control_type=control_type, index=index)
+    _uia_set_text_verified(window, name_rx, text, control_type, index)
+    _tap_vk(_VK["enter"])
+    checks = {"value_cleared": False, "in_message_list": False,
+              "focus_on_control": False}
+    deadline = time.monotonic() + 1.0
+    while True:
+        after = _uia_get_raw(window, name_rx, control_type, index)
+        checks["value_cleared"] = after.get("value") == ""
+        found = _uia_invoke({"op": "find", "window": window,
+                             "name_rx": re.escape(text),
+                             "control_type": "", "max_results": 50})
+        checks["in_message_list"] = bool(found.get("ok")) and any(
+            text in (el.get("name") or "") or text == el.get("value")
+            for el in (found.get("elements") or []))
+        foc = _uia_invoke({"op": "focused", "window": window,
+                           "name_rx": "", "control_type": "",
+                           "index": 0, "max_results": 1})
+        checks["focus_on_control"] = bool(
+            target_rid and foc.get("ok")
+            and foc.get("runtime_id", "") == target_rid)
+        if all(checks.values()) or time.monotonic() >= deadline:
+            break
+        time.sleep(0.1)
+    if not all(checks.values()):
+        failed = [k for k, v in checks.items() if not v]
+        raise RuntimeError(
+            f"send_message confirmation failed: {failed}; checks={checks}")
+    return {"ok": True, "verified": True, "window": window,
+            "name": info.get("name", ""), "checks": checks}

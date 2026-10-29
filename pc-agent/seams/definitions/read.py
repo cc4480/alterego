@@ -177,9 +177,33 @@ UIA_FIND = ToolDef(
     approval_tier="silent",
     side_effects="none",
     platform_notes="Windows-only: UIAutomationClient via PowerShell. "
+                   "Elements carry value, has_keyboard_focus and "
+                   "runtime_id alongside name/type/rect. Honest gap on "
+                   "other platforms — omit rather than fake.",
+)
+
+UIA_GET = ToolDef(
+    name="uia_get",
+    group="read",
+    doc="Read one UI element in a window via Windows UI Automation — "
+        "same addressing as uia_find/uia_set_text (name regex + optional "
+        "control type + index). Returns the element's value/text, "
+        "has_keyboard_focus, runtime_id, and available patterns. This "
+        "is the read-back half of the verified-write contract. window: "
+        "window title regex (or hwnd digits).",
+    args={"window": {"type": "str", "required": True},
+          "name_rx": {"type": "str", "required": False, "default": ""},
+          "control_type": {"type": "str", "required": False, "default": ""},
+          "index": {"type": "int", "required": False, "default": 0}},
+    result_keys=["ok", "name", "control_type", "automation_id", "value",
+                 "text", "has_keyboard_focus", "runtime_id", "patterns",
+                 "x", "y", "width", "height"],
+    approval_tier="silent",
+    side_effects="none",
+    platform_notes="Windows-only: UIAutomationClient via PowerShell. "
                    "Honest gap on other platforms — omit rather than fake.",
 )
 
 ALL_READ_DEFS = [SCREENSHOT, LIST_WINDOWS, SYSTEM_INFO, LIST_DIR,
                  READ_FILE, CLIPBOARD_GET, SEARCH_FILES,
-                 SEARCH_FILENAMES, READ_FILE_RANGE, UIA_FIND]
+                 SEARCH_FILENAMES, READ_FILE_RANGE, UIA_FIND, UIA_GET]

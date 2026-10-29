@@ -2,7 +2,7 @@
 provider — hooks -> plan-mode -> execute -> typed events (the primary
 record since the Phase 5 cutover; the legacy audit.log is gone).
 
-Covers: result_keys contract for all 61 tools, hook allow/deny/modify,
+Covers: result_keys contract for all 63 tools, hook allow/deny/modify,
 plan-mode dry-run, approval tiers, and the expected event chain per call.
 """
 import pytest
@@ -53,8 +53,11 @@ ARGS = {
     "task_create": {"goal": "g", "plan": ["a", "b"]},
     "memory_recall": {"query": "x"}, "doctor": {},
     "uia_find": {"window": "mock"},
+    "uia_get": {"window": "mock", "name_rx": "Message"},
     "uia_click": {"window": "mock", "name_rx": "x"},
-    "uia_set_text": {"window": "mock", "name_rx": "x", "text": "hi"},
+    "uia_set_text": {"window": "mock", "name_rx": "Message", "text": "hi"},
+    "send_message": {"window": "mock", "name_rx": "Message",
+                     "text": "hi"},
     "arbitrate": {"trajectories": [["screenshot"], ["shell_exec"]]},
     "query_events": {},
     "replay_session": {"session_id": "sess_no_such_session"},
@@ -69,7 +72,7 @@ ARGS = {
 ALL_NAMES = [d.name for d in definitions.ALL_DEFS]
 PARAM_NAMES = [n for n in ALL_NAMES
                if n not in ("task_checkpoint", "task_status")]
-assert len(PARAM_NAMES) == 61, len(PARAM_NAMES)
+assert len(PARAM_NAMES) == 63, len(PARAM_NAMES)
 
 
 def _write_flag(name):
@@ -136,7 +139,7 @@ def test_hook_modify_args(_clean_hooks):
         return "modify", {"text": args["text"].upper()}
     hooks.register_hook("PreToolUse", "type_text", upper, name="upper")
     result = toolcall.call("type_text", {"text": "hi"}, write=True)
-    assert result == {"typed_chars": 2}  # "HI"
+    assert result == {"typed_chars": 2, "verified": False}  # "HI"
     assert mock_state.CALLS[-1]["args"] == {"text": "HI"}
 
 

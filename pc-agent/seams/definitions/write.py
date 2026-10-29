@@ -7,7 +7,10 @@ from seams.definitions.base import ToolDef
 FOCUS_WINDOW = ToolDef(
     name="focus_window",
     group="write",
-    doc="Bring a window to the foreground. Requires on-PC approval.",
+    doc="Bring a window to the foreground. Requires on-PC approval. "
+        "Verified: polls GetForegroundWindow for ~500ms; failure is an "
+        "error naming the actual foreground window, never a silent "
+        "focused=false payload.",
     args={"hwnd": {"type": "int", "required": True}},
     result_keys=["hwnd", "focused"],
     approval_tier="routine",
@@ -35,16 +38,26 @@ CLOSE_WINDOW = ToolDef(
 TYPE_TEXT = ToolDef(
     name="type_text",
     group="write",
-    doc="Type text into the focused window. Requires on-PC approval.",
-    args={"text": {"type": "str", "required": True}},
-    result_keys=["typed_chars"],
+    doc="Type text into the focused window. Requires on-PC approval. "
+        "Optional target (window and/or UIA element name_rx): a focus "
+        "gate verifies foreground hwnd + UIA FocusedElement before "
+        "typing and aborts on failure; targeted success reports "
+        "verified=true (gate + spot read-back where feasible), bare "
+        "calls report verified=false.",
+    args={"text": {"type": "str", "required": True},
+          "window": {"type": "str", "required": False, "default": None},
+          "name_rx": {"type": "str", "required": False, "default": ""},
+          "control_type": {"type": "str", "required": False, "default": ""},
+          "index": {"type": "int", "required": False, "default": 0}},
+    result_keys=["typed_chars", "verified"],
     approval_tier="ask",
     side_effects="session",
-    platform_notes="Windows: SendInput with KEYEVENTF_UNICODE (full "
-                   "Unicode). Linux: pynput or uinput (needs X11 or uinput "
-                   "permissions). macOS: Quartz event taps (accessibility "
-                   "permission). paste_text is the reliable route for long "
-                   "text on any platform.",
+    platform_notes="Windows: one batched SendInput call with "
+                   "KEYEVENTF_UNICODE (full Unicode). Linux: pynput or "
+                   "uinput (needs X11 or uinput permissions). macOS: "
+                   "Quartz event taps (accessibility permission). "
+                   "paste_text is the reliable route for long text on "
+                   "any platform.",
 )
 
 # Branch shapes (provider returns one or the other, never both):
@@ -72,9 +85,15 @@ SHELL_EXEC = ToolDef(
 HOTKEY = ToolDef(
     name="hotkey",
     group="write",
-    doc="Press a key combo: 'enter', 'esc', 'tab', 'ctrl+c', 'alt+f4', 'win+r'.",
-    args={"keys": {"type": "str", "required": True}},
-    result_keys=["hotkey", "pressed"],
+    doc="Press a key combo: 'enter', 'esc', 'tab', 'ctrl+c', 'alt+f4', 'win+r'. "
+        "Optional target (window and/or UIA element name_rx) runs the "
+        "same focus gate as type_text; bare calls report verified=false.",
+    args={"keys": {"type": "str", "required": True},
+          "window": {"type": "str", "required": False, "default": None},
+          "name_rx": {"type": "str", "required": False, "default": ""},
+          "control_type": {"type": "str", "required": False, "default": ""},
+          "index": {"type": "int", "required": False, "default": 0}},
+    result_keys=["hotkey", "pressed", "verified"],
     approval_tier="routine",
     side_effects="session",
     platform_notes="Windows: virtual-key codes via SendInput. Linux: pynput "
@@ -227,15 +246,38 @@ UIA_SET_TEXT = ToolDef(
           "text": {"type": "str", "required": True},
           "control_type": {"type": "str", "required": False, "default": ""},
           "index": {"type": "int", "required": False, "default": 0}},
-    result_keys=["ok", "method", "name"],
+    result_keys=["ok", "method", "name", "value_after", "verified"],
     approval_tier="ask",
     side_effects="session",
     platform_notes="Windows-only: UIAutomationClient via PowerShell; "
-                   "fallback uses SendInput KEYEVENTF_UNICODE. Honest gap "
-                   "on other platforms.",
+                   "fallback uses SendInput KEYEVENTF_UNICODE. Verified: "
+                   "the value is read back after setting and a mismatch "
+                   "raises (the CDP fill() contract). Honest gap on "
+                   "other platforms.",
+)
+
+SEND_MESSAGE = ToolDef(
+    name="send_message",
+    group="write",
+    doc="Send a message through a window's composer control, verified "
+        "end to end: resolve target, focus gate, verified write, Enter, "
+        "then confirmation — control value cleared AND the sent text "
+        "present in the window's message list AND focus still on the "
+        "control. Any failed check is an error, not success. Requires "
+        "on-PC approval.",
+    args={"window": {"type": "str", "required": True},
+          "name_rx": {"type": "str", "required": True},
+          "text": {"type": "str", "required": True},
+          "control_type": {"type": "str", "required": False, "default": ""},
+          "index": {"type": "int", "required": False, "default": 0}},
+    result_keys=["ok", "verified", "window", "name", "checks"],
+    approval_tier="ask",
+    side_effects="session",
+    platform_notes="Windows-only: UIAutomationClient via PowerShell + "
+                   "SendInput Enter. Honest gap on other platforms.",
 )
 
 ALL_WRITE_DEFS = [FOCUS_WINDOW, CLOSE_WINDOW, TYPE_TEXT, SHELL_EXEC, HOTKEY,
                   MOUSE_MOVE, MOUSE_CLICK, MOUSE_SCROLL, MINIMIZE_WINDOW,
                   MAXIMIZE_WINDOW, KILL_PROCESS, CLIPBOARD_SET, PASTE_TEXT,
-                  UIA_CLICK, UIA_SET_TEXT]
+                  UIA_CLICK, UIA_SET_TEXT, SEND_MESSAGE]
