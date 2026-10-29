@@ -27,12 +27,19 @@ def test_helper_script_is_pure_ascii():
 
 def test_enumeration_uses_raw_view_walker():
     assert "[System.Windows.Automation.TreeWalker]::RawViewWalker" in PS
-    assert "GetFirstChildElement" in PS
-    assert "GetNextSiblingElement" in PS
+    assert "GetFirstChild" in PS
+    assert "GetNextSibling" in PS
+    # The managed TreeWalker API is GetFirstChild/GetNextSibling/
+    # GetParent — the *Element-suffixed names exist only on the COM
+    # IUIAutomationTreeWalker and throw on every call here (proven
+    # live 2026-10-29: empty enumeration). Pin their absence.
+    assert "GetFirstChildElement" not in PS
+    assert "GetNextSiblingElement" not in PS
+    assert "GetParentElement" not in PS
     # The walk starts at the target window and climbs within its
     # subtree when a branch is exhausted.
-    assert "GetFirstChildElement($win)" in PS
-    assert "GetParentElement" in PS
+    assert "GetFirstChild($win)" in PS
+    assert "GetParent" in PS
 
 
 def test_no_findall_descendants_truecondition_enumeration():
