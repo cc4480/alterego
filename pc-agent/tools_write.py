@@ -20,6 +20,7 @@ from seams.providers.windows.write import (
     mouse_move,
     mouse_scroll,
     paste_text,
+    send_message,
     shell_exec,
     type_text,
     uia_click,

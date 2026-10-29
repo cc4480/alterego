@@ -66,3 +66,11 @@ def uia_find(window: str, name_rx: str = "", control_type: str = "",
                          {"window": window, "name_rx": name_rx,
                           "control_type": control_type,
                           "max_results": max_results})
+
+def uia_get(window: str, name_rx: str = "", control_type: str = "",
+            index: int = 0) -> dict:
+    """Read one UI element via UI Automation: value/text, keyboard
+    focus, RuntimeId, and available patterns (the read-back op)."""
+    return toolcall.call("uia_get",
+                         {"window": window, "name_rx": name_rx,
+                          "control_type": control_type, "index": index})
