@@ -75,7 +75,7 @@ ARGS = {
 ALL_NAMES = [d.name for d in definitions.ALL_DEFS]
 PARAM_NAMES = [n for n in ALL_NAMES
                if n not in ("task_checkpoint", "task_status")]
-assert len(PARAM_NAMES) == 64, len(PARAM_NAMES)
+assert len(PARAM_NAMES) == 66, len(PARAM_NAMES)
 
 
 def _write_flag(name):
