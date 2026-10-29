@@ -477,8 +477,6 @@ function Find-Window($spec) {
   }
   return $null
 }
-$win = Find-Window $req.window
-if (-not $win) { @{ok=$false; error='window not found'} | ConvertTo-Json -Compress; exit 0 }
 function El-Value($el) {
   try { $vp = $el.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern); return $vp.Current.Value } catch { return $null }
 }
@@ -493,12 +491,19 @@ function El-Patterns($el) {
 function El-Rid($el) { try { return ($el.GetRuntimeId() -join ',') } catch { return '' } }
 function El-Focus($el) { try { return [bool]$el.Current.HasKeyboardFocus } catch { return $false } }
 if ($req.op -eq 'focused') {
+  # Focus is global: no window lookup (paste_text read-back has no
+  # window spec). value/text are included so callers can verify what
+  # actually landed in the focused element.
   try {
     $fe = $AE::FocusedElement
-    @{ok=$true; runtime_id=(El-Rid $fe); name=$fe.Current.Name; control_type=$fe.Current.ControlType.ProgrammaticName; has_keyboard_focus=(El-Focus $fe); window_hwnd=[int]$win.Current.NativeWindowHandle} | ConvertTo-Json -Compress
+    $fh = 0
+    try { $fh = [int]$fe.Current.NativeWindowHandle } catch { }
+    @{ok=$true; runtime_id=(El-Rid $fe); name=$fe.Current.Name; control_type=$fe.Current.ControlType.ProgrammaticName; has_keyboard_focus=(El-Focus $fe); value=(El-Value $fe); text=(El-Text $fe); window_hwnd=$fh} | ConvertTo-Json -Compress
   } catch { @{ok=$false; error='focused element unavailable'} | ConvertTo-Json -Compress }
   exit 0
 }
+$win = Find-Window $req.window
+if (-not $win) { @{ok=$false; error='window not found'} | ConvertTo-Json -Compress; exit 0 }
 $all = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
 $elems = @()
 $limit = [int]$req.max_results
@@ -518,9 +523,22 @@ if ($op -eq 'find') {
   @{ok=$true; count=$proj.Count; elements=$proj} | ConvertTo-Json -Compress -Depth 4
   exit 0
 }
-$idx = [int]$req.index
-if ($idx -lt 0 -or $idx -ge $elems.Count) { @{ok=$false; error='element index out of range'} | ConvertTo-Json -Compress; exit 0 }
-$t = $elems[$idx]
+# One enumeration, two addresses: a RuntimeId (stable across
+# re-enumeration, returned by 'find') wins when supplied; otherwise the
+# index into THIS enumeration -- collected with the same query, filters
+# and ordering 'find' uses, so a find index always names the same
+# element here.
+$ridWanted = ''
+try { $ridWanted = [string]$req.runtime_id } catch { $ridWanted = '' }
+if ($ridWanted -ne '') {
+  $t = $null
+  foreach ($cand in $elems) { if ($cand.runtime_id -eq $ridWanted) { $t = $cand; break } }
+  if (-not $t) { @{ok=$false; error='element runtime_id not found'} | ConvertTo-Json -Compress; exit 0 }
+} else {
+  $idx = [int]$req.index
+  if ($idx -lt 0 -or $idx -ge $elems.Count) { @{ok=$false; error='element index out of range'} | ConvertTo-Json -Compress; exit 0 }
+  $t = $elems[$idx]
+}
 $cx = $t.x + [int]($t.width / 2)
 $cy = $t.y + [int]($t.height / 2)
 if ($op -eq 'click') {
@@ -585,6 +603,40 @@ def _uia_invoke(payload: dict, timeout_s: int = 30) -> dict:
         raise RuntimeError("UIA helper returned bad JSON: %s" % out[-300:])
 
 
+# Addressing ops (click/get/set) enumerate with this cap — the same
+# cap uia_find clamps to — never index+1. The old index+1 truncation
+# made click/set re-enumerate a different (shorter) list than the one
+# find reported, so an index taken from a find result could fall out
+# of range or name a different element. With one cap, one query, one
+# filter set and one ordering, the collected list's prefix is exactly
+# find's list, and any find index resolves to the same element.
+UIA_ENUM_MAX_RESULTS = 200
+
+
+def _uia_payload(op: str, window, name_rx: str = "",
+                 control_type: str = "", index: int = 0,
+                 runtime_id: str = "", **extra) -> dict:
+    """Build a UIA helper request with the shared enumeration.
+
+    When runtime_id is given it is the sole address: filters are
+    cleared so the element is resolved by RuntimeId over the full
+    enumeration (RuntimeIds are stable across re-enumeration).
+    """
+    if runtime_id:
+        payload = {"op": op, "window": window, "name_rx": "",
+                   "control_type": "", "index": 0,
+                   "max_results": UIA_ENUM_MAX_RESULTS,
+                   "runtime_id": str(runtime_id)}
+    else:
+        payload = {"op": op, "window": window, "name_rx": name_rx or "",
+                   "control_type": control_type or "",
+                   "index": int(index),
+                   "max_results": UIA_ENUM_MAX_RESULTS,
+                   "runtime_id": ""}
+    payload.update(extra)
+    return payload
+
+
 def uia_find(window: str, name_rx: str = "", control_type: str = "",
              max_results: int = 50) -> dict:
     """Find UI elements in a window via UI Automation (read-only).
@@ -615,10 +667,8 @@ def uia_get(window: str, name_rx: str = "", control_type: str = "",
     """
     if not isinstance(window, str) or not window.strip():
         raise ValueError("window must be a non-empty title regex or hwnd")
-    res = _uia_invoke({"op": "get", "window": window,
-                       "name_rx": name_rx or "",
-                       "control_type": control_type or "",
-                       "index": int(index), "max_results": int(index) + 1})
+    res = _uia_invoke(_uia_payload("get", window, name_rx, control_type,
+                                   index))
     if not res.get("ok"):
         raise RuntimeError(res.get("error", "uia_get failed"))
     return {"ok": True, "name": res.get("name", ""),

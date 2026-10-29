@@ -15,7 +15,8 @@ def browser_snapshot(url_contains: str = "") -> dict:
                 {"ref": "e1", "role": "button", "name": "Mock Button"},
                 {"ref": "e2", "role": "textbox", "name": "Mock Input"},
             ],
-            "cross_origin_iframes": []}
+            "cross_origin_iframes": [],
+            "status": "ok", "detail": None}
 
 
 def browser_navigate(url: str, url_contains: str = "") -> dict:
@@ -26,14 +27,16 @@ def browser_navigate(url: str, url_contains: str = "") -> dict:
 def browser_click(text: str, url_contains: str = "") -> dict:
     record("browser_click", {"text": text, "url_contains": url_contains})
     return {"page_url": _page(url_contains),
-            "result": f"clicked {text!r} (mock)"}
+            "result": f"clicked {text!r} (mock)",
+            "status": "ok", "detail": None}
 
 
 def browser_fill(label: str, text: str, url_contains: str = "") -> dict:
     record("browser_fill", {"label": label, "text": text,
                             "url_contains": url_contains})
     return {"page_url": _page(url_contains),
-            "result": f"filled {label!r} (mock)"}
+            "result": f"filled {label!r} (mock)",
+            "status": "ok", "detail": None}
 
 
 def browser_eval(js: str, url_contains: str = "") -> dict:
