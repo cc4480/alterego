@@ -277,3 +277,20 @@ def test_jobs_resource_lock_when_jobs_module_present():
                     "integration-time edit on the jobs branch (MF-6)")
     import jobs
     assert jobs.RESOURCE_MAP["record_audio"] == "desktop"
+
+
+def test_wavehdr_lpdata_void_p_and_string_at_roundtrips_nuls():
+    """Regression (flawless Wave 2 item 5): _WAVEHDR.lpData declared
+    c_char_p truncates PCM at the first NUL byte when the field is read
+    back, which produced near-zero reported durations. lpData must be
+    c_void_p and read-back must assemble with ctypes.string_at over
+    dwBytesRecorded — proven here with NUL-heavy PCM."""
+    import ctypes
+    field_types = dict(win_pc._WAVEHDR._fields_)
+    assert field_types["lpData"] is ctypes.c_void_p
+    pcm = bytes([0, 32, 0, 0, 255, 127, 0, 64]) * 64
+    buf = ctypes.create_string_buffer(pcm, len(pcm))
+    hdr = win_pc._WAVEHDR(ctypes.cast(buf, ctypes.c_void_p), len(pcm),
+                          len(pcm), None, 0, 0, None, None)
+    assembled = ctypes.string_at(hdr.lpData, hdr.dwBytesRecorded)
+    assert assembled == pcm

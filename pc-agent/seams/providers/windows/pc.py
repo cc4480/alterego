@@ -377,7 +377,11 @@ class _WAVEFORMATEX(ctypes.Structure):
 
 
 class _WAVEHDR(ctypes.Structure):
-    _fields_ = [("lpData", ctypes.c_char_p),
+    # lpData MUST be c_void_p, not c_char_p: reading a c_char_p field
+    # converts to bytes only up to the first NUL, silently truncating
+    # PCM at the first zero byte on read-back (the near-zero-duration
+    # bug). c_void_p + ctypes.string_at moves the exact byte count.
+    _fields_ = [("lpData", ctypes.c_void_p),
                 ("dwBufferLength", wintypes.DWORD),
                 ("dwBytesRecorded", wintypes.DWORD),
                 ("dwUser", ctypes.c_void_p), ("dwFlags", wintypes.DWORD),
@@ -428,7 +432,7 @@ def _record_wavein(duration_s, device_idx):
         bufs, hdrs = [], []
         for _ in range(n_chunks):
             b = ctypes.create_string_buffer(chunk_frames * 2)
-            h = _WAVEHDR(ctypes.cast(b, ctypes.c_char_p), chunk_frames * 2,
+            h = _WAVEHDR(ctypes.cast(b, ctypes.c_void_p), chunk_frames * 2,
                          0, None, 0, 0, None, None)
             _mm_check(winmm.waveInPrepareHeader(
                 hwi, ctypes.byref(h), ctypes.sizeof(h)),
@@ -450,7 +454,8 @@ def _record_wavein(duration_s, device_idx):
             k32.ResetEvent(event)
             while done < n_chunks and (hdrs[done].dwFlags & 0x1):  # DONE
                 done += 1
-        pcm = b"".join(hdrs[i].lpData[:hdrs[i].dwBytesRecorded]
+        pcm = b"".join(ctypes.string_at(hdrs[i].lpData,
+                                         hdrs[i].dwBytesRecorded)
                        for i in range(n_chunks))
     finally:
         if hwi:
