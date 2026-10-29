@@ -43,11 +43,47 @@ DOCTOR = ToolDef(
                    "non-Windows checks to warnings.",
 )
 
+_TRAJECTORY_STEP_SCHEMA = {
+    "type": "object",
+    "properties": {"tool": {"type": "string"},
+                   "args": {"type": "object"}},
+    "required": ["tool"],
+}
+_TRAJECTORY_ITEM_SCHEMA = {
+    "anyOf": [
+        {"type": "array",
+         "items": {"anyOf": [{"type": "string"},
+                             _TRAJECTORY_STEP_SCHEMA]}},
+        {"type": "object",
+         "properties": {"tools": {
+             "type": "array",
+             "items": {"anyOf": [{"type": "string"},
+                                 _TRAJECTORY_STEP_SCHEMA]}}},
+         "required": ["tools"]},
+        _TRAJECTORY_STEP_SCHEMA,
+        {"type": "string"},
+    ],
+}
+
 ARBITRATE = ToolDef(
     name="arbitrate",
     group="misc",
-    doc="Rank candidate tool sequences by risk. No approval.",
-    args={"trajectories": {"type": "list", "required": True}},
+    doc="Rank candidate tool sequences by risk. No approval. "
+        "trajectories is a non-empty list of trajectories (candidate "
+        "tool sequences to compare). Each trajectory may be written "
+        "as: [\"tool_name\", ...] (a list of tool names); "
+        "[{\"tool\": \"tool_name\", \"args\": {...}}, ...] (a list of "
+        "step objects; \"args\" optional, accepted but ignored — only "
+        "tool names affect scoring); {\"tools\": [\"tool_name\", ...]} "
+        "(a dict naming its tools); {\"tool\": \"tool_name\", "
+        "\"args\": {...}} (a single step object); or \"tool_name\" "
+        "(a single tool name). All shapes are normalised to tool-name "
+        "lists before scoring.",
+    args={"trajectories": {
+        "type": "list", "required": True,
+        "items": _TRAJECTORY_ITEM_SCHEMA,
+        "description": "Non-empty list of trajectories; each item "
+                       "uses one of the trajectory shapes in the doc."}},
     result_keys=["ranked", "recommended"],
     approval_tier="silent",
     side_effects="none",

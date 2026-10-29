@@ -3,6 +3,12 @@
 The Windows provider keeps a signed, hash-chained task file per task; the
 mock keeps plain dicts in TASKS. Same tool names, same result_keys — the
 chain is a Windows-provider concern, not a pipeline one.
+
+Step numbering is 1-based in both providers: task_checkpoint's step=1
+is the first plan step, checkpoints record that 1-based step plus
+plan_step (the step's text), and task_status reports done_steps as
+the list of 1-based step numbers that are done — exactly as the
+Windows provider does.
 """
 import time
 
@@ -25,10 +31,13 @@ def task_checkpoint(task_id: str, step: int, result: str,
     t = TASKS.get(task_id)
     if t is None:
         raise ValueError(f"unknown task_id: {task_id}")
-    if not isinstance(step, int) or not 0 <= step < len(t["plan"]):
-        raise ValueError(f"step must be 0..{len(t['plan']) - 1}")
+    if isinstance(step, bool) or not isinstance(step, int) \
+            or not 1 <= step <= len(t["plan"]):
+        raise ValueError(
+            f"step must be 1..{len(t['plan'])} "
+            f"(1-based: step 1 is the first plan step), got {step!r}")
     t["checkpoints"].append({"step": step,
-                             "plan_step": t["plan"][step],
+                             "plan_step": t["plan"][step - 1],
                              "result": str(result)[:2000],
                              "done": bool(done),
                              "ts": int(time.time())})
@@ -40,13 +49,13 @@ def task_status(task_id: str = "") -> dict:
         t = TASKS.get(task_id)
         if t is None:
             raise ValueError(f"unknown task_id: {task_id}")
-        done_steps = sum(1 for c in t["checkpoints"] if c["done"])
+        done_steps = [c["step"] for c in t["checkpoints"] if c["done"]]
         return {"task_id": t["task_id"], "goal": t["goal"],
                 "plan": t["plan"], "created_ts": t["created_ts"],
                 "checkpoints": t["checkpoints"], "done_steps": done_steps,
                 "tasks": None}
     return {"task_id": "", "goal": "", "plan": [], "created_ts": 0,
-            "checkpoints": [], "done_steps": 0,
+            "checkpoints": [], "done_steps": [],
             "tasks": [{"task_id": t["task_id"], "goal": t["goal"],
                        "steps": len(t["plan"])}
                       for t in TASKS.values()]}
