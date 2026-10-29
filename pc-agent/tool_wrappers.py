@@ -11,9 +11,9 @@ import tools_tasks  # shim -> seams.providers.windows.tasks (MCP wrappers)
 
 # ---- read tools (in tool_wrappers_read.py, file size limit) ---------------
 from tool_wrappers_read import (  # noqa: E402
-    screenshot, list_windows, system_info, list_dir, read_file,
-    clipboard_get, search_files, search_filenames, read_file_range,
-    uia_find)
+    screenshot, camera_snapshot, list_windows, system_info, list_dir,
+    read_file, clipboard_get, search_files, search_filenames,
+    read_file_range, uia_find)
 
 # ---- write tools (each pops a native approval dialog on the PC) -----------
 def focus_window(hwnd: int) -> dict:
@@ -214,6 +214,14 @@ def speak(text: str) -> dict:
     return toolcall.call("speak", {"text": text}, write=True)
 
 
+def record_audio(duration_s: int = 5, device: str = None) -> dict:
+    """Record microphone audio to a WAV clip (1-30s). Always requires
+    approval (always_ask); the audio is returned to the caller."""
+    return toolcall.call("record_audio",
+                         {"duration_s": duration_s, "device": device},
+                         write=True)
+
+
 def set_volume(level: int) -> dict:
     """Set master volume 0-100. Requires approval."""
     return toolcall.call("set_volume", {"level": level}, write=True)
@@ -281,7 +289,8 @@ def browser_eval(js: str, url_contains: str = "") -> dict:
 
 
 ALL_TOOLS = [
-    screenshot, list_windows, system_info, list_dir, read_file,
+    screenshot, camera_snapshot, list_windows, system_info, list_dir,
+    read_file,
     clipboard_get, memory_recall,
     search_files, search_filenames, read_file_range,
     focus_window, close_window, type_text, shell_exec,
@@ -297,7 +306,7 @@ ALL_TOOLS = [
     exec_background, exec_status, exec_cancel,
     http_headers, dns_query, tls_info, tcp_check, web_fetch, web_search,
     active_window, idle_seconds, list_processes,
-    notify, speak, set_volume, power, tools_tasks.task_create,
+    notify, speak, record_audio, set_volume, power, tools_tasks.task_create,
     tools_tasks.task_checkpoint, tools_tasks.task_status, _arb.arbitrate_tool,
     doctor, query_events, replay_session,
 ]

@@ -6,6 +6,7 @@ from seams.providers.windows.read import (
     _check_path,
     _system_root,
     _user_profile,
+    camera_snapshot,
     clipboard_get,
     list_dir,
     list_windows,

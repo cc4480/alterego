@@ -23,8 +23,45 @@
      "type": "number"
     }
    },
-   "type": "object",
-   "title": "screenshotArguments"
+   "title": "screenshotArguments",
+   "type": "object"
+  }
+ },
+ {
+  "name": "camera_snapshot",
+  "description": "Capture ONE still frame from a PC camera as PNG (base64).\n\n    Placement is read-side (screenshot's sibling), but this is NOT a\n    silent read: the call goes through toolcall with write=True so the\n    ApprovalRequested audit event fires and plan mode cannot execute\n    it, and the provider runs its own always_ask approval gate before\n    opening the camera (privacy MF-1/MF-2). device: camera index or\n    name; default first camera. One call = one frame.",
+  "inputSchema": {
+   "properties": {
+    "device": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Device"
+    },
+    "max_width": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Max Width"
+    }
+   },
+   "title": "camera_snapshotArguments",
+   "type": "object"
   }
  },
  {
@@ -32,8 +69,8 @@
   "description": "List visible windows: handle, pid, title.",
   "inputSchema": {
    "properties": {},
-   "type": "object",
-   "title": "list_windowsArguments"
+   "title": "list_windowsArguments",
+   "type": "object"
   }
  },
  {
@@ -41,8 +78,8 @@
   "description": "OS, host, user, CPU/memory.",
   "inputSchema": {
    "properties": {},
-   "type": "object",
-   "title": "system_infoArguments"
+   "title": "system_infoArguments",
+   "type": "object"
   }
  },
  {
@@ -56,8 +93,8 @@
      "type": "string"
     }
    },
-   "type": "object",
-   "title": "list_dirArguments"
+   "title": "list_dirArguments",
+   "type": "object"
   }
  },
  {
@@ -73,8 +110,8 @@
    "required": [
     "path"
    ],
-   "type": "object",
-   "title": "read_fileArguments"
+   "title": "read_fileArguments",
+   "type": "object"
   }
  },
  {
@@ -82,8 +119,8 @@
   "description": "Read text from the Windows clipboard (no approval).",
   "inputSchema": {
    "properties": {},
-   "type": "object",
-   "title": "clipboard_getArguments"
+   "title": "clipboard_getArguments",
+   "type": "object"
   }
  },
  {
@@ -104,8 +141,8 @@
    "required": [
     "query"
    ],
-   "type": "object",
-   "title": "memory_recallArguments"
+   "title": "memory_recallArguments",
+   "type": "object"
   }
  },
  {
@@ -156,8 +193,8 @@
     "pattern",
     "path"
    ],
-   "type": "object",
-   "title": "search_filesArguments"
+   "title": "search_filesArguments",
+   "type": "object"
   }
  },
  {
@@ -193,8 +230,8 @@
     "pattern",
     "path"
    ],
-   "type": "object",
-   "title": "search_filenamesArguments"
+   "title": "search_filenamesArguments",
+   "type": "object"
   }
  },
  {
@@ -220,8 +257,8 @@
     "path",
     "start_line"
    ],
-   "type": "object",
-   "title": "read_file_rangeArguments"
+   "title": "read_file_rangeArguments",
+   "type": "object"
   }
  },
  {
@@ -237,8 +274,8 @@
    "required": [
     "hwnd"
    ],
-   "type": "object",
-   "title": "focus_windowArguments"
+   "title": "focus_windowArguments",
+   "type": "object"
   }
  },
  {
@@ -254,8 +291,8 @@
    "required": [
     "hwnd"
    ],
-   "type": "object",
-   "title": "close_windowArguments"
+   "title": "close_windowArguments",
+   "type": "object"
   }
  },
  {
@@ -271,8 +308,8 @@
    "required": [
     "text"
    ],
-   "type": "object",
-   "title": "type_textArguments"
+   "title": "type_textArguments",
+   "type": "object"
   }
  },
  {
@@ -305,8 +342,8 @@
    "required": [
     "command"
    ],
-   "type": "object",
-   "title": "shell_execArguments"
+   "title": "shell_execArguments",
+   "type": "object"
   }
  },
  {
@@ -322,8 +359,8 @@
    "required": [
     "keys"
    ],
-   "type": "object",
-   "title": "hotkeyArguments"
+   "title": "hotkeyArguments",
+   "type": "object"
   }
  },
  {
@@ -344,8 +381,8 @@
     "x",
     "y"
    ],
-   "type": "object",
-   "title": "mouse_moveArguments"
+   "title": "mouse_moveArguments",
+   "type": "object"
   }
  },
  {
@@ -371,8 +408,8 @@
     "x",
     "y"
    ],
-   "type": "object",
-   "title": "mouse_clickArguments"
+   "title": "mouse_clickArguments",
+   "type": "object"
   }
  },
  {
@@ -391,8 +428,8 @@
      "type": "integer"
     }
    },
-   "type": "object",
-   "title": "mouse_scrollArguments"
+   "title": "mouse_scrollArguments",
+   "type": "object"
   }
  },
  {
@@ -423,8 +460,8 @@
    "required": [
     "window"
    ],
-   "type": "object",
-   "title": "uia_findArguments"
+   "title": "uia_findArguments",
+   "type": "object"
   }
  },
  {
@@ -460,8 +497,8 @@
     "window",
     "name_rx"
    ],
-   "type": "object",
-   "title": "uia_clickArguments"
+   "title": "uia_clickArguments",
+   "type": "object"
   }
  },
  {
@@ -497,8 +534,8 @@
     "name_rx",
     "text"
    ],
-   "type": "object",
-   "title": "uia_set_textArguments"
+   "title": "uia_set_textArguments",
+   "type": "object"
   }
  },
  {
@@ -514,8 +551,8 @@
    "required": [
     "hwnd"
    ],
-   "type": "object",
-   "title": "minimize_windowArguments"
+   "title": "minimize_windowArguments",
+   "type": "object"
   }
  },
  {
@@ -531,8 +568,8 @@
    "required": [
     "hwnd"
    ],
-   "type": "object",
-   "title": "maximize_windowArguments"
+   "title": "maximize_windowArguments",
+   "type": "object"
   }
  },
  {
@@ -548,8 +585,8 @@
    "required": [
     "pid"
    ],
-   "type": "object",
-   "title": "kill_processArguments"
+   "title": "kill_processArguments",
+   "type": "object"
   }
  },
  {
@@ -565,8 +602,8 @@
    "required": [
     "text"
    ],
-   "type": "object",
-   "title": "clipboard_setArguments"
+   "title": "clipboard_setArguments",
+   "type": "object"
   }
  },
  {
@@ -582,8 +619,8 @@
    "required": [
     "text"
    ],
-   "type": "object",
-   "title": "paste_textArguments"
+   "title": "paste_textArguments",
+   "type": "object"
   }
  },
  {
@@ -621,8 +658,8 @@
     "path",
     "content"
    ],
-   "type": "object",
-   "title": "write_fileArguments"
+   "title": "write_fileArguments",
+   "type": "object"
   }
  },
  {
@@ -675,8 +712,8 @@
     "old_text",
     "new_text"
    ],
-   "type": "object",
-   "title": "edit_fileArguments"
+   "title": "edit_fileArguments",
+   "type": "object"
   }
  },
  {
@@ -697,8 +734,8 @@
    "required": [
     "path"
    ],
-   "type": "object",
-   "title": "delete_fileArguments"
+   "title": "delete_fileArguments",
+   "type": "object"
   }
  },
  {
@@ -719,8 +756,8 @@
    "required": [
     "path"
    ],
-   "type": "object",
-   "title": "create_dirArguments"
+   "title": "create_dirArguments",
+   "type": "object"
   }
  },
  {
@@ -746,8 +783,8 @@
     "src",
     "dst"
    ],
-   "type": "object",
-   "title": "copy_fileArguments"
+   "title": "copy_fileArguments",
+   "type": "object"
   }
  },
  {
@@ -773,8 +810,8 @@
     "src",
     "dst"
    ],
-   "type": "object",
-   "title": "move_fileArguments"
+   "title": "move_fileArguments",
+   "type": "object"
   }
  },
  {
@@ -790,8 +827,8 @@
    "required": [
     "path"
    ],
-   "type": "object",
-   "title": "file_infoArguments"
+   "title": "file_infoArguments",
+   "type": "object"
   }
  },
  {
@@ -805,8 +842,8 @@
      "type": "string"
     }
    },
-   "type": "object",
-   "title": "browser_snapshotArguments"
+   "title": "browser_snapshotArguments",
+   "type": "object"
   }
  },
  {
@@ -827,8 +864,8 @@
    "required": [
     "url"
    ],
-   "type": "object",
-   "title": "browser_navigateArguments"
+   "title": "browser_navigateArguments",
+   "type": "object"
   }
  },
  {
@@ -849,8 +886,8 @@
    "required": [
     "text"
    ],
-   "type": "object",
-   "title": "browser_clickArguments"
+   "title": "browser_clickArguments",
+   "type": "object"
   }
  },
  {
@@ -876,8 +913,8 @@
     "label",
     "text"
    ],
-   "type": "object",
-   "title": "browser_fillArguments"
+   "title": "browser_fillArguments",
+   "type": "object"
   }
  },
  {
@@ -898,8 +935,8 @@
    "required": [
     "js"
    ],
-   "type": "object",
-   "title": "browser_evalArguments"
+   "title": "browser_evalArguments",
+   "type": "object"
   }
  },
  {
@@ -932,8 +969,8 @@
    "required": [
     "script"
    ],
-   "type": "object",
-   "title": "shell_pwshArguments"
+   "title": "shell_pwshArguments",
+   "type": "object"
   }
  },
  {
@@ -950,8 +987,8 @@
    "required": [
     "calls"
    ],
-   "type": "object",
-   "title": "batchArguments"
+   "title": "batchArguments",
+   "type": "object"
   }
  },
  {
@@ -984,8 +1021,8 @@
    "required": [
     "command"
    ],
-   "type": "object",
-   "title": "exec_backgroundArguments"
+   "title": "exec_backgroundArguments",
+   "type": "object"
   }
  },
  {
@@ -1006,8 +1043,8 @@
    "required": [
     "job_id"
    ],
-   "type": "object",
-   "title": "exec_statusArguments"
+   "title": "exec_statusArguments",
+   "type": "object"
   }
  },
  {
@@ -1023,8 +1060,8 @@
    "required": [
     "job_id"
    ],
-   "type": "object",
-   "title": "exec_cancelArguments"
+   "title": "exec_cancelArguments",
+   "type": "object"
   }
  },
  {
@@ -1045,8 +1082,8 @@
    "required": [
     "url"
    ],
-   "type": "object",
-   "title": "http_headersArguments"
+   "title": "http_headersArguments",
+   "type": "object"
   }
  },
  {
@@ -1067,8 +1104,8 @@
    "required": [
     "domain"
    ],
-   "type": "object",
-   "title": "dns_queryArguments"
+   "title": "dns_queryArguments",
+   "type": "object"
   }
  },
  {
@@ -1094,8 +1131,8 @@
    "required": [
     "host"
    ],
-   "type": "object",
-   "title": "tls_infoArguments"
+   "title": "tls_infoArguments",
+   "type": "object"
   }
  },
  {
@@ -1122,8 +1159,8 @@
     "host",
     "ports"
    ],
-   "type": "object",
-   "title": "tcp_checkArguments"
+   "title": "tcp_checkArguments",
+   "type": "object"
   }
  },
  {
@@ -1149,8 +1186,8 @@
    "required": [
     "url"
    ],
-   "type": "object",
-   "title": "web_fetchArguments"
+   "title": "web_fetchArguments",
+   "type": "object"
   }
  },
  {
@@ -1176,8 +1213,8 @@
    "required": [
     "query"
    ],
-   "type": "object",
-   "title": "web_searchArguments"
+   "title": "web_searchArguments",
+   "type": "object"
   }
  },
  {
@@ -1185,8 +1222,8 @@
   "description": "Foreground window: hwnd, title, pid, process. No approval.",
   "inputSchema": {
    "properties": {},
-   "type": "object",
-   "title": "active_windowArguments"
+   "title": "active_windowArguments",
+   "type": "object"
   }
  },
  {
@@ -1194,8 +1231,8 @@
   "description": "Seconds since last keyboard/mouse input. No approval.",
   "inputSchema": {
    "properties": {},
-   "type": "object",
-   "title": "idle_secondsArguments"
+   "title": "idle_secondsArguments",
+   "type": "object"
   }
  },
  {
@@ -1203,8 +1240,8 @@
   "description": "Running processes (pid + exe). No approval.",
   "inputSchema": {
    "properties": {},
-   "type": "object",
-   "title": "list_processesArguments"
+   "title": "list_processesArguments",
+   "type": "object"
   }
  },
  {
@@ -1230,8 +1267,8 @@
     "title",
     "message"
    ],
-   "type": "object",
-   "title": "notifyArguments"
+   "title": "notifyArguments",
+   "type": "object"
   }
  },
  {
@@ -1247,8 +1284,28 @@
    "required": [
     "text"
    ],
-   "type": "object",
-   "title": "speakArguments"
+   "title": "speakArguments",
+   "type": "object"
+  }
+ },
+ {
+  "name": "record_audio",
+  "description": "Record microphone audio to a WAV clip (1-30s). Always requires\n    approval (always_ask); the audio is returned to the caller.",
+  "inputSchema": {
+   "properties": {
+    "duration_s": {
+     "default": 5,
+     "title": "Duration S",
+     "type": "integer"
+    },
+    "device": {
+     "default": null,
+     "title": "Device",
+     "type": "string"
+    }
+   },
+   "title": "record_audioArguments",
+   "type": "object"
   }
  },
  {
@@ -1264,8 +1321,8 @@
    "required": [
     "level"
    ],
-   "type": "object",
-   "title": "set_volumeArguments"
+   "title": "set_volumeArguments",
+   "type": "object"
   }
  },
  {
@@ -1281,8 +1338,8 @@
    "required": [
     "action"
    ],
-   "type": "object",
-   "title": "powerArguments"
+   "title": "powerArguments",
+   "type": "object"
   }
  },
  {
@@ -1304,8 +1361,8 @@
     "goal",
     "plan"
    ],
-   "type": "object",
-   "title": "task_createArguments"
+   "title": "task_createArguments",
+   "type": "object"
   }
  },
  {
@@ -1336,8 +1393,8 @@
     "step",
     "result"
    ],
-   "type": "object",
-   "title": "task_checkpointArguments"
+   "title": "task_checkpointArguments",
+   "type": "object"
   }
  },
  {
@@ -1351,8 +1408,8 @@
      "type": "string"
     }
    },
-   "type": "object",
-   "title": "task_statusArguments"
+   "title": "task_statusArguments",
+   "type": "object"
   }
  },
  {
@@ -1369,8 +1426,8 @@
    "required": [
     "trajectories"
    ],
-   "type": "object",
-   "title": "arbitrate_toolArguments"
+   "title": "arbitrate_toolArguments",
+   "type": "object"
   }
  },
  {
@@ -1378,8 +1435,8 @@
   "description": "Bridge health check: Python, port, Defender, Startup, tunnel, disk.\n    Each check returns ok/warning/fail + a specific fix command. No approval.",
   "inputSchema": {
    "properties": {},
-   "type": "object",
-   "title": "doctorArguments"
+   "title": "doctorArguments",
+   "type": "object"
   }
  },
  {
@@ -1413,8 +1470,8 @@
      "type": "integer"
     }
    },
-   "type": "object",
-   "title": "query_eventsArguments"
+   "title": "query_eventsArguments",
+   "type": "object"
   }
  },
  {
@@ -1435,8 +1492,99 @@
    "required": [
     "session_id"
    ],
-   "type": "object",
-   "title": "replay_sessionArguments"
+   "title": "replay_sessionArguments",
+   "type": "object"
+  }
+ },
+ {
+  "name": "submit_job",
+  "description": "Submit a tool call as a background job; returns {job_id, state}\n    immediately. The tool executes on the PC whether or not the caller\n    stays connected \u2014 poll job_status / job_result with the job_id.\n    A resubmission with the same idempotency_key returns the existing\n    job and never executes twice. `lineage` records where the request\n    came from: typed | relay | scheduled | agent (anything else is\n    journaled as unattributed). While an ESTOP sentinel file sits in\n    the bridge data dir, submissions are still accepted and journaled\n    but no new job executes until the file is removed.",
+  "inputSchema": {
+   "properties": {
+    "tool": {
+     "title": "Tool",
+     "type": "string"
+    },
+    "args": {
+     "anyOf": [
+      {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Args"
+    },
+    "idempotency_key": {
+     "default": "",
+     "title": "Idempotency Key",
+     "type": "string"
+    },
+    "lineage": {
+     "default": "",
+     "title": "Lineage",
+     "type": "string"
+    }
+   },
+   "required": [
+    "tool"
+   ],
+   "title": "submit_jobArguments",
+   "type": "object"
+  }
+ },
+ {
+  "name": "job_status",
+  "description": "Job state + started/finished receipts from the journal.",
+  "inputSchema": {
+   "properties": {
+    "job_id": {
+     "title": "Job Id",
+     "type": "string"
+    }
+   },
+   "required": [
+    "job_id"
+   ],
+   "title": "job_statusArguments",
+   "type": "object"
+  }
+ },
+ {
+  "name": "job_result",
+  "description": "Job result (when terminal) from the journal / blob store.",
+  "inputSchema": {
+   "properties": {
+    "job_id": {
+     "title": "Job Id",
+     "type": "string"
+    }
+   },
+   "required": [
+    "job_id"
+   ],
+   "title": "job_resultArguments",
+   "type": "object"
+  }
+ },
+ {
+  "name": "job_cancel",
+  "description": "Cancel a queued or running job; a running job's process tree is\n    fenced (only that job's processes are killed).",
+  "inputSchema": {
+   "properties": {
+    "job_id": {
+     "title": "Job Id",
+     "type": "string"
+    }
+   },
+   "required": [
+    "job_id"
+   ],
+   "title": "job_cancelArguments",
+   "type": "object"
   }
  }
 ]

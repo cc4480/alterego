@@ -91,10 +91,18 @@ RESOURCE_MAP = {
     "uia_click": "desktop", "uia_set_text": "desktop",
     "clipboard_get": "desktop", "clipboard_set": "desktop",
     "notify": "desktop", "speak": "desktop",
+    "camera_snapshot": "desktop", "record_audio": "desktop",
     "browser_snapshot": "browser", "browser_navigate": "browser",
     "browser_click": "browser", "browser_fill": "browser",
     "browser_eval": "browser",
 }
+
+# Senses ops (privacy MF-5): when a job result from one of these is
+# persisted as a blob, the blob is registered in blob_store's senses
+# index so it expires under SENSES_MEDIA_TTL_S, and the watchdog purges
+# expired senses media on an hourly cadence (see _watchdog_tick).
+SENSES_TOOLS = frozenset({"camera_snapshot", "record_audio"})
+SENSES_PURGE_INTERVAL_S = 3600
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -358,6 +366,7 @@ class JobManager:
                                  else resource_map)
         self._resource_locks = {}
         self._resource_locks_guard = threading.Lock()
+        self._last_senses_purge = 0.0  # MF-5 purge cadence (watchdog)
         self._contexts = {}          # job_id -> JobContext (running only)
         self._workers = {}           # job_id -> Thread
         self._guard = threading.Lock()
@@ -596,6 +605,11 @@ class JobManager:
                 payload = json.dumps(result, default=str)
                 if len(payload) > blob_store.BLOB_THRESHOLD:
                     fields["result_ref"] = blob_store.put(payload)
+                    if tool in SENSES_TOOLS:
+                        # MF-5: senses result blobs expire — register
+                        # this blob in the senses index (48h TTL).
+                        blob_store.register_senses_blob(
+                            fields["result_ref"])
                 else:
                     fields["result_json"] = payload
             else:
@@ -618,7 +632,20 @@ class JobManager:
                 pass
             self._stop.wait(self._watchdog_interval)
 
+    def _purge_senses_media_throttled(self):
+        """MF-5 cadence: purge expired senses-media blobs at most once
+        per SENSES_PURGE_INTERVAL_S, from the watchdog loop."""
+        now = time.time()
+        if now - self._last_senses_purge < SENSES_PURGE_INTERVAL_S:
+            return
+        self._last_senses_purge = now
+        try:
+            blob_store.purge_senses_media(now=now)
+        except Exception:  # noqa: BLE001 - purge must never kill the tick
+            pass
+
     def _watchdog_tick(self):
+        self._purge_senses_media_throttled()
         with self._guard:
             running = list(self._contexts.items())
         for job_id, ctx in running:
