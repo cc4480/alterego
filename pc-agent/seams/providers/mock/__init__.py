@@ -35,6 +35,68 @@ _TASK_SEQ = [0]
 
 CLIPBOARD = {"text": "mock clipboard contents"}
 
+# Mock UIA / desktop state for the input-reliability ops. Tests steer it
+# directly: set UIA["focus_fail"] to make focus_window fail (the actual
+# foreground stays on the competing window), move
+# UIA["foreground_hwnd"] / UIA["focused_runtime_id"] to disturb the
+# focus gate, flip an element's "corrupt_write" to make a set land
+# wrong (read-back must then raise), or set UIA["drop_sent_message"]
+# to make send_message's Enter lose the message.
+def _uia_fixture() -> dict:
+    return {
+        "foreground_hwnd": 12345,
+        "focus_fail": False,
+        "window_titles": {12345: "Mock Window", 12346: "Mock Console",
+                          99999: "Competing App"},
+        "focused_runtime_id": "7,12345,1",
+        "drop_sent_message": False,
+        "messages": [],
+        "elements": [
+            {"name": "Message", "control_type": "ControlType.Edit",
+             "automation_id": "messageBox", "value": "",
+             "has_keyboard_focus": True, "runtime_id": "7,12345,1",
+             "patterns": ["ValuePattern", "TextPattern"],
+             "x": 10, "y": 20, "width": 200, "height": 30,
+             "corrupt_write": False},
+            {"name": "Send", "control_type": "ControlType.Button",
+             "automation_id": "sendBtn", "value": "",
+             "has_keyboard_focus": False, "runtime_id": "7,12345,2",
+             "patterns": ["InvokePattern"],
+             "x": 220, "y": 20, "width": 60, "height": 30,
+             "corrupt_write": False},
+        ],
+    }
+
+
+UIA = _uia_fixture()
+
+
+def resolve_uia_window(window) -> int:
+    """Window spec (hwnd digits or title regex) -> mock hwnd."""
+    import re as _re
+    s = str(window).strip()
+    if s.isdigit() and int(s) in UIA["window_titles"]:
+        return int(s)
+    for hwnd, title in UIA["window_titles"].items():
+        if _re.search(s, title, _re.IGNORECASE):
+            return hwnd
+    raise RuntimeError("window not found")
+
+
+def find_uia_element(name_rx: str = "", control_type: str = "",
+                     index: int = 0) -> dict:
+    """Address a mock UIA element like the Windows helper does:
+    name regex + optional control type, index-th match. Raises
+    RuntimeError when out of range (mirrors the helper's error)."""
+    import re as _re
+    matches = [el for el in UIA["elements"]
+               if (not name_rx or _re.search(name_rx, el["name"], _re.IGNORECASE))
+               and (not control_type
+                    or el["control_type"] == control_type)]
+    if index < 0 or index >= len(matches):
+        raise RuntimeError("element index out of range")
+    return matches[index]
+
 
 def mock_mode() -> str:
     """'strict' (default) or 'lenient', from PC_BRIDGE_MOCK_MODE."""
@@ -60,6 +122,8 @@ def reset() -> None:
     TASKS.clear()
     _TASK_SEQ[0] = 0
     CLIPBOARD["text"] = "mock clipboard contents"
+    UIA.clear()
+    UIA.update(_uia_fixture())
 
 
 def norm_path(raw: str) -> str:
