@@ -109,8 +109,14 @@ def test_denied_raises(tmp_path):
 
 def test_wrappers_register_all():
     names = [f.__name__ for f in tool_wrappers.ALL_TOOLS]
-    assert len(names) == 66, names
-    assert len(set(names)) == 66, "duplicate tool names"
+    # NOTE: this asserted 50 for a long time while the real count had
+    # already drifted to 63 on main (measured 2026-10-26). The flawless
+    # tree is 66 (screenshot_tiles, uia_get, send_message); the Looko
+    # senses tree is 65 (camera_snapshot, record_audio); the merged
+    # deployment tree is the union = 68 (measured 2026-10-29 on
+    # deploy/looko-flawless-20261029).
+    assert len(names) == 68, names
+    assert len(set(names)) == 68, "duplicate tool names"
     for n in ("write_file", "edit_file", "delete_file", "create_dir",
               "close_window", "hotkey", "mouse_move", "mouse_click",
               "mouse_scroll", "minimize_window", "maximize_window",
@@ -122,7 +128,7 @@ def test_wrappers_register_all():
               "notify", "speak", "record_audio", "set_volume", "power",
               "camera_snapshot"):
         assert n in names, n
-    print("PASS wrappers: 52 tools registered")
+    print("PASS wrappers: 68 tools registered")
 
 
 def test_hotkey_parse():
