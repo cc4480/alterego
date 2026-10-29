@@ -135,9 +135,12 @@ def record(tool: str, args: dict) -> None:
 
 def reset() -> None:
     """Restore all mock state to fixtures (tests call this per-test)."""
-    global PROCS
     FS.clear()
-    PROCS = [dict(p) for p in _PROCS_FIXTURE]
+    # Mutated in place, like every other structure here — NOT rebound:
+    # provider modules hold PROCS by from-import, so rebinding strands
+    # them on a stale list whenever a lazy provider import lands on
+    # the far side of a reset (the merged-tree kill_process failure).
+    PROCS[:] = [dict(p) for p in _PROCS_FIXTURE]
     CALLS.clear()
     TASKS.clear()
     _TASK_SEQ[0] = 0
