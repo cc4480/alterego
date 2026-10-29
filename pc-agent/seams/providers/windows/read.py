@@ -553,7 +553,7 @@ if ($req.op -eq 'focused') {
           # Document). Iterative document-order DFS, first hit wins.
           try {
             $d = $null
-            try { $d = $walker.GetFirstChildElement($winEl) } catch { $d = $null }
+            try { $d = $walker.GetFirstChild($winEl) } catch { $d = $null }
             $dvisited = 0
             $ddepth = 1
             while (($null -ne $d) -and ($dvisited -lt 20000) -and ($via -eq 'none')) {
@@ -567,16 +567,16 @@ if ($req.op -eq 'focused') {
                 break
               }
               $dnext = $null
-              try { $dnext = $walker.GetFirstChildElement($d) } catch { $dnext = $null }
+              try { $dnext = $walker.GetFirstChild($d) } catch { $dnext = $null }
               if ($null -ne $dnext) { $ddepth += 1; $d = $dnext; continue }
               $dcur = $d
               while ($null -ne $dcur) {
                 $dsib = $null
-                try { $dsib = $walker.GetNextSiblingElement($dcur) } catch { $dsib = $null }
+                try { $dsib = $walker.GetNextSibling($dcur) } catch { $dsib = $null }
                 if ($null -ne $dsib) { $dnext = $dsib; break }
                 if ($ddepth -le 1) { $dcur = $null; break }
                 $dpar = $null
-                try { $dpar = $walker.GetParentElement($dcur) } catch { $dpar = $null }
+                try { $dpar = $walker.GetParent($dcur) } catch { $dpar = $null }
                 $dcur = $dpar
                 $ddepth -= 1
               }
@@ -611,21 +611,21 @@ $all = New-Object System.Collections.ArrayList
 $visited = 0
 $depth = 1
 $el = $null
-try { $el = $walker.GetFirstChildElement($win) } catch { $el = $null }
+try { $el = $walker.GetFirstChild($win) } catch { $el = $null }
 while ($null -ne $el -and $visited -lt $UIA_MAX_VISITED_NODES) {
   $visited += 1
   [void]$all.Add($el)
   $next = $null
-  try { $next = $walker.GetFirstChildElement($el) } catch { $next = $null }
+  try { $next = $walker.GetFirstChild($el) } catch { $next = $null }
   if ($null -ne $next) { $depth += 1; $el = $next; continue }
   $cur = $el
   while ($null -ne $cur) {
     $sib = $null
-    try { $sib = $walker.GetNextSiblingElement($cur) } catch { $sib = $null }
+    try { $sib = $walker.GetNextSibling($cur) } catch { $sib = $null }
     if ($null -ne $sib) { $next = $sib; break }
     if ($depth -le 1) { $cur = $null; break }
     $par = $null
-    try { $par = $walker.GetParentElement($cur) } catch { $par = $null }
+    try { $par = $walker.GetParent($cur) } catch { $par = $null }
     $cur = $par
     $depth -= 1
   }
