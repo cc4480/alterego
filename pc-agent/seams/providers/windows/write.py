@@ -479,15 +479,19 @@ def paste_text(text: str) -> dict:
     old = clipboard.get_text()
     try:
         clipboard.set_text(text)
-        # Ctrl+V as ONE batched SendInput call -- the codebase rule
-        # (see _send_inputs): split per-event calls let other input
-        # interleave mid-chord and the paste intermittently never
-        # lands (proven live 2026-10-29: 3 split-call pastes lost,
-        # batched hotkey ctrl+v and the batched paste both landed).
-        _send_inputs([_vk_input(_VK["ctrl"], True),
-                      _vk_input(ord("V"), True),
-                      _vk_input(ord("V"), False),
-                      _vk_input(_VK["ctrl"], False)])
+        # Ctrl+V as a short settle + per-key taps. Two chord forms
+        # were tried and each lost live in one context (2026-10-29):
+        # the batched _send_inputs chord landed via the hotkey tool
+        # but not from inside paste_text right after this process
+        # set the clipboard (2/2 lost on Notepad); the split form
+        # landed here on Notepad but was lost 3/4 into a Chromium
+        # composer. The settle lets the clipboard update settle
+        # before the chord; per-key taps are the form proven to
+        # deliver from this call site.
+        time.sleep(0.25)
+        _key_event(_VK["ctrl"], True)
+        _tap_vk(ord("V"))
+        _key_event(_VK["ctrl"], False)
         time.sleep(0.5)  # let the paste land before restoring clipboard
         verified = _paste_readback(text)
     finally:
