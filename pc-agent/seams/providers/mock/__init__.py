@@ -40,8 +40,10 @@ CLIPBOARD = {"text": "mock clipboard contents"}
 # foreground stays on the competing window), move
 # UIA["foreground_hwnd"] / UIA["focused_runtime_id"] to disturb the
 # focus gate, flip an element's "corrupt_write" to make a set land
-# wrong (read-back must then raise), or set UIA["drop_sent_message"]
-# to make send_message's Enter lose the message.
+# wrong (read-back must then raise), set UIA["drop_sent_message"]
+# to make send_message's Enter lose the message, or set
+# UIA["paste_corrupt"] to make a paste land as different text
+# (paste_text must then report verified=False).
 def _uia_fixture() -> dict:
     return {
         "foreground_hwnd": 12345,
@@ -50,6 +52,7 @@ def _uia_fixture() -> dict:
                           99999: "Competing App"},
         "focused_runtime_id": "7,12345,1",
         "drop_sent_message": False,
+        "paste_corrupt": False,
         "messages": [],
         "elements": [
             {"name": "Message", "control_type": "ControlType.Edit",
@@ -84,11 +87,20 @@ def resolve_uia_window(window) -> int:
 
 
 def find_uia_element(name_rx: str = "", control_type: str = "",
-                     index: int = 0) -> dict:
-    """Address a mock UIA element like the Windows helper does:
-    name regex + optional control type, index-th match. Raises
-    RuntimeError when out of range (mirrors the helper's error)."""
+                     index: int = 0, runtime_id: str = "") -> dict:
+    """Address a mock UIA element like the Windows helper does.
+
+    One enumeration (UIA["elements"], in fixture order — the same list
+    uia_find projects): a runtime_id wins when given and resolves over
+    the whole enumeration; otherwise name regex + optional control
+    type, index-th match. Raises RuntimeError when the address does
+    not resolve (mirrors the helper's errors)."""
     import re as _re
+    if runtime_id:
+        for el in UIA["elements"]:
+            if el["runtime_id"] == runtime_id:
+                return el
+        raise RuntimeError("element runtime_id not found")
     matches = [el for el in UIA["elements"]
                if (not name_rx or _re.search(name_rx, el["name"], _re.IGNORECASE))
                and (not control_type
@@ -96,6 +108,14 @@ def find_uia_element(name_rx: str = "", control_type: str = "",
     if index < 0 or index >= len(matches):
         raise RuntimeError("element index out of range")
     return matches[index]
+
+
+def focused_uia_element() -> dict | None:
+    """The mock element carrying keyboard focus, or None."""
+    for el in UIA["elements"]:
+        if el["runtime_id"] == UIA["focused_runtime_id"]:
+            return el
+    return None
 
 
 def mock_mode() -> str:

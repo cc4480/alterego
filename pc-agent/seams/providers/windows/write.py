@@ -8,7 +8,8 @@ from ctypes import wintypes  # pure type aliases; windll itself is Windows-only
 
 import subproc
 from approval import request_approval
-from seams.providers.windows.read import _check_path, _resolve_cwd, _uia_invoke
+from seams.providers.windows.read import (
+    _check_path, _resolve_cwd, _uia_invoke, _uia_payload)
 
 MAX_OUTPUT = 65536  # truncate captured output at 64 KB
 
@@ -154,11 +155,8 @@ def _focus_gate(window=None, name_rx: str = "", control_type: str = "",
     target_hwnd = _resolve_target_hwnd(window)
     target_rid = ""
     if name_rx:
-        info = _uia_invoke({"op": "get", "window": window,
-                            "name_rx": name_rx,
-                            "control_type": control_type or "",
-                            "index": int(index),
-                            "max_results": int(index) + 1})
+        info = _uia_invoke(_uia_payload(
+            "get", window, name_rx, control_type, index))
         if not info.get("ok"):
             raise RuntimeError(info.get("error", "focus gate: element "
                                               "not found"))
@@ -220,11 +218,9 @@ def type_text(text: str, window: str | None = None, name_rx: str = "",
     _send_unicode(text)
     verified = True  # gate passed; upgraded by read-back when feasible
     if tgt["name_rx"]:
-        after = _uia_invoke({"op": "get", "window": tgt["window"],
-                             "name_rx": tgt["name_rx"],
-                             "control_type": tgt["control_type"],
-                             "index": tgt["index"],
-                             "max_results": tgt["index"] + 1})
+        after = _uia_invoke(_uia_payload(
+            "get", tgt["window"], tgt["name_rx"], tgt["control_type"],
+            tgt["index"]))
         value = after.get("value") if after.get("ok") else None
         if isinstance(value, str) and "ValuePattern" in (
                 after.get("patterns") or []):
@@ -438,8 +434,32 @@ def clipboard_set(text: str) -> dict:
     return {"clipboard_chars": len(text)}
 
 
+def _paste_readback(text: str) -> bool:
+    """True only when the focused element's UIA value/text is
+    resolvable AND contains the pasted text. Any failure to resolve
+    (no UIA, no focused element, no value/text pattern) is False —
+    never an implied success."""
+    try:
+        foc = _uia_invoke({"op": "focused", "window": "", "name_rx": "",
+                           "control_type": "", "index": 0,
+                           "max_results": 1})
+    except Exception:
+        return False
+    if not foc.get("ok"):
+        return False
+    candidate = foc.get("value")
+    if not isinstance(candidate, str):
+        candidate = foc.get("text")
+    return isinstance(candidate, str) and text in candidate
+
+
 def paste_text(text: str) -> dict:
-    """Paste into the focused window via the clipboard; restores the prior clipboard."""
+    """Paste into the focused window via the clipboard; restores the
+    prior clipboard. Verified-write bar: after pasting, the focused
+    element is read back via UIA — verified:true only when its
+    value/text contains the pasted text; verified:false when the
+    landing differs or no read-back is possible. pasted_chars alone
+    is no longer the success signal."""
     if not isinstance(text, str) or not text:
         raise ValueError("text must be a non-empty string")
     if len(text) > 100000:
@@ -456,29 +476,38 @@ def paste_text(text: str) -> dict:
         finally:
             _key_event(_VK["ctrl"], False)
         time.sleep(0.5)  # let the paste land before restoring clipboard
+        verified = _paste_readback(text)
     finally:
         clipboard.set_text(old)
-    return {"pasted_chars": len(text)}
+    return {"pasted_chars": len(text), "verified": verified}
 
 
-def uia_click(window: str, name_rx: str, control_type: str = "",
-              index: int = 0, button: str = "left") -> dict:
-    """Click a UI element found by name regex, via UI Automation.
+def uia_click(window: str, name_rx: str = "", control_type: str = "",
+              index: int = 0, button: str = "left",
+              runtime_id: str = "") -> dict:
+    """Click a UI element in a window, via UI Automation.
 
-    Prefers InvokePattern (no mouse movement); falls back to a coordinate
-    click at the element's center using physical pixels.
+    Addressing: runtime_id (from uia_find) wins when given — it is
+    stable across re-enumeration; otherwise name_rx + index into the
+    same enumeration uia_find reports. Prefers InvokePattern (no
+    mouse movement); falls back to a coordinate click at the
+    element's center using physical pixels.
     """
     if button not in ("left", "right", "middle"):
         raise ValueError("button must be left, right, or middle")
-    if not isinstance(name_rx, str) or not name_rx:
-        raise ValueError("name_rx must be a non-empty regex")
+    if runtime_id and not isinstance(runtime_id, str):
+        raise ValueError("runtime_id must be a string")
+    if not runtime_id and (not isinstance(name_rx, str) or not name_rx):
+        raise ValueError("name_rx must be a non-empty regex "
+                         "(or pass runtime_id from uia_find)")
     if not isinstance(window, str) or not window.strip():
         raise ValueError("window must be a non-empty title regex or hwnd")
     _approved("uia_click",
-              "UIA click element /%s/ in window /%s/." % (name_rx, window))
-    res = _uia_invoke({"op": "click", "window": window, "name_rx": name_rx,
-                       "control_type": control_type or "",
-                       "index": int(index), "max_results": int(index) + 1})
+              "UIA click element /%s/ in window /%s/."
+              % (runtime_id or name_rx, window))
+    res = _uia_invoke(_uia_payload(
+        "click", window, name_rx, control_type, index,
+        runtime_id=runtime_id or ""))
     if not res.get("ok"):
         raise RuntimeError(res.get("error", "uia_click failed"))
     x, y = int(res.get("x", 0)), int(res.get("y", 0))
@@ -492,42 +521,49 @@ def uia_click(window: str, name_rx: str, control_type: str = "",
             "name": res.get("name", ""), "x": x, "y": y}
 
 
-def _validate_uia_target(window, name_rx, text) -> None:
+def _validate_uia_target(window, name_rx, text,
+                         runtime_id: str = "") -> None:
     if not isinstance(text, str) or not text or len(text) > 2000:
         raise ValueError("text must be a non-empty string up to 2000 chars")
-    if not isinstance(name_rx, str) or not name_rx:
-        raise ValueError("name_rx must be a non-empty regex")
+    if runtime_id and not isinstance(runtime_id, str):
+        raise ValueError("runtime_id must be a string")
+    if not runtime_id and (not isinstance(name_rx, str) or not name_rx):
+        raise ValueError("name_rx must be a non-empty regex "
+                         "(or pass runtime_id from uia_find)")
     if not isinstance(window, str) or not window.strip():
         raise ValueError("window must be a non-empty title regex or hwnd")
 
 
-def _uia_get_raw(window, name_rx, control_type, index) -> dict:
-    res = _uia_invoke({"op": "get", "window": window, "name_rx": name_rx,
-                       "control_type": control_type or "",
-                       "index": int(index),
-                       "max_results": int(index) + 1})
+def _uia_get_raw(window, name_rx, control_type, index,
+                 runtime_id: str = "") -> dict:
+    res = _uia_invoke(_uia_payload(
+        "get", window, name_rx, control_type, index,
+        runtime_id=runtime_id or ""))
     if not res.get("ok"):
         raise RuntimeError(res.get("error", "uia read-back failed"))
     return res
 
 
 def _uia_set_text_verified(window: str, name_rx: str, text: str,
-                           control_type: str = "", index: int = 0) -> dict:
+                           control_type: str = "", index: int = 0,
+                           runtime_id: str = "") -> dict:
     """Verified UIA write (no approval — callers approve once).
 
     Mirrors the CDP fill() contract: after setting, read the field back
     and raise unless it matches exactly. The helper's focus fallback
     verifies UIA FocusedElement == target before this types into it.
+    Addressing (runtime_id, else name_rx+index) is identical for the
+    set and its read-back, so verification reads the same element.
     """
-    res = _uia_invoke({"op": "set", "window": window, "name_rx": name_rx,
-                       "control_type": control_type or "",
-                       "index": int(index), "max_results": int(index) + 1,
-                       "text": text})
+    res = _uia_invoke(_uia_payload(
+        "set", window, name_rx, control_type, index,
+        runtime_id=runtime_id or "", text=text))
     if not res.get("ok"):
         raise RuntimeError(res.get("error", "uia_set_text failed"))
     if res.get("method") == "focus":
         _send_unicode(text)  # helper verified focus is on the target
-    after = _uia_get_raw(window, name_rx, control_type, index)
+    after = _uia_get_raw(window, name_rx, control_type, index,
+                         runtime_id=runtime_id or "")
     value_after = after.get("value")
     if value_after != text:
         raise RuntimeError(
@@ -539,20 +575,23 @@ def _uia_set_text_verified(window: str, name_rx: str, text: str,
 
 
 def uia_set_text(window: str, name_rx: str, text: str,
-                 control_type: str = "", index: int = 0) -> dict:
-    """Set text of an edit control found by name regex, via UI Automation.
+                 control_type: str = "", index: int = 0,
+                 runtime_id: str = "") -> dict:
+    """Set text of an edit control in a window, via UI Automation.
 
+    Addressing: runtime_id (from uia_find) wins when given; otherwise
+    name_rx + index into the same enumeration uia_find reports.
     Prefers ValuePattern.SetValue (instant, no keystrokes); falls back to
     focusing the element and typing via SendInput KEYEVENTF_UNICODE.
     Verified: the value is read back and a mismatch raises.
     """
-    _validate_uia_target(window, name_rx, text)
+    _validate_uia_target(window, name_rx, text, runtime_id=runtime_id)
     preview = text if len(text) <= 120 else text[:120] + "..."
     _approved("uia_set_text",
               "UIA set %d chars into /%s/ in window /%s/:\n%s"
-              % (len(text), name_rx, window, preview))
+              % (len(text), runtime_id or name_rx, window, preview))
     return _uia_set_text_verified(window, name_rx, text, control_type,
-                                  index)
+                                  index, runtime_id=runtime_id or "")
 
 
 def send_message(window: str, name_rx: str, text: str,

@@ -81,23 +81,29 @@ def mouse_click(x: int, y: int, button: str = "left") -> dict:
                          {"x": x, "y": y, "button": button}, write=True)
 
 
-def uia_click(window: str, name_rx: str, control_type: str = "",
-              index: int = 0, button: str = "left") -> dict:
-    """Click a UI element by name via UI Automation. Requires on-PC approval."""
-    return toolcall.call("uia_click",
-                         {"window": window, "name_rx": name_rx,
-                          "control_type": control_type, "index": index,
-                          "button": button}, write=True)
+def uia_click(window: str, name_rx: str = "", control_type: str = "",
+              index: int = 0, button: str = "left",
+              runtime_id: str = "") -> dict:
+    """Click a UI element via UI Automation. runtime_id (from
+    uia_find) wins when given; otherwise name_rx + index address the
+    element. Requires on-PC approval."""
+    a = {"window": window, "name_rx": name_rx,
+         "control_type": control_type, "index": index, "button": button}
+    if runtime_id:
+        a["runtime_id"] = runtime_id
+    return toolcall.call("uia_click", a, write=True)
 
 
 def uia_set_text(window: str, name_rx: str, text: str,
-                 control_type: str = "", index: int = 0) -> dict:
+                 control_type: str = "", index: int = 0,
+                 runtime_id: str = "") -> dict:
     """Set text of a UI element via UI Automation (verified read-back).
-    Requires on-PC approval."""
-    return toolcall.call("uia_set_text",
-                         {"window": window, "name_rx": name_rx, "text": text,
-                          "control_type": control_type, "index": index},
-                         write=True)
+    runtime_id (from uia_find) wins when given. Requires on-PC approval."""
+    a = {"window": window, "name_rx": name_rx, "text": text,
+         "control_type": control_type, "index": index}
+    if runtime_id:
+        a["runtime_id"] = runtime_id
+    return toolcall.call("uia_set_text", a, write=True)
 
 
 def send_message(window: str, name_rx: str, text: str,
@@ -139,7 +145,9 @@ def clipboard_set(text: str) -> dict:
 
 
 def paste_text(text: str) -> dict:
-    """Paste text into the focused window (reliable for long text)."""
+    """Paste text into the focused window (reliable for long text).
+    Result carries verified: true only when a UIA read-back of the
+    focused element contains the pasted text."""
     return toolcall.call("paste_text", {"text": text}, write=True)
 
 
@@ -286,7 +294,9 @@ def replay_session(session_id: str, format: str = "human") -> dict:
 
 # ---- browser tools (CDP; Edge needs --remote-debugging-port=9222) ----------
 def browser_snapshot(url_contains: str = "") -> dict:
-    """List interactive elements of the live Edge tab (no approval)."""
+    """List interactive elements of the live Edge tab (no approval).
+    status/detail report ok, blocked_dialog (internal/dialog tab —
+    detail names its URL), or error (detail carries the CDP message)."""
     return toolcall.call("browser_snapshot", {"url_contains": url_contains})
 
 
@@ -298,14 +308,17 @@ def browser_navigate(url: str, url_contains: str = "") -> dict:
 
 
 def browser_click(text: str, url_contains: str = "") -> dict:
-    """Click the element containing text in the Edge tab. Requires approval."""
+    """Click the element containing text in the Edge tab. Requires approval.
+    status distinguishes ok / not_found / blocked_dialog / error;
+    detail names the intercepting URL or carries the CDP message."""
     return toolcall.call("browser_click",
                          {"text": text, "url_contains": url_contains},
                          write=True)
 
 
 def browser_fill(label: str, text: str, url_contains: str = "") -> dict:
-    """Fill the field matching label in the Edge tab. Requires approval."""
+    """Fill the field matching label in the Edge tab. Requires approval.
+    Same status/detail receipt as browser_click."""
     return toolcall.call("browser_fill",
                          {"label": label, "text": text,
                           "url_contains": url_contains}, write=True)

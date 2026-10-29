@@ -203,29 +203,41 @@ CLIPBOARD_SET = ToolDef(
 PASTE_TEXT = ToolDef(
     name="paste_text",
     group="write",
-    doc="Paste text into the focused window (reliable for long text).",
+    doc="Paste text into the focused window (reliable for long text). "
+        "Verified: the focused element is read back via UIA after the "
+        "paste — verified=true only when its value/text contains the "
+        "pasted text; verified=false when the landing differs or no "
+        "read-back is possible. pasted_chars alone is not proof.",
     args={"text": {"type": "str", "required": True}},
-    result_keys=["pasted_chars"],
+    result_keys=["pasted_chars", "verified"],
     approval_tier="ask",
     side_effects="session",
     platform_notes="Windows recipe: set clipboard + Ctrl+V via SendInput, "
-                   "then restore the prior clipboard. Any platform with "
-                   "clipboard-set + key-synthesis can implement the same "
-                   "recipe; inherits the gaps of clipboard_set and hotkey.",
+                   "then restore the prior clipboard. Read-back uses "
+                   "the UIA focused element's Value/Text. Any platform "
+                   "with clipboard-set + key-synthesis can implement "
+                   "the same recipe; inherits the gaps of "
+                   "clipboard_set and hotkey.",
 )
+
+_RUNTIME_ID_ARG = {"type": "str", "required": False, "default": ""}
 
 UIA_CLICK = ToolDef(
     name="uia_click",
     group="write",
-    doc="Click a UI element found by name regex in a window, via Windows "
-        "UI Automation (InvokePattern; falls back to a coordinate click "
-        "at the element's center). No screenshots needed. Requires on-PC "
-        "approval.",
+    doc="Click a UI element in a window, via Windows UI Automation "
+        "(InvokePattern; falls back to a coordinate click at the "
+        "element's center). Addressing: runtime_id (from uia_find) "
+        "wins when given — stable across re-enumeration; otherwise "
+        "name_rx + index into the same enumeration uia_find reports. "
+        "name_rx may be omitted when runtime_id is given. No "
+        "screenshots needed. Requires on-PC approval.",
     args={"window": {"type": "str", "required": True},
-          "name_rx": {"type": "str", "required": True},
+          "name_rx": {"type": "str", "required": False, "default": ""},
           "control_type": {"type": "str", "required": False, "default": ""},
           "index": {"type": "int", "required": False, "default": 0},
-          "button": {"type": "str", "required": False, "default": "left"}},
+          "button": {"type": "str", "required": False, "default": "left"},
+          "runtime_id": dict(_RUNTIME_ID_ARG)},
     result_keys=["ok", "method", "name", "x", "y"],
     approval_tier="routine",
     side_effects="session",
@@ -237,15 +249,18 @@ UIA_CLICK = ToolDef(
 UIA_SET_TEXT = ToolDef(
     name="uia_set_text",
     group="write",
-    doc="Set text of an edit control found by name regex in a window, via "
-        "Windows UI Automation (ValuePattern; falls back to focus + "
-        "keystroke synthesis). No screenshots needed. Requires on-PC "
-        "approval.",
+    doc="Set text of an edit control in a window, via Windows UI "
+        "Automation (ValuePattern; falls back to focus + keystroke "
+        "synthesis). Addressing: runtime_id (from uia_find) wins when "
+        "given; otherwise name_rx + index into the same enumeration "
+        "uia_find reports. name_rx may be omitted when runtime_id is "
+        "given. No screenshots needed. Requires on-PC approval.",
     args={"window": {"type": "str", "required": True},
-          "name_rx": {"type": "str", "required": True},
+          "name_rx": {"type": "str", "required": False, "default": ""},
           "text": {"type": "str", "required": True},
           "control_type": {"type": "str", "required": False, "default": ""},
-          "index": {"type": "int", "required": False, "default": 0}},
+          "index": {"type": "int", "required": False, "default": 0},
+          "runtime_id": dict(_RUNTIME_ID_ARG)},
     result_keys=["ok", "method", "name", "value_after", "verified"],
     approval_tier="ask",
     side_effects="session",

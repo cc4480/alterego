@@ -55,7 +55,7 @@ ARGS = {
     "screenshot_tiles": {},
     "uia_find": {"window": "mock"},
     "uia_get": {"window": "mock", "name_rx": "Message"},
-    "uia_click": {"window": "mock", "name_rx": "x"},
+    "uia_click": {"window": "mock", "name_rx": "Send"},
     "uia_set_text": {"window": "mock", "name_rx": "Message", "text": "hi"},
     "send_message": {"window": "mock", "name_rx": "Message",
                      "text": "hi"},
