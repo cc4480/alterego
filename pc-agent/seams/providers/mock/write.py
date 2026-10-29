@@ -33,7 +33,7 @@ def focus_window(hwnd: int) -> dict:
 
 
 def _focus_gate(window=None, name_rx: str = "", control_type: str = "",
-                index: int = 0) -> dict:
+                index: int | None = None) -> dict:
     """Mock focus gate, same contract as the Windows provider: raise
     (typing nothing) unless the foreground hwnd is the target window
     and the focused element's RuntimeId is the target element's."""
@@ -183,7 +183,7 @@ def paste_text(text: str) -> dict:
 
 
 def uia_click(window: str, name_rx: str = "", control_type: str = "",
-              index: int = 0, button: str = "left",
+              index: int | None = None, button: str = "left",
               runtime_id: str = "") -> dict:
     """Mock click: resolves the element with the same addressing as
     the Windows helper (runtime_id wins; else name/index into the
@@ -204,7 +204,7 @@ def uia_click(window: str, name_rx: str = "", control_type: str = "",
 
 
 def uia_set_text(window: str, name_rx: str, text: str,
-                 control_type: str = "", index: int = 0,
+                 control_type: str = "", index: int | None = None,
                  runtime_id: str = "") -> dict:
     """Verified mock set: writes the element's value, reads it back,
     and raises on mismatch (an element with corrupt_write=True lands
@@ -229,7 +229,7 @@ def uia_set_text(window: str, name_rx: str, text: str,
 
 
 def send_message(window: str, name_rx: str, text: str,
-                 control_type: str = "", index: int = 0) -> dict:
+                 control_type: str = "", index: int | None = None) -> dict:
     """Mock composite, same contract as the Windows provider:
     focus gate -> verified write -> Enter -> confirmation (value
     cleared + text in the message list + focus still on the control).
