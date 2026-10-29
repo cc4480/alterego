@@ -288,6 +288,26 @@ function Find-Window($spec) {
 }
 $win = Find-Window $req.window
 if (-not $win) { @{ok=$false; error='window not found'} | ConvertTo-Json -Compress; exit 0 }
+function El-Value($el) {
+  try { $vp = $el.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern); return $vp.Current.Value } catch { return $null }
+}
+function El-Text($el) {
+  $v = El-Value $el
+  if ($null -ne $v) { return $v }
+  try { $tp = $el.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern); return $tp.DocumentRange.GetText(-1) } catch { return '' }
+}
+function El-Patterns($el) {
+  try { return @($el.GetSupportedPatterns() | ForEach-Object { $_.ProgrammaticName -replace 'Identifiers$','' }) } catch { return @() }
+}
+function El-Rid($el) { try { return ($el.GetRuntimeId() -join ',') } catch { return '' } }
+function El-Focus($el) { try { return [bool]$el.Current.HasKeyboardFocus } catch { return $false } }
+if ($req.op -eq 'focused') {
+  try {
+    $fe = $AE::FocusedElement
+    @{ok=$true; runtime_id=(El-Rid $fe); name=$fe.Current.Name; control_type=$fe.Current.ControlType.ProgrammaticName; has_keyboard_focus=(El-Focus $fe); window_hwnd=[int]$win.Current.NativeWindowHandle} | ConvertTo-Json -Compress
+  } catch { @{ok=$false; error='focused element unavailable'} | ConvertTo-Json -Compress }
+  exit 0
+}
 $all = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
 $elems = @()
 $limit = [int]$req.max_results
@@ -298,12 +318,12 @@ foreach ($el in $all) {
   if ($req.control_type -ne '' -and ($ct -ne $req.control_type)) { continue }
   try { $r = $el.Current.BoundingRectangle } catch { continue }
   try { $aid = $el.Current.AutomationId } catch { $aid = '' }
-  $elems += [pscustomobject]@{el=$el; name=$n; control_type=$ct; automation_id=$aid; x=[int]$r.X; y=[int]$r.Y; width=[int]$r.Width; height=[int]$r.Height}
+  $elems += [pscustomobject]@{el=$el; name=$n; control_type=$ct; automation_id=$aid; x=[int]$r.X; y=[int]$r.Y; width=[int]$r.Width; height=[int]$r.Height; value=(El-Value $el); text=(El-Text $el); has_keyboard_focus=(El-Focus $el); runtime_id=(El-Rid $el); patterns=@(El-Patterns $el)}
   if ($elems.Count -ge $limit) { break }
 }
 $op = $req.op
 if ($op -eq 'find') {
-  $proj = @($elems | ForEach-Object { [pscustomobject]@{name=$_.name; control_type=$_.control_type; automation_id=$_.automation_id; x=$_.x; y=$_.y; width=$_.width; height=$_.height} })
+  $proj = @($elems | ForEach-Object { [pscustomobject]@{name=$_.name; control_type=$_.control_type; automation_id=$_.automation_id; x=$_.x; y=$_.y; width=$_.width; height=$_.height; value=$_.value; has_keyboard_focus=$_.has_keyboard_focus; runtime_id=$_.runtime_id} })
   @{ok=$true; count=$proj.Count; elements=$proj} | ConvertTo-Json -Compress -Depth 4
   exit 0
 }
@@ -320,15 +340,25 @@ if ($op -eq 'click') {
   } catch { }
   @{ok=$true; method='coord'; name=$t.name; x=$cx; y=$cy} | ConvertTo-Json -Compress; exit 0
 }
+if ($op -eq 'get') {
+  @{ok=$true; name=$t.name; control_type=$t.control_type; automation_id=$t.automation_id; x=$t.x; y=$t.y; width=$t.width; height=$t.height; value=(El-Value $t.el); text=(El-Text $t.el); has_keyboard_focus=(El-Focus $t.el); runtime_id=(El-Rid $t.el); patterns=@(El-Patterns $t.el); window_hwnd=[int]$win.Current.NativeWindowHandle} | ConvertTo-Json -Compress -Depth 4
+  exit 0
+}
 if ($op -eq 'set') {
   try {
     $vp = $t.el.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
     if ($vp.Current.IsReadOnly) { throw 'readonly' }
     $vp.SetValue($req.text)
-    @{ok=$true; method='value'; name=$t.name} | ConvertTo-Json -Compress; exit 0
+    $after = $vp.Current.Value
+    if ($after -ne $req.text) { @{ok=$false; error=('value mismatch after SetValue: read back "' + $after + '"'); value_after=$after} | ConvertTo-Json -Compress; exit 0 }
+    @{ok=$true; method='value'; name=$t.name; value_after=$after} | ConvertTo-Json -Compress; exit 0
   } catch { }
-  try { $t.el.SetFocus(); @{ok=$true; method='focus'; name=$t.name} | ConvertTo-Json -Compress }
-  catch { @{ok=$false; error='set_text failed: no value pattern and focus failed'} | ConvertTo-Json -Compress }
+  try { $t.el.SetFocus() }
+  catch { @{ok=$false; error='set_text failed: no value pattern and focus failed'} | ConvertTo-Json -Compress; exit 0 }
+  $frid = ''
+  try { $frid = El-Rid $AE::FocusedElement } catch { }
+  if ($frid -ne (El-Rid $t.el)) { @{ok=$false; error='focus fallback aborted: focused element is not the target element'} | ConvertTo-Json -Compress; exit 0 }
+  @{ok=$true; method='focus'; name=$t.name; focused_runtime_id=$frid} | ConvertTo-Json -Compress
   exit 0
 }
 @{ok=$false; error='unknown op'} | ConvertTo-Json -Compress
@@ -382,3 +412,32 @@ def uia_find(window: str, name_rx: str = "", control_type: str = "",
         raise RuntimeError(res.get("error", "uia_find failed"))
     return {"ok": True, "count": int(res.get("count", 0)),
             "elements": res.get("elements") or []}
+
+
+def uia_get(window: str, name_rx: str = "", control_type: str = "",
+            index: int = 0) -> dict:
+    """Read one UI element via UI Automation (read-only).
+
+    Same addressing as uia_find/uia_set_text. Returns the element's
+    Value/Text, HasKeyboardFocus, RuntimeId, and available patterns —
+    the read-back half of the verified-write contract (cf. CDP fill()).
+    """
+    if not isinstance(window, str) or not window.strip():
+        raise ValueError("window must be a non-empty title regex or hwnd")
+    res = _uia_invoke({"op": "get", "window": window,
+                       "name_rx": name_rx or "",
+                       "control_type": control_type or "",
+                       "index": int(index), "max_results": int(index) + 1})
+    if not res.get("ok"):
+        raise RuntimeError(res.get("error", "uia_get failed"))
+    return {"ok": True, "name": res.get("name", ""),
+            "control_type": res.get("control_type", ""),
+            "automation_id": res.get("automation_id", ""),
+            "value": res.get("value"),
+            "text": res.get("text") or "",
+            "has_keyboard_focus": bool(res.get("has_keyboard_focus")),
+            "runtime_id": res.get("runtime_id", ""),
+            "patterns": res.get("patterns") or [],
+            "x": int(res.get("x", 0)), "y": int(res.get("y", 0)),
+            "width": int(res.get("width", 0)),
+            "height": int(res.get("height", 0))}

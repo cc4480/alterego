@@ -13,7 +13,7 @@ import tools_tasks  # shim -> seams.providers.windows.tasks (MCP wrappers)
 from tool_wrappers_read import (  # noqa: E402
     screenshot, list_windows, system_info, list_dir, read_file,
     clipboard_get, search_files, search_filenames, read_file_range,
-    uia_find)
+    uia_find, uia_get)
 
 # ---- write tools (each pops a native approval dialog on the PC) -----------
 def focus_window(hwnd: int) -> dict:
@@ -25,9 +25,29 @@ def close_window(hwnd: int) -> dict:
     return toolcall.call("close_window", {"hwnd": hwnd}, write=True)
 
 
-def type_text(text: str) -> dict:
-    """Type text into the focused window. Requires on-PC approval."""
-    return toolcall.call("type_text", {"text": text}, write=True)
+def _targeted_args(base: dict, window, name_rx, control_type,
+                   index) -> dict:
+    """Attach optional target keys only when a target was given."""
+    a = dict(base)
+    if window is not None:
+        a["window"] = window
+    if name_rx:
+        a["name_rx"] = name_rx
+    if control_type:
+        a["control_type"] = control_type
+    if index:
+        a["index"] = index
+    return a
+
+
+def type_text(text: str, window: str | None = None, name_rx: str = "",
+              control_type: str = "", index: int = 0) -> dict:
+    """Type text into the focused window. Requires on-PC approval.
+    With a target (window and/or UIA element name_rx) a focus gate runs
+    first and success reports verified=true; bare calls verified=false."""
+    a = _targeted_args({"text": text}, window, name_rx, control_type,
+                       index)
+    return toolcall.call("type_text", a, write=True)
 
 
 def shell_exec(command: str, timeout_s: int = 60,
@@ -40,9 +60,14 @@ def shell_exec(command: str, timeout_s: int = 60,
                          write=True)
 
 
-def hotkey(keys: str) -> dict:
-    """Press a key combo: 'enter', 'esc', 'tab', 'ctrl+c', 'alt+f4', 'win+r'."""
-    return toolcall.call("hotkey", {"keys": keys}, write=True)
+def hotkey(keys: str, window: str | None = None, name_rx: str = "",
+           control_type: str = "", index: int = 0) -> dict:
+    """Press a key combo: 'enter', 'esc', 'tab', 'ctrl+c', 'alt+f4', 'win+r'.
+    With a target (window and/or UIA element name_rx) a focus gate runs
+    first and success reports verified=true; bare calls verified=false."""
+    a = _targeted_args({"keys": keys}, window, name_rx, control_type,
+                       index)
+    return toolcall.call("hotkey", a, write=True)
 
 
 def mouse_move(x: int, y: int) -> dict:
@@ -67,8 +92,20 @@ def uia_click(window: str, name_rx: str, control_type: str = "",
 
 def uia_set_text(window: str, name_rx: str, text: str,
                  control_type: str = "", index: int = 0) -> dict:
-    """Set text of a UI element via UI Automation. Requires on-PC approval."""
+    """Set text of a UI element via UI Automation (verified read-back).
+    Requires on-PC approval."""
     return toolcall.call("uia_set_text",
+                         {"window": window, "name_rx": name_rx, "text": text,
+                          "control_type": control_type, "index": index},
+                         write=True)
+
+
+def send_message(window: str, name_rx: str, text: str,
+                 control_type: str = "", index: int = 0) -> dict:
+    """Send a message via a window's composer control: focus gate,
+    verified write, Enter, and confirmation (value cleared + text in
+    the message list + focus still on the control). Requires approval."""
+    return toolcall.call("send_message",
                          {"window": window, "name_rx": name_rx, "text": text,
                           "control_type": control_type, "index": index},
                          write=True)
@@ -286,7 +323,7 @@ ALL_TOOLS = [
     search_files, search_filenames, read_file_range,
     focus_window, close_window, type_text, shell_exec,
     hotkey, mouse_move, mouse_click, mouse_scroll,
-    uia_find, uia_click, uia_set_text,
+    uia_find, uia_get, uia_click, uia_set_text, send_message,
     minimize_window, maximize_window, kill_process, clipboard_set,
     paste_text,
     write_file, edit_file, delete_file, create_dir,
