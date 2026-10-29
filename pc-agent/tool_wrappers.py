@@ -82,39 +82,48 @@ def mouse_click(x: int, y: int, button: str = "left") -> dict:
 
 
 def uia_click(window: str, name_rx: str = "", control_type: str = "",
-              index: int = 0, button: str = "left",
+              index: int | None = None, button: str = "left",
               runtime_id: str = "") -> dict:
     """Click a UI element via UI Automation. runtime_id (from
-    uia_find) wins when given; otherwise name_rx + index address the
-    element. Requires on-PC approval."""
+    uia_find) wins when given; otherwise name_rx addresses the
+    element — with index omitted the match must resolve uniquely
+    (an ambiguity error is returned instead of a silent pick).
+    Requires on-PC approval."""
     a = {"window": window, "name_rx": name_rx,
-         "control_type": control_type, "index": index, "button": button}
+         "control_type": control_type, "button": button}
+    if index is not None:
+        a["index"] = index
     if runtime_id:
         a["runtime_id"] = runtime_id
     return toolcall.call("uia_click", a, write=True)
 
 
 def uia_set_text(window: str, name_rx: str, text: str,
-                 control_type: str = "", index: int = 0,
+                 control_type: str = "", index: int | None = None,
                  runtime_id: str = "") -> dict:
     """Set text of a UI element via UI Automation (verified read-back).
-    runtime_id (from uia_find) wins when given. Requires on-PC approval."""
+    runtime_id (from uia_find) wins when given; index omitted means
+    the name match must resolve uniquely. Requires on-PC approval."""
     a = {"window": window, "name_rx": name_rx, "text": text,
-         "control_type": control_type, "index": index}
+         "control_type": control_type}
+    if index is not None:
+        a["index"] = index
     if runtime_id:
         a["runtime_id"] = runtime_id
     return toolcall.call("uia_set_text", a, write=True)
 
 
 def send_message(window: str, name_rx: str, text: str,
-                 control_type: str = "", index: int = 0) -> dict:
+                 control_type: str = "", index: int | None = None) -> dict:
     """Send a message via a window's composer control: focus gate,
     verified write, Enter, and confirmation (value cleared + text in
-    the message list + focus still on the control). Requires approval."""
-    return toolcall.call("send_message",
-                         {"window": window, "name_rx": name_rx, "text": text,
-                          "control_type": control_type, "index": index},
-                         write=True)
+    the message list + focus still on the control). With index omitted
+    the composer match must resolve uniquely. Requires approval."""
+    a = {"window": window, "name_rx": name_rx, "text": text,
+         "control_type": control_type}
+    if index is not None:
+        a["index"] = index
+    return toolcall.call("send_message", a, write=True)
 
 
 def mouse_scroll(direction: str = "down", clicks: int = 3) -> dict:

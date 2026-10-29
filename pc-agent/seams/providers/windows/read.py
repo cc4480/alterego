@@ -547,9 +547,17 @@ if ($req.op -eq 'focused') {
           try { if ($fh -ne 0) { $winEl = $AE::FromHandle((New-Object IntPtr $fh)) } } catch { $winEl = $null }
         }
         if ($null -ne $winEl) {
+          # Descendant search over the RAW view, same traversal as
+          # the main enumeration: the control view hides exactly the
+          # text surfaces this escalation hunts (e.g. Notepad's
+          # Document). Iterative document-order DFS, first hit wins.
           try {
-            $desc = $winEl.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
-            foreach ($d in $desc) {
+            $d = $null
+            try { $d = $walker.GetFirstChildElement($winEl) } catch { $d = $null }
+            $dvisited = 0
+            $ddepth = 1
+            while (($null -ne $d) -and ($dvisited -lt 20000) -and ($via -eq 'none')) {
+              $dvisited += 1
               $dv = El-Value $d
               $dt = El-Text $d
               if ((($null -ne $dv) -and $dv.Contains($expect)) -or (($null -ne $dt) -and $dt.Contains($expect))) {
@@ -558,6 +566,21 @@ if ($req.op -eq 'focused') {
                 try { $srcType = $d.Current.ControlType.ProgrammaticName } catch { $srcType = $null }
                 break
               }
+              $dnext = $null
+              try { $dnext = $walker.GetFirstChildElement($d) } catch { $dnext = $null }
+              if ($null -ne $dnext) { $ddepth += 1; $d = $dnext; continue }
+              $dcur = $d
+              while ($null -ne $dcur) {
+                $dsib = $null
+                try { $dsib = $walker.GetNextSiblingElement($dcur) } catch { $dsib = $null }
+                if ($null -ne $dsib) { $dnext = $dsib; break }
+                if ($ddepth -le 1) { $dcur = $null; break }
+                $dpar = $null
+                try { $dpar = $walker.GetParentElement($dcur) } catch { $dpar = $null }
+                $dcur = $dpar
+                $ddepth -= 1
+              }
+              $d = $dnext
             }
           } catch { }
         }
