@@ -22,10 +22,15 @@ _URL_CONTAINS = {"url_contains": {"type": "str", "default": "",
 BROWSER_SNAPSHOT = ToolDef(
     name="browser_snapshot",
     group="browser",
-    doc="List interactive elements of the live tab (no approval).",
+    doc="List interactive elements of the live tab (no approval). "
+        "status/detail form the clean receipt: status is 'ok', "
+        "'blocked_dialog' (tab is on an internal/dialog page such as "
+        "edge://sync-confirmation-dialog/; detail names the URL and no "
+        "elements are reported for that surface), or 'error' (detail "
+        "carries the underlying CDP message).",
     args=dict(_URL_CONTAINS),
     result_keys=["page_url", "url", "title", "elements",
-                 "cross_origin_iframes"],
+                 "cross_origin_iframes", "status", "detail"],
     approval_tier="silent",
     side_effects="none",
     platform_notes=_CDP_NOTE,
@@ -45,9 +50,14 @@ BROWSER_NAVIGATE = ToolDef(
 BROWSER_CLICK = ToolDef(
     name="browser_click",
     group="browser",
-    doc="Click the element containing text in the tab. Requires approval.",
+    doc="Click the element containing text in the tab. Requires approval. "
+        "status distinguishes 'ok' from 'not_found' (result NOT-FOUND), "
+        "'blocked_dialog' (tab intercepted by an internal/dialog page; "
+        "detail names its URL, nothing was clicked) and 'error' (detail "
+        "carries the underlying CDP message; a raw CDPError is never "
+        "the surfaced error).",
     args={"text": {"type": "str", "required": True}, **_URL_CONTAINS},
-    result_keys=["page_url", "result"],
+    result_keys=["page_url", "result", "status", "detail"],
     approval_tier="ask",
     side_effects="session",
     platform_notes=_CDP_NOTE,
@@ -56,10 +66,13 @@ BROWSER_CLICK = ToolDef(
 BROWSER_FILL = ToolDef(
     name="browser_fill",
     group="browser",
-    doc="Fill the field matching label in the tab. Requires approval.",
+    doc="Fill the field matching label in the tab. Requires approval. "
+        "Same status/detail receipt as browser_click: 'not_found' for "
+        "a missing field, 'blocked_dialog' for an internal/dialog tab, "
+        "'error' with the CDP message in detail.",
     args={"label": {"type": "str", "required": True},
           "text": {"type": "str", "required": True}, **_URL_CONTAINS},
-    result_keys=["page_url", "result"],
+    result_keys=["page_url", "result", "status", "detail"],
     approval_tier="ask",
     side_effects="session",
     platform_notes=_CDP_NOTE,

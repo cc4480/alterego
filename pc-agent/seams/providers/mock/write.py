@@ -5,7 +5,8 @@ by construction. UI/input actions return success and are journaled in the
 mock CALLS list so tests can assert what would have happened.
 """
 from seams.providers.mock import (
-    CLIPBOARD, PROCS, UIA, find_uia_element, record, resolve_uia_window,
+    CLIPBOARD, PROCS, UIA, find_uia_element, focused_uia_element,
+    record, resolve_uia_window,
 )
 
 
@@ -164,32 +165,61 @@ def clipboard_set(text: str) -> dict:
 
 
 def paste_text(text: str) -> dict:
+    """Mock paste with the verified-write bar: the paste lands in the
+    focused element, then it is read back — verified only when a
+    value/text-bearing focused element is resolvable AND its value
+    contains the pasted text. UIA["paste_corrupt"] makes different
+    text land; an unresolvable focus (unknown runtime_id, or a
+    focused element without Value/Text patterns) is verified=False."""
+    el = focused_uia_element()
+    resolvable = el is not None and bool(
+        {"ValuePattern", "TextPattern"} & set(el.get("patterns") or []))
+    if resolvable:
+        landed = "<different text>" if UIA["paste_corrupt"] else text
+        el["value"] = (el["value"] or "") + landed
+    verified = bool(resolvable and text in (el["value"] or ""))
     return _ui("paste_text", {"text": text},
-               {"pasted_chars": len(text)})
+               {"pasted_chars": len(text), "verified": verified})
 
 
-def uia_click(window: str, name_rx: str, control_type: str = "",
-              index: int = 0, button: str = "left") -> dict:
-    return _ui("uia_click",
-               {"window": window, "name_rx": name_rx,
-                "control_type": control_type, "index": index,
-                "button": button},
-               {"ok": True, "method": "invoke", "name": "mock",
-                "x": 1, "y": 2})
+def uia_click(window: str, name_rx: str = "", control_type: str = "",
+              index: int = 0, button: str = "left",
+              runtime_id: str = "") -> dict:
+    """Mock click: resolves the element with the same addressing as
+    the Windows helper (runtime_id wins; else name/index into the
+    uia_find enumeration) and reports its name + centre coordinates.
+    An address that does not resolve raises, like the helper."""
+    resolve_uia_window(window)
+    el = find_uia_element(name_rx, control_type, index,
+                          runtime_id=runtime_id)
+    args = {"window": window, "name_rx": name_rx,
+            "control_type": control_type, "index": index,
+            "button": button}
+    if runtime_id:
+        args["runtime_id"] = runtime_id
+    return _ui("uia_click", args,
+               {"ok": True, "method": "invoke", "name": el["name"],
+                "x": el["x"] + el["width"] // 2,
+                "y": el["y"] + el["height"] // 2})
 
 
 def uia_set_text(window: str, name_rx: str, text: str,
-                 control_type: str = "", index: int = 0) -> dict:
+                 control_type: str = "", index: int = 0,
+                 runtime_id: str = "") -> dict:
     """Verified mock set: writes the element's value, reads it back,
     and raises on mismatch (an element with corrupt_write=True lands
-    doubled text — the read-back must catch it)."""
+    doubled text — the read-back must catch it). Addressing matches
+    uia_click: runtime_id wins when given."""
     resolve_uia_window(window)
-    el = find_uia_element(name_rx, control_type, index)
+    el = find_uia_element(name_rx, control_type, index,
+                          runtime_id=runtime_id)
     el["value"] = text + text if el.get("corrupt_write") else text
     value_after = el["value"]
-    record("uia_set_text",
-           {"window": window, "name_rx": name_rx, "text": text,
-            "control_type": control_type, "index": index})
+    args = {"window": window, "name_rx": name_rx, "text": text,
+            "control_type": control_type, "index": index}
+    if runtime_id:
+        args["runtime_id"] = runtime_id
+    record("uia_set_text", args)
     if value_after != text:
         raise RuntimeError(
             f"uia_set_text verification failed: expected {text!r}, "
