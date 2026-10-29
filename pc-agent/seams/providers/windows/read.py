@@ -59,73 +59,264 @@ def _resolve_cwd(cwd: str | None) -> str | None:
     return str(p) if p else None
 
 
-def screenshot(region: dict | None = None, scale: float = 1.0) -> dict:
-    """Capture the primary monitor as PNG (base64).
+# ---------------------------------------------------------------------------
+# Screenshot pipeline (screenshot + screenshot_tiles).
+#
+# Q2: Pillow powers `scale`; when scale is omitted the long edge is fitted
+# to ~1280px, while an explicit scale (including 1.0 = native) is honoured.
+# S5: format="webp" (default, lossless) | "jpeg" (quality 95) | "png".
+# S2: screenshot_tiles returns a blob-referenced tile manifest with
+# optional delta mode against the previous frame kept in memory.
+# ---------------------------------------------------------------------------
+_SCREENSHOT_FORMATS = {
+    "png": ("PNG", "image/png"),
+    "jpeg": ("JPEG", "image/jpeg"),
+    "webp": ("WEBP", "image/webp"),
+}
+_SCREENSHOT_LONG_EDGE = 1280
+_JPEG_QUALITY = 95
+
+
+def _grab_area(monitor: dict, region: dict | None) -> dict:
+    """Resolve the mss grab rectangle for `region` (clamped to monitor)."""
+    if region is None:
+        return monitor
+    if not isinstance(region, dict):
+        raise ValueError("region must be {x, y, width, height}")
+    try:
+        x = int(region["x"])
+        y = int(region["y"])
+        w = int(region["width"])
+        h = int(region["height"])
+    except (KeyError, TypeError, ValueError):
+        raise ValueError("region must be {x, y, width, height}")
+    if w <= 0 or h <= 0:
+        raise ValueError("region width/height must be positive")
+    # Clamp to monitor bounds
+    x = max(0, x)
+    y = max(0, y)
+    w = min(w, monitor["width"] - x)
+    h = min(h, monitor["height"] - y)
+    if w <= 0 or h <= 0:
+        raise ValueError("region is outside the screen")
+    return {"left": monitor["left"] + x, "top": monitor["top"] + y,
+            "width": w, "height": h}
+
+
+def _auto_scale(width: int, height: int) -> float:
+    """Scale fitting the long edge to ~1280px; never upscales."""
+    long_edge = max(width, height)
+    if long_edge <= _SCREENSHOT_LONG_EDGE:
+        return 1.0
+    return _SCREENSHOT_LONG_EDGE / long_edge
+
+
+def screenshot(region: dict | None = None, scale: float = None,
+               format: str = "webp") -> dict:
+    """Capture the virtual all-monitors screen, encoded per `format`.
 
     region: optional {x, y, width, height} to capture part of the screen.
-    scale: optional 0.1-1.0 to downscale (saves bandwidth). Requires PIL.
-    Backward compatible: no args = full screenshot as before.
-    """
-    import mss
-    import mss.tools
+    scale: optional 0.1-1.0 downscale factor (Pillow). When omitted
+        (None), the image is downscaled so its long edge fits ~1280px;
+        an explicit scale=1.0 returns the native resolution.
+    format: "webp" (default, lossless), "jpeg" (quality 95) or "png".
 
+    Result: image_base64 (the encoded bytes), mime, format, width,
+    height, scale (the applied factor) and png_base64 — populated with
+    the same base64 string when format="png", else None (legacy field;
+    pre-S5 consumers read it only from PNG captures).
+    """
+    if not isinstance(format, str) or format.lower() not in _SCREENSHOT_FORMATS:
+        raise ValueError("format must be 'webp', 'jpeg' or 'png'")
+    fmt = format.lower()
+    pil_format, mime = _SCREENSHOT_FORMATS[fmt]
     if scale is not None:
         scale = float(scale)
         if not 0.1 <= scale <= 1.0:
             raise ValueError("scale must be 0.1-1.0")
-    else:
-        scale = 1.0
+
+    import mss
+    import mss.tools
 
     with mss.mss() as sct:
         monitor = sct.monitors[0]
-        if region is not None:
-            if not isinstance(region, dict):
-                raise ValueError("region must be {x, y, width, height}")
-            try:
-                x = int(region["x"])
-                y = int(region["y"])
-                w = int(region["width"])
-                h = int(region["height"])
-            except (KeyError, TypeError, ValueError):
-                raise ValueError("region must be {x, y, width, height}")
-            if w <= 0 or h <= 0:
-                raise ValueError("region width/height must be positive")
-            # Clamp to monitor bounds
-            x = max(0, x)
-            y = max(0, y)
-            w = min(w, monitor["width"] - x)
-            h = min(h, monitor["height"] - y)
-            if w <= 0 or h <= 0:
-                raise ValueError("region is outside the screen")
-            grab_area = {"left": monitor["left"] + x,
-                         "top": monitor["top"] + y,
-                         "width": w, "height": h}
-        else:
-            grab_area = monitor
+        grab_area = _grab_area(monitor, region)
         img = sct.grab(grab_area)
-        png = mss.tools.to_png(img.rgb, img.size)
-        width, height = img.width, img.height
+        rgb, (width, height) = img.rgb, img.size
 
-    if scale < 1.0:
-        try:
-            from PIL import Image
-            import io
-            pil_img = Image.open(io.BytesIO(png))
-            new_w = max(1, int(width * scale))
-            new_h = max(1, int(height * scale))
+    applied = _auto_scale(width, height) if scale is None else scale
+    new_w = max(1, round(width * applied))
+    new_h = max(1, round(height * applied))
+
+    try:
+        from PIL import Image
+        import io
+        pil_img = Image.frombytes("RGB", (width, height), rgb)
+        if (new_w, new_h) != (width, height):
             pil_img = pil_img.resize((new_w, new_h), Image.LANCZOS)
-            buf = io.BytesIO()
-            pil_img.save(buf, format="PNG")
-            png = buf.getvalue()
-            width, height = new_w, new_h
-        except ImportError:
+        buf = io.BytesIO()
+        if fmt == "webp":
+            pil_img.save(buf, format=pil_format, lossless=True)
+        elif fmt == "jpeg":
+            pil_img.save(buf, format=pil_format, quality=_JPEG_QUALITY)
+        else:
+            pil_img.save(buf, format=pil_format)
+        encoded = buf.getvalue()
+    except ImportError:
+        if fmt == "png" and applied >= 1.0:
+            # Native-resolution PNG needs no Pillow (mss encodes it).
+            encoded = mss.tools.to_png(rgb, (width, height))
+        elif applied < 1.0:
             raise RuntimeError("scale requires Pillow (pip install Pillow)")
+        else:
+            raise RuntimeError(
+                f"format {fmt!r} requires Pillow (pip install Pillow)")
 
+    image_b64 = base64.b64encode(encoded).decode("ascii")
     return {
-        "png_base64": base64.b64encode(png).decode("ascii"),
+        "image_base64": image_b64,
+        "mime": mime,
+        "format": fmt,
+        "width": new_w,
+        "height": new_h,
+        "scale": applied,
+        "png_base64": image_b64 if fmt == "png" else None,
+    }
+
+
+# --- screenshot_tiles (S2): tiled capture + delta --------------------------
+
+_TILES_DEFAULT_SIZE = 512
+# Previous frame for delta mode: {"key": frame identity, "hashes": [...]}.
+# Kept in memory only; a resolution/grid/region change invalidates it.
+_tiles_state: dict = {"key": None, "hashes": []}
+
+
+def _reset_tiles_state() -> None:
+    """Forget the delta baseline (tests and provider resets)."""
+    _tiles_state["key"] = None
+    _tiles_state["hashes"] = []
+
+
+def _tile_grid(width: int, height: int, tile_size: int, grid) -> tuple:
+    """Resolve (cols, rows, tile_w, tile_h) from tile_size and/or grid.
+
+    grid: None -> derive from tile_size; {"cols","rows"} -> explicit
+    grid; {"tile_size": n} -> derive from that size; int -> column
+    count, rows derived to keep tiles roughly square.
+    """
+    cols = rows = None
+    if isinstance(grid, dict):
+        if "tile_size" in grid:
+            tile_size = int(grid["tile_size"])
+        cols = int(grid["cols"]) if grid.get("cols") else None
+        rows = int(grid["rows"]) if grid.get("rows") else None
+    elif grid is not None:
+        cols = int(grid)
+    if tile_size is None or int(tile_size) < 1:
+        raise ValueError("tile_size must be a positive int")
+    tile_size = int(tile_size)
+    if cols is None:
+        cols = max(1, -(-width // tile_size))
+    if rows is None:
+        if isinstance(grid, int):
+            tile_w0 = -(-width // cols)
+            rows = max(1, -(-height // tile_w0))
+        else:
+            rows = max(1, -(-height // tile_size))
+    if cols < 1 or rows < 1:
+        raise ValueError("grid cols/rows must be >= 1")
+    tile_w = -(-width // cols)
+    tile_h = -(-height // rows)
+    return cols, rows, tile_w, tile_h
+
+
+def screenshot_tiles(region: dict | None = None, tile_size: int = 512,
+                     grid=None, delta: bool = False) -> dict:
+    """Capture the screen as raw-RGB tiles stored in the blob store.
+
+    Each tile is grabbed via mss, stored with blob_store.put (the tile
+    blob IS its raw RGB bytes, so its sha256 is the blob ref), and the
+    returned manifest describes the grid plus per-tile hashes. The
+    assembled full frame's sha256 is included so a client can verify
+    its stitch and detect desync.
+
+    delta=True: tiles whose raw bytes are unchanged since the previous
+    screenshot_tiles frame are listed by index with their sha256 only
+    (no blob_ref); changed tiles carry blob_ref/size/sha256. A change
+    of resolution, grid or region invalidates the baseline and a full
+    manifest is returned with delta=False.
+    """
+    import mss
+
+    import blob_store
+
+    with mss.mss() as sct:
+        monitor = sct.monitors[0]
+        grab_area = _grab_area(monitor, region)
+        width, height = grab_area["width"], grab_area["height"]
+        cols, rows, tile_w, tile_h = _tile_grid(
+            width, height, tile_size, grid)
+        tiles_raw = []  # (index, x, y, w, h, raw_rgb)
+        for r in range(rows):
+            for c in range(cols):
+                x, y = c * tile_w, r * tile_h
+                tw = min(tile_w, width - x)
+                th = min(tile_h, height - y)
+                area = {"left": grab_area["left"] + x,
+                        "top": grab_area["top"] + y,
+                        "width": tw, "height": th}
+                timg = sct.grab(area)
+                tiles_raw.append((r * cols + c, x, y, tw, th, timg.rgb))
+
+    # Assemble the raw full frame (row-interleaved tile slices).
+    frame = bytearray(width * height * 3)
+    for _idx, x, y, tw, th, raw in tiles_raw:
+        for ly in range(th):
+            src = ly * tw * 3
+            dst = ((y + ly) * width + x) * 3
+            frame[dst:dst + tw * 3] = raw[src:src + tw * 3]
+    full_sha = hashlib.sha256(bytes(frame)).hexdigest()
+
+    key = (grab_area["left"], grab_area["top"], width, height,
+           cols, rows)
+    hashes = [hashlib.sha256(raw).hexdigest()
+              for _i, _x, _y, _w, _h, raw in tiles_raw]
+    is_delta = bool(delta) and _tiles_state["key"] == key \
+        and len(_tiles_state["hashes"]) == len(hashes)
+    prev_hashes = _tiles_state["hashes"] if is_delta else []
+
+    entries = []
+    changed, unchanged = [], []
+    for (idx, x, y, tw, th, raw), digest in zip(tiles_raw, hashes):
+        if is_delta and prev_hashes[idx] == digest:
+            entries.append({"index": idx, "sha256": digest})
+            unchanged.append(idx)
+        else:
+            entries.append({
+                "index": idx, "x": x, "y": y, "width": tw, "height": th,
+                "blob_ref": blob_store.put(raw), "size": len(raw),
+                "sha256": digest,
+            })
+            changed.append(idx)
+    _tiles_state["key"] = key
+    _tiles_state["hashes"] = hashes
+
+    manifest = {
+        "grid": {"cols": cols, "rows": rows},
+        "tile_size": int(tile_size) if tile_size is not None else None,
+        "tile_width": tile_w,
+        "tile_height": tile_h,
         "width": width,
         "height": height,
+        "full_frame_sha256": full_sha,
+        "delta": is_delta,
+        "tiles": entries,
     }
+    if is_delta:
+        manifest["changed"] = changed
+        manifest["unchanged"] = unchanged
+    return manifest
 
 
 def list_windows() -> dict:
