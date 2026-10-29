@@ -183,7 +183,11 @@ def test_windows_focused_helper_escalation_source():
     focused = focused[:focused.index("Find-Window $req.window")]
     # The escalation lives inside the focused op block only.
     assert "expect" in focused
-    assert "RawViewWalker" in focused
+    assert "RawViewWalker" in focused  # ancestor walk (GetParent)
+    # The descendant escalation uses the same provider-backed
+    # FindAll as the main enumeration (walker DFS retired — it
+    # missed lazily-realized Chromium subtrees).
+    assert "$winEl.FindAll(" in focused
     assert "verified_via" in focused
     assert "'ancestor'" in focused and "'window'" in focused
     assert "source_name" in focused and "source_control_type" in focused

@@ -1,17 +1,26 @@
-"""Slice B — UIA raw-view traversal contracts on the Windows helper.
+"""Slice B — UIA enumeration contracts on the Windows helper.
 
-The live defect: the enumeration used the UIA CONTROL view
-($win.FindAll(Descendants, TrueCondition)), which hides real text
-surfaces — Win11 Notepad's RichEdit Document control never appears,
-and neither does the ControlType.Edit composer in Electron/Chromium
-apps (Hermes). The fix walks the RAW view instead.
+History (two live findings, 2026-10-29):
+1. The original diagnosis assumed the CONTROL view hid text
+   surfaces; on the deployment box (Win10 classic Notepad) the
+   editor child is a control-visible Pane in BOTH views and its
+   text channel is the hwnd fallback (El-HwndText) — view choice
+   was never the Notepad problem.
+2. A hand-rolled RawViewWalker DFS was then tried and lost live
+   on Hermes: Chromium's UIA tree is lazy, and walker navigation
+   intermittently enumerated an empty/partial tree while a direct
+   FindAll on the same window found every element.
+
+The settled contract: enumeration is the provider-backed
+$win.FindAll(Descendants, TrueCondition); RawViewWalker remains
+only for the focused op's ANCESTOR walk (parents of a realized
+element are always available).
 
 The PowerShell helper cannot run on this host, so — following
 test_browser_uia_wave2.py's pattern for the same script — these are
 static contracts on the _UIA_PS string, extracted by importing the
 windows read module directly (it imports fine on Linux; its Windows
-dependencies are all lazy). The live-PC retest is named in the slice
-report.
+dependencies are all lazy).
 """
 import re
 
@@ -25,40 +34,36 @@ def test_helper_script_is_pure_ascii():
     PS.encode("ascii")
 
 
-def test_enumeration_uses_raw_view_walker():
-    assert "[System.Windows.Automation.TreeWalker]::RawViewWalker" in PS
-    assert "GetFirstChild" in PS
-    assert "GetNextSibling" in PS
-    # The managed TreeWalker API is GetFirstChild/GetNextSibling/
-    # GetParent — the *Element-suffixed names exist only on the COM
-    # IUIAutomationTreeWalker and throw on every call here (proven
-    # live 2026-10-29: empty enumeration). Pin their absence.
+def test_enumeration_is_provider_backed_findall():
+    # The settled enumeration (see module docstring): FindAll over
+    # the target window's descendants, TrueCondition.
+    assert ("$all = $win.FindAll("
+            "[System.Windows.Automation.TreeScope]::Descendants, "
+            "[System.Windows.Automation.Condition]::TrueCondition)"
+            ) in PS
+    # The hand-rolled walker DFS is gone: no enumeration driven by
+    # TreeWalker child/sibling navigation, and no visited-node cap
+    # machinery remains for it.
+    assert "$walker.GetFirstChild($win)" not in PS
+    assert "$walker.GetNextSibling" not in PS
+    assert "$UIA_MAX_VISITED_NODES" not in PS
+    # The COM TreeWalker names (GetFirstChildElement etc.) throw on
+    # the managed API (proven live 2026-10-29); pin their absence.
     assert "GetFirstChildElement" not in PS
     assert "GetNextSiblingElement" not in PS
     assert "GetParentElement" not in PS
-    # The walk starts at the target window and climbs within its
-    # subtree when a branch is exhausted.
-    assert "GetFirstChild($win)" in PS
+    # RawViewWalker survives ONLY for the focused op's ancestor
+    # walk (GetParent on a realized element).
+    assert "[System.Windows.Automation.TreeWalker]::RawViewWalker" in PS
     assert "GetParent" in PS
 
 
-def test_no_findall_descendants_truecondition_enumeration():
-    # The old control-view enumeration is gone. (Find-Window's
-    # Children-scope FindAll is a different, untouched lookup.)
-    assert "$win.FindAll" not in PS
-    assert "TrueCondition" not in PS
-    assert "TreeScope]::Descendants" not in PS
-
-
-def test_walk_feeds_the_shared_enumeration_in_document_order():
-    # The raw-view walk replaces the enumeration source only: it sits
-    # between the window lookup and the same downstream foreach, so
-    # the filters / ordering / caps below it are the pre-change ones.
-    # Scope to the MAIN walk via its unique cap constant: the
-    # 'focused' op (slice C) also names RawViewWalker for its
-    # ancestor/escalation walk and sits earlier in the script.
-    assert PS.index("Find-Window $req.window") < PS.index("$UIA_MAX_VISITED_NODES")
-    assert PS.index("$UIA_MAX_VISITED_NODES") < PS.index("foreach ($el in $all)")
+def test_enumeration_feeds_the_shared_collection_in_document_order():
+    # The FindAll enumeration sits between the window lookup and the
+    # same downstream foreach, so the filters / ordering / caps
+    # below it are the pre-change ones.
+    assert PS.index("Find-Window $req.window") < PS.index("$all = $win.FindAll(")
+    assert PS.index("$all = $win.FindAll(") < PS.index("foreach ($el in $all)")
     # Matched-cap break over the collected list is unchanged.
     assert "if ($elems.Count -ge $limit) { break }" in PS
     # Name matching: slice B alone left the in-loop -notmatch filter
@@ -92,14 +97,11 @@ def test_bounding_rect_values_are_clamped_not_cast():
     assert "$bx = Safe-Int $r.X" in PS
 
 
-def test_visited_node_cap_constant_exists_and_bounds_the_walk():
-    m = re.search(r"\$UIA_MAX_VISITED_NODES\s*=\s*(\d+)", PS)
-    assert m, "named visited-node cap constant missing"
-    assert int(m.group(1)) == 20000
-    # The cap actually guards the walk loop and the counter it reads
-    # is the one the loop increments.
-    assert "$visited -lt $UIA_MAX_VISITED_NODES" in PS
-    assert "$visited += 1" in PS
+def test_no_visited_node_cap_machinery_remains():
+    # The cap belonged to the retired hand-rolled DFS; the
+    # provider-backed FindAll has no client-side walk to bound.
+    assert "$UIA_MAX_VISITED_NODES" not in PS
+    assert "$visited" not in PS
 
 
 def test_collected_element_fields_are_exactly_the_pre_change_set():
