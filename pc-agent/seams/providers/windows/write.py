@@ -479,11 +479,15 @@ def paste_text(text: str) -> dict:
     old = clipboard.get_text()
     try:
         clipboard.set_text(text)
-        _key_event(_VK["ctrl"], True)
-        try:
-            _tap_vk(ord("V"))
-        finally:
-            _key_event(_VK["ctrl"], False)
+        # Ctrl+V as ONE batched SendInput call -- the codebase rule
+        # (see _send_inputs): split per-event calls let other input
+        # interleave mid-chord and the paste intermittently never
+        # lands (proven live 2026-10-29: 3 split-call pastes lost,
+        # batched hotkey ctrl+v and the batched paste both landed).
+        _send_inputs([_vk_input(_VK["ctrl"], True),
+                      _vk_input(ord("V"), True),
+                      _vk_input(ord("V"), False),
+                      _vk_input(_VK["ctrl"], False)])
         time.sleep(0.5)  # let the paste land before restoring clipboard
         verified = _paste_readback(text)
     finally:
