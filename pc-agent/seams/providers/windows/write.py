@@ -589,10 +589,14 @@ def _keyboard_replace(window: str, name_rx: str, text: str,
                   _vk_input(_VK["delete"], False)])
     cleared = _uia_get_raw(window, name_rx, control_type, index,
                            runtime_id=runtime_id or "")
-    if cleared.get("value") not in ("", None):
-        raise RuntimeError(
-            f"keyboard replace: clear failed, read back "
-            f"{cleared.get('value')!r}")
+    # Whatever the field reads right after the clear IS its empty
+    # state. Chromium composers expose their placeholder as the
+    # value of an empty field (Hermes: 'Start with a goal' — it
+    # vanishes the moment real text lands), so a non-"" read here
+    # is not a failed clear; the exact read-back after typing is
+    # the verdict. empty_value is reported so send_message can
+    # recognize the cleared state after Enter.
+    empty_value = cleared.get("value")
     _send_unicode(text)
     after = _uia_get_raw(window, name_rx, control_type, index,
                          runtime_id=runtime_id or "")
@@ -602,7 +606,7 @@ def _keyboard_replace(window: str, name_rx: str, text: str,
             f"read back {after.get('value')!r}")
     return {"ok": True, "method": "keyboard",
             "name": after.get("name", ""), "value_after": text,
-            "verified": True}
+            "empty_value": empty_value, "verified": True}
 
 
 def _uia_set_text_verified(window: str, name_rx: str, text: str,
@@ -682,14 +686,22 @@ def send_message(window: str, name_rx: str, text: str,
     target_rid = info.get("runtime_id", "")
     _focus_gate(window=window, name_rx=name_rx,
                 control_type=control_type, index=index)
-    _uia_set_text_verified(window, name_rx, text, control_type, index)
+    set_result = _uia_set_text_verified(window, name_rx, text,
+                                        control_type, index)
+    empty_value = set_result.get("empty_value")
     _tap_vk(_VK["enter"])
     checks = {"value_cleared": False, "in_message_list": False,
               "focus_on_control": False}
     deadline = time.monotonic() + 1.0
     while True:
         after = _uia_get_raw(window, name_rx, control_type, index)
-        checks["value_cleared"] = after.get("value") == ""
+        # Cleared means "" — or, for placeholder-exposing composers
+        # (see _keyboard_replace), the field's learned empty-state
+        # value (its placeholder) is back.
+        checks["value_cleared"] = (
+            after.get("value") in ("", None)
+            or (empty_value not in (None, "")
+                and after.get("value") == empty_value))
         # Contains probe: under the tiered name semantics the sent
         # text is not a name match, so the find op collects elements
         # whose name, value, or text contains it (case-sensitive).
