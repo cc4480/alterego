@@ -109,8 +109,8 @@ def test_denied_raises(tmp_path):
 
 def test_wrappers_register_all():
     names = [f.__name__ for f in tool_wrappers.ALL_TOOLS]
-    assert len(names) == 50, names
-    assert len(set(names)) == 50, "duplicate tool names"
+    assert len(names) == 73, names
+    assert len(set(names)) == 73, "duplicate tool names"
     for n in ("write_file", "edit_file", "delete_file", "create_dir",
               "close_window", "hotkey", "mouse_move", "mouse_click",
               "mouse_scroll", "minimize_window", "maximize_window",
@@ -119,9 +119,12 @@ def test_wrappers_register_all():
               "memory_recall", "shell_pwsh", "batch",
               "http_headers", "dns_query", "tls_info", "tcp_check",
               "active_window", "idle_seconds", "list_processes",
-              "notify", "speak", "set_volume", "power"):
+              "notify", "speak", "set_volume", "power",
+              "cdp_launch", "cdp_connect", "cdp_targets", "cdp_navigate",
+              "cdp_snapshot", "cdp_click", "cdp_type", "cdp_evaluate",
+              "cdp_readback", "cdp_close"):
         assert n in names, n
-    print("PASS wrappers: 50 tools registered")
+    print("PASS wrappers: 73 tools registered")
 
 
 def test_hotkey_parse():
