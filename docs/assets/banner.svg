@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="360" viewBox="0 0 1280 360" role="img" aria-label="AlterEgo — Muse Spark on your Windows PC, built for SecScan RedTeam">
+  <defs>
+    <linearGradient id="spark" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8B7CFF"/>
+      <stop offset="45%" stop-color="#5B8CFF"/>
+      <stop offset="100%" stop-color="#38E1FF"/>
+    </linearGradient>
+    <linearGradient id="title" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="70%" stop-color="#D9E4FF"/>
+      <stop offset="100%" stop-color="#9FC8FF"/>
+    </linearGradient>
+    <radialGradient id="glowViolet" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#6D5CFF" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#6D5CFF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowCyan" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#2FB9FF" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#2FB9FF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowRed" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#E5484D" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#E5484D" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- backdrop -->
+  <rect width="1280" height="360" fill="#07080D"/>
+  <ellipse cx="240" cy="60" rx="520" ry="300" fill="url(#glowViolet)"/>
+  <ellipse cx="1080" cy="330" rx="560" ry="300" fill="url(#glowCyan)"/>
+  <ellipse cx="1180" cy="40" rx="300" ry="180" fill="url(#glowRed)"/>
+
+  <!-- fine grid, very subtle -->
+  <g stroke="#FFFFFF" stroke-opacity="0.045" stroke-width="1">
+    <path d="M0 90 H1280 M0 180 H1280 M0 270 H1280"/>
+    <path d="M213 0 V360 M426 0 V360 M640 0 V360 M853 0 V360 M1066 0 V360"/>
+  </g>
+
+  <!-- spark mark: an original four-point star, Muse-gradient -->
+  <g transform="translate(118,84)">
+    <path d="M48 0 C55 30 66 41 96 48 C66 55 55 66 48 96 C41 66 30 55 0 48 C30 41 41 30 48 0 Z" fill="url(#spark)"/>
+    <path d="M118 74 C120.5 84 124 87.5 134 90 C124 92.5 120.5 96 118 106 C115.5 96 112 92.5 102 90 C112 87.5 115.5 84 118 74 Z" fill="url(#spark)" opacity="0.75"/>
+    <circle cx="26" cy="128" r="5" fill="url(#spark)" opacity="0.6"/>
+  </g>
+
+  <!-- eyebrow -->
+  <text x="252" y="112" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="21" font-weight="600" letter-spacing="6" fill="#9FB4FF">MUSE&#8202;&#8202;SPARK &#183; PERSONAL AGENT BRIDGE</text>
+
+  <!-- title -->
+  <text x="248" y="196" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="92" font-weight="700" letter-spacing="1" fill="url(#title)">AlterEgo</text>
+
+  <!-- subtitle -->
+  <text x="252" y="244" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="26" font-weight="400" fill="#C7D2E8">A second self for your AI &#8212; eyes, hands, and a keyboard on your own Windows PC.</text>
+  <text x="252" y="282" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="26" font-weight="400" fill="#8E9BB8">67 MCP tools. Every dangerous action asks you first, on your own screen.</text>
+
+  <!-- footer rule + identities -->
+  <rect x="252" y="308" width="776" height="2" fill="#FFFFFF" opacity="0.14"/>
+  <rect x="252" y="308" width="180" height="2" fill="#E5484D"/>
+  <text x="252" y="338" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="19" font-weight="600" letter-spacing="2" fill="#E8ECF5">CHO-ZEN1 &#183; POWERED BY MUSE</text>
+  <text x="1028" y="338" text-anchor="end" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="19" font-weight="600" letter-spacing="2" fill="#FF8A8E">BUILT FOR SECSCAN REDTEAM</text>
+</svg>
