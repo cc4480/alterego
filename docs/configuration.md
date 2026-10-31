@@ -37,7 +37,8 @@ restart the server after changing them.
 | File | Purpose |
 |---|---|
 | `session_token` | Persisted session tokens (JSON list). Delete = revoke all sessions, instantly |
-| `events\` | Event-sourced operation log — one JSONL file per UTC day, plus the blob store for oversized values |
+| `events\` | Event-sourced operation log — one JSONL file per UTC day |
+| `blobs\` | Content-addressed blob store for oversized event values (by SHA-256) |
 | `jobs.db` | Job-layer journal (SQLite) |
 | `ESTOP` | Emergency-stop sentinel for the job layer — presence = engaged |
 | `heartbeat.txt` | Server liveness timestamp, rewritten every 60 s (the watchdog's proof of life) |
