@@ -231,7 +231,8 @@ Everything the agent keeps lives under `%APPDATA%\pc-mcp-bridge\`:
 | Path | What |
 |---|---|
 | `session_token` | persisted session tokens (JSON list) — delete to revoke all |
-| `events\` | the event-sourced operation log (JSONL per day) + blob store |
+| `events\` | the event-sourced operation log (JSONL per day) |
+| `blobs\` | content-addressed blob store for oversized event values |
 | `jobs.db` | the job journal (SQLite) |
 | `ESTOP` | emergency-stop sentinel (presence = engaged) |
 | `heartbeat.txt` | server liveness timestamp (60 s cadence) |
