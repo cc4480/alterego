@@ -21,6 +21,7 @@ restart the server after changing them.
 | `PC_BRIDGE_PROFILE_ROOT` | path | Root the read tools are confined to (default `%USERPROFILE%`) |
 | `SEARXNG_URL` | base URL | Enables the SearXNG backend for `web_search` |
 | `PC_BRIDGE_VERSION` | string | Version string reported in the `ServerStarted` event when no git checkout is available |
+| `PC_BRIDGE_HOST` / `PC_BRIDGE_PORT` | `127.0.0.1` / `8765` | Where the job layer's doctor report probes for the listener. The server's own bind is fixed in `server.py` — these only aim the check |
 | `APPDATA` | (Windows standard) | Root of the bridge data dir: `%APPDATA%\pc-mcp-bridge\` |
 
 ## Operator (`bridge/`, on the controlling machine)
