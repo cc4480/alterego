@@ -280,6 +280,81 @@ def browser_eval(js: str, url_contains: str = "") -> dict:
                          {"js": js, "url_contains": url_contains}, write=True)
 
 
+# ---- Chrome CDP session hand (cdp_*; agent-owned presentation profile) ----
+def cdp_launch(profile_dir: str = "", debug_port: int = 0,
+               start_url: str = "") -> dict:
+    """Launch Chrome on the prepared presentation profile with a CDP
+    debug port and attach the session. Requires approval."""
+    return toolcall.call("cdp_launch",
+                         {"profile_dir": profile_dir,
+                          "debug_port": debug_port, "start_url": start_url},
+                         write=True)
+
+
+def cdp_connect(debug_port: int = 0) -> dict:
+    """Attach the CDP session to a Chrome already serving a debug port
+    (no process ownership). Requires approval."""
+    return toolcall.call("cdp_connect", {"debug_port": debug_port},
+                         write=True)
+
+
+def cdp_targets(target_id: str = "") -> dict:
+    """List the session browser's page targets; switches the active
+    target when target_id is given (no approval)."""
+    return toolcall.call("cdp_targets", {"target_id": target_id})
+
+
+def cdp_navigate(url: str, timeout_s: int = 30) -> dict:
+    """Navigate the CDP session tab to a URL and verify the landing
+    (url + title readback; hard timeout, never a silent hang).
+    Requires approval."""
+    return toolcall.call("cdp_navigate",
+                         {"url": url, "timeout_s": timeout_s}, write=True)
+
+
+def cdp_snapshot() -> dict:
+    """Compact index of the page's interactive elements with stable CSS
+    selectors — the addressing/verification primitive (no approval)."""
+    return toolcall.call("cdp_snapshot", {})
+
+
+def cdp_click(selector: str = "", text: str = "") -> dict:
+    """Click an element by CSS selector or visible text (never
+    coordinates); returns the landing readback. Requires approval."""
+    return toolcall.call("cdp_click",
+                         {"selector": selector, "text": text}, write=True)
+
+
+def cdp_type(text: str, selector: str = "", label: str = "",
+             clear_first: bool = True) -> dict:
+    """Type into a field addressed by selector or label via CDP
+    Input.insertText; success requires value readback equality.
+    Requires approval."""
+    return toolcall.call("cdp_type",
+                         {"text": text, "selector": selector,
+                          "label": label, "clear_first": clear_first},
+                         write=True)
+
+
+def cdp_evaluate(js: str) -> dict:
+    """Run JavaScript in the CDP session tab. Requires on-PC approval."""
+    return toolcall.call("cdp_evaluate", {"js": js}, write=True)
+
+
+def cdp_readback() -> dict:
+    """Read back the session page's url, title, ready_state and active
+    element — verify a landing without acting (no approval)."""
+    return toolcall.call("cdp_readback", {})
+
+
+def cdp_close(delete_profile: bool = False) -> dict:
+    """End the CDP session: a launched browser is closed gracefully via
+    Browser.close; an attached browser is only detached. Optionally
+    deletes the presentation profile. Requires approval."""
+    return toolcall.call("cdp_close", {"delete_profile": delete_profile},
+                         write=True)
+
+
 ALL_TOOLS = [
     screenshot, list_windows, system_info, list_dir, read_file,
     clipboard_get, memory_recall,
@@ -293,6 +368,8 @@ ALL_TOOLS = [
     copy_file, move_file, file_info,
     browser_snapshot, browser_navigate, browser_click, browser_fill,
     browser_eval,
+    cdp_launch, cdp_connect, cdp_targets, cdp_navigate, cdp_snapshot,
+    cdp_click, cdp_type, cdp_evaluate, cdp_readback, cdp_close,
     shell_pwsh, batch,
     exec_background, exec_status, exec_cancel,
     http_headers, dns_query, tls_info, tcp_check, web_fetch, web_search,
