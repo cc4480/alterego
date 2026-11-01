@@ -7,6 +7,7 @@
   muted for the batch duration (restored afterwards).
 """
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import events
 import subproc
@@ -74,6 +75,54 @@ def shell_pwsh(script: str, timeout_s: int = 60,
             "stderr": stderr[-MAX_OUTPUT:]}
 
 
+def _partition_batch(plan, resource_map):
+    """Group plan indices into chains that must run sequentially.
+
+    Calls sharing a RESOURCE_MAP resource serialize in plan order;
+    unlisted calls each get their own chain and run concurrently.
+    Returns a list of chains (lists of plan indices)."""
+    chains = []
+    by_resource = {}
+    for i, (name, _args) in enumerate(plan):
+        resource = resource_map.get(name)
+        if resource is None:
+            chains.append([i])
+        else:
+            chain = by_resource.get(resource)
+            if chain is None:
+                chain = by_resource[resource] = []
+                chains.append(chain)
+            chain.append(i)
+    return chains
+
+
+def _run_batch_call(name, args, registry, batch_id):
+    """One sub-call, exactly as the sequential batch ran it.
+
+    Returns (entry, kind) where kind is completed/denied/failed."""
+    if name not in registry:
+        return {"tool": name, "error": f"unknown tool: {name}"}, "failed"
+    r = toolcall.call(name, args, write=False, caused_by=batch_id)
+    err = r.get("error") if isinstance(r, dict) else None
+    if err is None:
+        kind = "completed"
+    elif "denied" in str(err).lower():
+        kind = "denied"
+    else:
+        kind = "failed"
+    return {"tool": name, "result": r}, kind
+
+
+def _run_batch_chain(chain, plan, registry, batch_id):
+    """Run one chain sequentially; returns [(index, entry, kind)]."""
+    out = []
+    for i in chain:
+        name, args = plan[i]
+        entry, kind = _run_batch_call(name, args, registry, batch_id)
+        out.append((i, entry, kind))
+    return out
+
+
 def batch(calls: list) -> dict:
     """Run several tool calls in one roundtrip.
 
@@ -104,25 +153,26 @@ def batch(calls: list) -> dict:
         "tool_count": len(plan),
         "tools": [n for n, _ in plan],
     }, session_id=toolcall._session_id())
+    from jobs import RESOURCE_MAP  # lazy: jobs never imports this module
     completed = denied = failed = 0
+    results = [None] * len(plan)
     try:
         for m in _GATED_MODULES:
             m._approved = lambda tool, summary: None
-        results = []
-        for name, args in plan:
-            if name not in registry:
-                results.append({"tool": name, "error": f"unknown tool: {name}"})
-                failed += 1
-                continue
-            r = toolcall.call(name, args, write=False, caused_by=batch_id)
-            err = r.get("error") if isinstance(r, dict) else None
-            if err is None:
-                completed += 1
-            elif "denied" in str(err).lower():
-                denied += 1
-            else:
-                failed += 1
-            results.append({"tool": name, "result": r})
+        chains = _partition_batch(plan, RESOURCE_MAP)
+        with ThreadPoolExecutor(max_workers=min(len(chains), 8)) as ex:
+            futs = [ex.submit(_run_batch_chain, chain, plan, registry,
+                              batch_id)
+                    for chain in chains]
+            for fut in as_completed(futs):
+                for i, entry, kind in fut.result():
+                    results[i] = entry
+                    if kind == "completed":
+                        completed += 1
+                    elif kind == "denied":
+                        denied += 1
+                    else:
+                        failed += 1
     finally:
         for m, fn in originals.items():
             m._approved = fn

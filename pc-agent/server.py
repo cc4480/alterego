@@ -76,7 +76,10 @@ def submit_job(tool: str, args: dict | None = None,
 
 @mcp.tool()
 def job_status(job_id: str) -> dict:
-    """Job state + started/finished receipts from the journal."""
+    """Job state + elapsed time + progress from the journal.
+
+    While running, progress carries output bytes, stall age, and any
+    message/current/total the tool reported via report_progress."""
     return _jobs.job_status_op(job_id)
 
 
