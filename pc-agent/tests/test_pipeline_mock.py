@@ -2,7 +2,7 @@
 provider — hooks -> plan-mode -> execute -> typed events (the primary
 record since the Phase 5 cutover; the legacy audit.log is gone).
 
-Covers: result_keys contract for all 78 tools, hook allow/deny/modify,
+Covers: result_keys contract for all 86 tools, hook allow/deny/modify,
 plan-mode dry-run, approval tiers, and the expected event chain per call.
 """
 import pytest
@@ -81,12 +81,23 @@ ARGS = {
     "search_tools": {"query": "window"},
     "complete_arg": {"tool": "uia_find", "argument": "window",
                      "prefix": "Mock"},
+    "elicit_input": {"question": "Pick one?", "options": ["A", "B"]},
+    "list_elicitations": {},
+    "watch_path": {"path": "seed.txt"},
+    # unwatch_path succeeds only because watch_path runs first in
+    # PARAM_NAMES order (defs order) in the same session.
+    "unwatch_path": {"path": "seed.txt"},
+    "list_watches": {},
+    "poll_changes": {},
+    "dashboard": {},
+    "tool_finder": {"query": "window"},
 }
 
 ALL_NAMES = [d.name for d in definitions.ALL_DEFS]
 PARAM_NAMES = [n for n in ALL_NAMES
-               if n not in ("task_checkpoint", "task_status")]
-assert len(PARAM_NAMES) == 78, len(PARAM_NAMES)
+               if n not in ("task_checkpoint", "task_status",
+                            "answer_elicitation")]
+assert len(PARAM_NAMES) == 86, len(PARAM_NAMES)
 
 
 def _write_flag(name):

@@ -111,3 +111,52 @@ def complete_arg(tool, argument, prefix="", max_results=10):
     values, total = _match_candidates(candidates, prefix, max_results)
     return {"tool": tool, "argument": argument, "prefix": prefix or "",
             "values": values, "total": total}
+
+
+# ---- elicitation + change subscriptions + dashboard (Batch 5) ------------
+# Shared modules do the work (single source of truth, like event_query);
+# both providers delegate so Windows and mock behave identically.
+def elicit_input(question, options, tool="", argument="", context=""):
+    import elicitations
+    return elicitations.create_elicitation(
+        question, options, tool, argument, context)
+
+
+def answer_elicitation(elicitation_id, choice):
+    import elicitations
+    return elicitations.answer_elicitation(elicitation_id, choice)
+
+
+def list_elicitations(status="", limit=20):
+    import elicitations
+    return elicitations.list_elicitations(status, limit)
+
+
+def watch_path(path):
+    import changes
+    return changes.watch_path(path)
+
+
+def unwatch_path(path):
+    import changes
+    return changes.unwatch_path(path)
+
+
+def list_watches():
+    import changes
+    return changes.list_watches()
+
+
+def poll_changes(since_seq=0, limit=50):
+    import changes
+    return changes.poll_changes(since_seq, limit)
+
+
+def dashboard():
+    from bridge_resources import dashboard_state
+    return dashboard_state()
+
+
+def tool_finder(query="", group="", max_results=10, offset=0):
+    from seams import definitions
+    return definitions.search_definitions(query, group, max_results, offset)
