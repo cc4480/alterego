@@ -15,9 +15,13 @@ def idle_seconds() -> dict:
     return {"idle_seconds": 42}
 
 
-def list_processes() -> dict:
-    return {"count": len(PROCS),
-            "processes": [dict(p) for p in PROCS]}
+def list_processes(offset: int = 0, limit: int = 0) -> dict:
+    procs = [dict(p) for p in PROCS]
+    total = len(procs)
+    offset = max(0, int(offset or 0))
+    page = procs[offset:] if not limit else procs[offset:offset + max(0, int(limit))]
+    return {"count": len(page), "processes": page,
+            "total": total, "offset": offset}
 
 
 def notify(title: str, message: str, timeout_s: int = 5) -> dict:

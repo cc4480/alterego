@@ -1,7 +1,7 @@
 # Tool reference
 
 The catalog below is the MCP surface exactly as the server registers
-it: **77 tools** — 73 wrapper tools (`pc-agent/tool_wrappers*.py`,
+it: **84 tools** — 80 wrapper tools (`pc-agent/tool_wrappers*.py`,
 registered from `ALL_TOOLS`) plus 4 job-layer ops registered by
 `server.py`. All are exposed over MCP (Streamable HTTP) at
 `POST {tunnel-url}/mcp`, authenticated with the session bearer token
@@ -235,8 +235,10 @@ tiers: `> 0.8` → `auto`, `0.5–0.8` → `confirm`, `< 0.5` →
 |---|---|---|---|
 | `memory_recall` | `query`, `limit` (default 5) | — | Keyword search over the on-PC memory archive (transcripts + subject index) at `%APPDATA%\pc-mcp-bridge\memory\` |
 | `doctor` | — | — | Bridge health check: Python version, port 8765 listener, Defender exclusions, Startup entry, tunnel config, disk space, event log. Each check returns ok/warning/fail/unknown + a specific fix command |
-| `query_events` | `tool`, `type`, `since` (`5m`/`1h`/`24h`/`7d`/`30d` or ISO; default `7d`), `session_id`, `limit` (default 50) | — | Search the event-sourced operation log |
+| `query_events` | `tool`, `type`, `since` (`5m`/`1h`/`24h`/`7d`/`30d` or ISO; default `7d`), `session_id`, `limit` (default 50), `offset` (default 0) | — | Search the event-sourced operation log (paginated) |
 | `replay_session` | `session_id`, `format` (`human`) | — | Full causal transcript of one operator session |
+| `search_tools` | `query`, `group`, `max_results` (default 10), `offset` (default 0) | — | Keyword search over the tool catalog (name/doc/group), scored name-first, paginated |
+| `complete_arg` | `tool`, `argument`, `prefix`, `max_results` (default 10) | — | Complete an argument value from live state: window titles, profile-relative paths |
 
 ## Job layer — registered by `server.py`
 

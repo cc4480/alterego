@@ -24,9 +24,11 @@ SCREENSHOT = ToolDef(
 LIST_WINDOWS = ToolDef(
     name="list_windows",
     group="read",
-    doc="List visible windows: handle, pid, title.",
-    args={},
-    result_keys=["windows"],
+    doc="List visible windows: handle, pid, title. Paginated: offset "
+        "skips, limit caps (0 = all).",
+    args={"offset": {"type": "int", "required": False, "default": 0},
+          "limit": {"type": "int", "required": False, "default": 0}},
+    result_keys=["windows", "total", "offset"],
     approval_tier="silent",
     side_effects="none",
     platform_notes="Windows: win32gui EnumWindows. Linux/X11: ewmh or "
@@ -51,9 +53,13 @@ SYSTEM_INFO = ToolDef(
 LIST_DIR = ToolDef(
     name="list_dir",
     group="read",
-    doc="List a directory. Restricted to the user's profile.",
-    args={"path": {"type": "str", "default": "", "required": False}},
-    result_keys=["path", "items"],
+    doc="List a directory. Restricted to the user's profile. "
+        "Paginated: offset skips, limit caps (0 = all). Items are "
+        "sorted by name.",
+    args={"path": {"type": "str", "default": "", "required": False},
+          "offset": {"type": "int", "required": False, "default": 0},
+          "limit": {"type": "int", "required": False, "default": 0}},
+    result_keys=["path", "items", "total", "offset"],
     approval_tier="silent",
     side_effects="none",
     platform_notes="Fully portable: pathlib. The profile-root constant is a "

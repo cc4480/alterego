@@ -23,6 +23,9 @@ PROFILES = {
     "system_info": _p("none", 10),
     "list_dir": _p("none", 10),
     "read_file": _p("none", 10, tags=("user_data",)),
+    "search_files": _p("none", 10, tags=("user_data",)),
+    "search_filenames": _p("none", 10, tags=("user_data",)),
+    "read_file_range": _p("none", 10, tags=("user_data",)),
     "clipboard_get": _p("none", 10, tags=("user_data",)),
     "memory_recall": _p("none", 10),
     "uia_find": _p("none", 10),
@@ -38,6 +41,8 @@ PROFILES = {
     "doctor": _p("none", 10),
     "query_events": _p("none", 10),
     "replay_session": _p("none", 10),
+    "search_tools": _p("none", 10),
+    "complete_arg": _p("none", 10),
     # ---- recon: read-only but touches the network ----
     "http_headers": _p("external", 10, ("HTTP request to target URL",), tags=("network",)),
     "dns_query": _p("external", 10, ("DNS query issued",), tags=("network",)),
@@ -119,6 +124,9 @@ PROFILES = {
     "supervisor_status": _p("none", 10),
     "hot_reload": _p("session", 8, ("reload behavior change",),
                      "hot_reload disable"),
+    "exec_status": _p("none", 10),
+    "exec_cancel": _p("session", 8, ("background job cancelled",),
+                      "re-run the background command"),
 }
 
 
@@ -139,3 +147,27 @@ def approval_tier(tool_name: str) -> str:
     if "destructive" in p["sensitivity_tags"] or p["recoverability"] <= 3:
         return "always_ask"
     return "ask"
+
+
+def annotations_for(tool_name: str) -> dict:
+    """MCP ToolAnnotations hints derived from the risk profile.
+
+    read_only: blast radius none/external, fully recoverable, no
+    destructive tag (network reads modify nothing, so they count).
+    destructive: the profile carries the destructive tag.
+    idempotent: fully recoverable AND no side effects listed.
+    open_world: interacts with external entities (network tag or
+    external blast radius).
+    Approval tiers are untouched: these hints only describe the tool."""
+    p = get_profile(tool_name)
+    tags = p["sensitivity_tags"]
+    read_only = (p["blast_radius"] in ("none", "external")
+                 and p["recoverability"] == 10
+                 and "destructive" not in tags)
+    destructive = "destructive" in tags
+    idempotent = p["recoverability"] == 10 and not p["side_effects"]
+    open_world = "network" in tags or p["blast_radius"] == "external"
+    return {"read_only_hint": read_only,
+            "destructive_hint": destructive,
+            "idempotent_hint": idempotent,
+            "open_world_hint": open_world}

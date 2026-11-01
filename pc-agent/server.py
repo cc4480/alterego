@@ -41,13 +41,27 @@ import uvicorn
 import approval
 import events
 import hooks
+from mcp.types import ToolAnnotations
+from tool_profiles import annotations_for
 from tool_wrappers import ALL_TOOLS
 
 HOST, PORT = "127.0.0.1", 8765
-mcp = MCPServer("pc-bridge")
+
+_BRIDGE_INSTRUCTIONS = (
+    "AlterEgo PC bridge: tools over one Windows PC. Prefer desktop_state "
+    "for a one-call view of windows, UI, and screen; wait_for instead of "
+    "sleep-and-retry; search_tools to find a tool instead of reading every "
+    "schema; batch for independent calls (desktop/browser calls in one "
+    "batch serialize). Reads are silent; writes ask unless the server "
+    "runs in dontAsk mode. job_status is the progress channel for "
+    "background jobs — poll it, do not re-submit."
+)
+
+mcp = MCPServer("pc-bridge", instructions=_BRIDGE_INSTRUCTIONS)
 
 for _tool_fn in ALL_TOOLS:
-    mcp.tool()(_tool_fn)
+    mcp.tool(annotations=ToolAnnotations(
+        **annotations_for(_tool_fn.__name__)))(_tool_fn)
 
 # --- Job layer ops (Hermes-pattern, 2026-10-23): journal-ACK intake ---
 # submit_job journals the call and returns a job_id immediately; the
@@ -58,7 +72,9 @@ for _tool_fn in ALL_TOOLS:
 import jobs as _jobs
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(
+    read_only_hint=False, destructive_hint=False,
+    idempotent_hint=False, open_world_hint=False))
 def submit_job(tool: str, args: dict | None = None,
                idempotency_key: str = "", lineage: str = "") -> dict:
     """Submit a tool call as a background job; returns {job_id, state}
@@ -74,7 +90,9 @@ def submit_job(tool: str, args: dict | None = None,
                                lineage or None)
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(
+    read_only_hint=True, destructive_hint=False,
+    idempotent_hint=True, open_world_hint=False))
 def job_status(job_id: str) -> dict:
     """Job state + elapsed time + progress from the journal.
 
@@ -83,20 +101,26 @@ def job_status(job_id: str) -> dict:
     return _jobs.job_status_op(job_id)
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(
+    read_only_hint=True, destructive_hint=False,
+    idempotent_hint=True, open_world_hint=False))
 def job_result(job_id: str) -> dict:
     """Job result (when terminal) from the journal / blob store."""
     return _jobs.job_result_op(job_id)
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(
+    read_only_hint=False, destructive_hint=False,
+    idempotent_hint=True, open_world_hint=False))
 def job_cancel(job_id: str) -> dict:
     """Cancel a queued or running job; a running job's process tree is
     fenced (only that job's processes are killed)."""
     return _jobs.job_cancel_op(job_id)
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(
+    read_only_hint=True, destructive_hint=False,
+    idempotent_hint=True, open_world_hint=False))
 def doctor() -> dict:
     """Read-only bridge health report: listener, tunnel, token,
     journal, and ESTOP state — every component that is not ok carries

@@ -26,11 +26,15 @@ def screenshot(region: dict | None = None, scale: float = 1.0) -> dict:
     return {"png_base64": _RED_PNG_B64, "width": 1, "height": 1}
 
 
-def list_windows() -> dict:
-    return {"windows": [
+def list_windows(offset: int = 0, limit: int = 0) -> dict:
+    wins = [
         {"hwnd": 12345, "title": "Mock Window", "pid": 1234},
         {"hwnd": 12346, "title": "Mock Console", "pid": 512},
-    ]}
+    ]
+    total = len(wins)
+    offset = max(0, int(offset or 0))
+    page = wins[offset:] if not limit else wins[offset:offset + max(0, int(limit))]
+    return {"windows": page, "total": total, "offset": offset}
 
 
 def system_info() -> dict:
@@ -39,11 +43,15 @@ def system_info() -> dict:
             "user": "mock-user", "cpu_percent": 12.5, "mem_percent": 42.0}
 
 
-def list_dir(path: str = "") -> dict:
+def list_dir(path: str = "", offset: int = 0, limit: int = 0) -> dict:
     p = norm_path(path) if path else PROFILE_ROOT
     if not is_dir(p):
         raise FileNotFoundError(f"no such directory: {path!r}")
-    return {"path": p, "items": list_children(p)}
+    items = list_children(p)
+    total = len(items)
+    offset = max(0, int(offset or 0))
+    page = items[offset:] if not limit else items[offset:offset + max(0, int(limit))]
+    return {"path": p, "items": page, "total": total, "offset": offset}
 
 
 def read_file(path: str) -> dict:

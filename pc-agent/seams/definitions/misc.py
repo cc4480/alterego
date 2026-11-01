@@ -64,7 +64,8 @@ QUERY_EVENTS = ToolDef(
           "type": {"type": "str", "required": False},
           "since": {"type": "str", "default": "7d", "required": False},
           "session_id": {"type": "str", "required": False},
-          "limit": {"type": "int", "default": 50, "required": False}},
+          "limit": {"type": "int", "default": 50, "required": False},
+          "offset": {"type": "int", "default": 0, "required": False}},
     result_keys=["events", "total", "truncated"],
     approval_tier="silent",
     side_effects="none",
@@ -87,5 +88,42 @@ REPLAY_SESSION = ToolDef(
                    "query_events tool and the event_query.py CLI.",
 )
 
+SEARCH_TOOLS = ToolDef(
+    name="search_tools",
+    group="misc",
+    doc="Find tools by keyword over names, docs, and groups — use this "
+        "instead of reading all tool schemas. Empty query lists every "
+        "tool. Results are scored (name matches first) and paginated.",
+    args={"query": {"type": "str", "required": False, "default": ""},
+          "group": {"type": "str", "required": False, "default": ""},
+          "max_results": {"type": "int", "required": False, "default": 10},
+          "offset": {"type": "int", "required": False, "default": 0}},
+    result_keys=["query", "count", "total", "tools"],
+    approval_tier="silent",
+    side_effects="none",
+    platform_notes="Pure metadata search over definitions — zero "
+                   "platform coupling.",
+)
+
+COMPLETE_ARG = ToolDef(
+    name="complete_arg",
+    group="misc",
+    doc="Complete an argument value from live state: window titles for "
+        "uia_find/wait_for window, profile-relative paths for the file "
+        "tools' path. Unknown tool or unsupported argument is an error; "
+        "a supported pair with no matches returns an empty list.",
+    args={"tool": {"type": "str", "required": True},
+          "argument": {"type": "str", "required": True},
+          "prefix": {"type": "str", "required": False, "default": ""},
+          "max_results": {"type": "int", "required": False, "default": 10}},
+    result_keys=["tool", "argument", "prefix", "values", "total"],
+    approval_tier="silent",
+    side_effects="none",
+    platform_notes="Window titles come from list_windows; paths from the "
+                   "profile-root listing. Both providers implement it. "
+                   "The MCP completion primitive cannot do this — it "
+                   "only completes prompt/resource arguments.",
+)
+
 ALL_MISC_DEFS = [MEMORY_RECALL, DOCTOR, ARBITRATE, QUERY_EVENTS,
-                 REPLAY_SESSION]
+                 REPLAY_SESSION, SEARCH_TOOLS, COMPLETE_ARG]

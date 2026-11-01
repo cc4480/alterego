@@ -63,8 +63,11 @@ def _read_all(since=None, events_dir=None):
 
 
 def query_event_log(tool=None, event_type=None, since="7d", session_id=None,
-                    limit=_DEFAULT_LIMIT, events_dir=None):
-    """Filtered event search. Returns (events, total, truncated)."""
+                    limit=_DEFAULT_LIMIT, events_dir=None, offset=0):
+    """Filtered event search. Returns (events, total, truncated).
+
+    ``offset`` skips that many matching events before ``limit`` is
+    applied; ``total`` is the match count before paging."""
     since_iso = _parse_all_since(since)
     out = []
     for e in _read_all(since_iso, events_dir):
@@ -77,7 +80,9 @@ def query_event_log(tool=None, event_type=None, since="7d", session_id=None,
             continue
         out.append(e)
     total = len(out)
-    return out[:limit], total, total > limit
+    offset = max(0, int(offset or 0))
+    page = out[offset:] if not limit else out[offset:offset + max(0, int(limit))]
+    return page, total, total > offset + len(page)
 
 
 def _parse_all_since(since):
@@ -87,11 +92,12 @@ def _parse_all_since(since):
 
 
 def query_events(tool=None, type=None, since="7d", session_id=None,
-                 limit=_DEFAULT_LIMIT):
+                 limit=_DEFAULT_LIMIT, offset=0):
     """MCP tool implementation: filtered event search (read-only)."""
     evs, total, truncated = query_event_log(
         tool=tool, event_type=type, since=since, session_id=session_id,
-        limit=max(1, min(int(limit or _DEFAULT_LIMIT), 500)))
+        limit=max(1, min(int(limit or _DEFAULT_LIMIT), 500)),
+        offset=offset)
     return {"events": evs, "total": total, "truncated": truncated}
 
 

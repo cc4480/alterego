@@ -75,7 +75,7 @@ WEB_FETCH = ToolDef(
           "timeout_s": {"type": "int", "default": 15, "required": False}},
     result_keys=["url", "status_code", "content_type", "content",
                  "truncated"],
-    approval_tier="routine",
+    approval_tier="ask",
     side_effects="network",
     platform_notes=_PURE_PYTHON,
 )
@@ -93,7 +93,7 @@ WEB_SEARCH = ToolDef(
           "backend": {"type": "str", "default": "auto",
                       "required": False}},
     result_keys=["query", "backend_used", "results", "total"],
-    approval_tier="routine",
+    approval_tier="ask",
     side_effects="network",
     platform_notes=_PURE_PYTHON,
 )
