@@ -93,12 +93,48 @@ def post(path, body, session_id=None):
             raise
     else:
         raise last  # pragma: no cover - loop always breaks or raises
-    payload = None
-    for line in raw.splitlines():
-        if line.startswith("data:"):
+    # Pick the JSON-RPC response out of the reply. An SSE stream can
+    # carry several events (server notifications, priming events)
+    # around the one response; taking only the FIRST data: line can
+    # mistake a notification for the answer and hand back an empty
+    # result that looks like success. Scan every event, keep the one
+    # carrying result/error, and if events arrived but none was the
+    # response, fail loudly instead of inventing an empty success.
+    msg = None
+    seen = 0
+
+    def _consider(candidate):
+        nonlocal msg, seen
+        seen += 1
+        if isinstance(candidate, dict) and (
+                "result" in candidate or "error" in candidate):
+            msg = candidate
+
+    body = raw.strip()
+    if body.startswith("{"):
+        try:
+            _consider(json.loads(body))
+        except ValueError:
+            pass
+    if msg is None:
+        for line in raw.splitlines():
+            if not line.startswith("data:"):
+                continue
             payload = line[5:].strip()
-            break
-    msg = json.loads(payload) if payload else {}
+            if not payload:
+                continue
+            try:
+                _consider(json.loads(payload))
+            except ValueError:
+                continue
+            if msg is not None:
+                break
+    if msg is None:
+        if seen:
+            raise RuntimeError(
+                f"response stream held {seen} event(s) but no JSON-RPC "
+                f"result/error — refusing to report an empty success")
+        return None, sid
     if "error" in msg:
         raise RuntimeError(msg["error"])
     return msg.get("result"), sid
@@ -229,17 +265,42 @@ def _poll_until_done(job_id, sid, timeout_s):
         time.sleep(_POLL_S)
 
 
+PRINT_CAP = 4000
+FULL_OUT = "/tmp/op-full.json"
+
+
+def _stash_full(text):
+    """Save the complete payload so a capped print never destroys
+    information — the cap is a display choice, not a data loss."""
+    with open(FULL_OUT, "w", encoding="utf-8") as f:
+        f.write(text)
+    return FULL_OUT
+
+
+def _print_capped(text):
+    """Print text capped at PRINT_CAP chars for readability. When the
+    cap cuts, SAY SO on stderr (stdout stays the payload): how much
+    was printed, the true total, and where the full text lives. A
+    silent cut is how truncated output learns to look complete."""
+    if len(text) <= PRINT_CAP:
+        print(text)
+        return
+    print(text[:PRINT_CAP])
+    print(f"[truncated: printed {PRINT_CAP} of {len(text)} chars; "
+          f"full output saved to {FULL_OUT}]", file=sys.stderr)
+
+
 def _print_job_result(out):
     """Print a job_result payload like `call` prints a tool result.
     Returns True iff the job succeeded."""
     state = out.get("state")
     if state == "succeeded":
         text = json.dumps(out.get("result"), indent=1, default=str)
-        with open("/tmp/op-full.json", "w", encoding="utf-8") as f:
-            f.write(text)
-        print(text[:4000])
+        _stash_full(text)
+        _print_capped(text)
         return True
-    print(json.dumps(out, indent=1, default=str)[:4000])
+    _stash_full(json.dumps(out, indent=1, default=str))
+    _print_capped(json.dumps(out, indent=1, default=str))
     return False
 
 
@@ -355,9 +416,9 @@ def main():
         res, _ = post("/mcp", {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
                                "params": {"name": name, "arguments": args}}, sid)
         text = res["content"][0]["text"]
-        # Always stash the full response; print is capped for readability.
-        with open("/tmp/op-full.json", "w", encoding="utf-8") as f:
-            f.write(text)
+        # Always stash the full response; the print is capped for
+        # readability and the cap announces itself (see _print_capped).
+        _stash_full(text)
         if name == "screenshot":
             # Screenshots are huge base64 — never truncate, dump to file instead.
             with open("/tmp/shot-full.json", "w") as f:
@@ -365,9 +426,9 @@ def main():
             print("screenshot saved to /tmp/shot-full.json (%d bytes)" % len(text))
             return
         try:
-            print(json.dumps(json.loads(text), indent=1)[:4000])
+            _print_capped(json.dumps(json.loads(text), indent=1))
         except Exception:
-            print(text[:4000])
+            _print_capped(text)
     elif cmd == "submit":
         flags, rest = _parse_flags(sys.argv[2:], ("--key", "--lineage"))
         name = rest[0]
@@ -396,7 +457,8 @@ def main():
             indent=1))
     elif cmd == "job-result":
         out = _tool_call("job_result", {"job_id": sys.argv[2]}, sid)
-        print(json.dumps(out, indent=1, default=str)[:4000])
+        _stash_full(json.dumps(out, indent=1, default=str))
+        _print_capped(json.dumps(out, indent=1, default=str))
     elif cmd == "job-cancel":
         print(json.dumps(
             _tool_call("job_cancel", {"job_id": sys.argv[2]}, sid),
