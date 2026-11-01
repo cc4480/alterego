@@ -167,9 +167,12 @@ CDP_CLICK = ToolDef(
     name="cdp_click",
     group="browser",
     doc="Click an element by CSS selector or visible text (never "
-        "coordinates); returns the landing readback. Requires approval.",
+        "coordinates); returns the landing readback. Requires approval. "
+        "A stable ref from cdp_snapshot (e1, ...) may be passed instead "
+        "of selector/text; ref is exclusive with both.",
     args={"selector": {"type": "str", "default": "", "required": False},
-          "text": {"type": "str", "default": "", "required": False}},
+          "text": {"type": "str", "default": "", "required": False},
+          "ref": {"type": "str", "default": "", "required": False}},
     result_keys=["clicked", "url", "title", "changed"],
     approval_tier="ask",
     side_effects="session",
@@ -181,12 +184,15 @@ CDP_TYPE = ToolDef(
     group="browser",
     doc="Type into a field addressed by selector or label via CDP "
         "Input.insertText; success requires value readback equality. "
-        "Requires approval.",
+        "Requires approval. A stable ref from cdp_snapshot (e1, ...) "
+        "may be passed instead of selector/label; ref is exclusive "
+        "with both.",
     args={"text": {"type": "str", "required": True},
           "selector": {"type": "str", "default": "", "required": False},
           "label": {"type": "str", "default": "", "required": False},
           "clear_first": {"type": "bool", "default": True,
-                          "required": False}},
+                          "required": False},
+          "ref": {"type": "str", "default": "", "required": False}},
     result_keys=["value", "field", "verified"],
     approval_tier="ask",
     side_effects="session",
@@ -240,3 +246,36 @@ ALL_BROWSER_DEFS = [BROWSER_SNAPSHOT, BROWSER_NAVIGATE, BROWSER_CLICK,
                     CDP_LAUNCH, CDP_CONNECT, CDP_TARGETS, CDP_NAVIGATE,
                     CDP_SNAPSHOT, CDP_CLICK, CDP_TYPE, CDP_EVALUATE,
                     CDP_READBACK, CDP_CLOSE]
+
+# ---- Batch 6 (portmanteau slice): grouped browser tools ------------------
+BROWSER = ToolDef(
+    name="browser",
+    group="browser",
+    doc="Edge tab as one tool: operation snapshot | navigate | click | "
+        "fill | eval, args are the member tool's args.",
+    args={"operation": {"type": "str", "required": True},
+          "args": {"type": "dict", "required": False, "default": None}},
+    result_keys=["operation", "tool", "result"],
+    approval_tier="always_ask",
+    side_effects="session",
+    platform_notes="Dispatches to browser_snapshot / browser_navigate / "
+                   "browser_click / browser_fill / browser_eval; same "
+                   "platform story as the members.",
+)
+
+CDP = ToolDef(
+    name="cdp",
+    group="browser",
+    doc="Chrome CDP session as one tool: operation launch | connect | "
+        "targets | navigate | snapshot | click | type | evaluate | "
+        "readback | close, args are the member tool's args.",
+    args={"operation": {"type": "str", "required": True},
+          "args": {"type": "dict", "required": False, "default": None}},
+    result_keys=["operation", "tool", "result"],
+    approval_tier="always_ask",
+    side_effects="session",
+    platform_notes="Dispatches to the cdp_* session hand; same platform "
+                   "story as the members.",
+)
+
+ALL_BROWSER_DEFS.extend([BROWSER, CDP])

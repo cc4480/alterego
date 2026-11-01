@@ -7,12 +7,15 @@ Checks for every ToolDef in seams.definitions:
   3. result_keys == union of dict-literal keys across every `return` in the
      provider function's own body (nested functions excluded), following
      browser_* delegation into browser_cdp and the CDP snapshot's JS
-     snippet for its **-unpacked keys.
+     snippet for its **-unpacked keys, plus one level of
+     `return module.fn(...)` thin-wrapper delegation into the pc-agent
+     tree (Batch 6).
   4. approval_tier == tool_profiles.approval_tier(name).
 
 Definitions describe; this script only reads. Exit 0 on success.
 """
 import ast
+import importlib.util
 import inspect
 import os
 import re
@@ -98,6 +101,8 @@ class _Returns(ast.NodeVisitor):
         self.keys = set()
         self.delegates = []   # ("browser_cdp", attr) call targets
         self.local_calls = []  # same-module Name(...) call targets
+        self.cross_calls = []  # (module, attr) for return module.fn(...)
+        self.n_top_returns = 0  # top-level returns in this function
         self.starred = []     # source snippets of **-unpacks
         self._depth = 0
 
@@ -112,6 +117,7 @@ class _Returns(ast.NodeVisitor):
     def visit_Return(self, node):
         if self._depth != 1 or node.value is None:
             return
+        self.n_top_returns += 1
         v = node.value
         if isinstance(v, ast.Dict):
             for k in v.keys:
@@ -128,6 +134,12 @@ class _Returns(ast.NodeVisitor):
               and isinstance(v.func, ast.Name)):
             # return helper(...) — same-module helper, follow it
             self.local_calls.append(v.func.id)
+        elif (isinstance(v, ast.Call)
+              and isinstance(v.func, ast.Attribute)
+              and isinstance(v.func.value, ast.Name)):
+            # return module.fn(...) — cross-module thin delegation,
+            # followed one level by _collect_keys under its guards.
+            self.cross_calls.append((v.func.value.id, v.func.attr))
         # other expression returns (bare/None) carry no contract keys
 
 
@@ -175,12 +187,56 @@ def _scan_source_keys(source_path, func_name):
     return vis, []
 
 
+def _resolve_module_file(source_path, local_name):
+    """File of the module bound to local_name by an import in
+    source_path, or None. Only modules inside the pc-agent tree are
+    followed; anything else keeps the old behavior (provider returns
+    [])."""
+    with open(source_path, encoding="utf-8") as f:
+        tree = ast.parse(f.read())
+    dotted = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                bind = a.asname or a.name.split(".")[0]
+                if bind == local_name:
+                    dotted = a.name
+        elif isinstance(node, ast.ImportFrom):
+            if node.module is None:
+                continue
+            for a in node.names:
+                bind = a.asname or a.name
+                if bind == local_name:
+                    dotted = node.module + "." + a.name
+    if dotted is None:
+        return None
+    try:
+        spec = importlib.util.find_spec(dotted)
+    except (ImportError, ValueError):
+        return None
+    if spec is None or spec.origin is None \
+            or not spec.origin.endswith(".py"):
+        return None
+    # Confine to the pc-agent tree: walk up from the provider file
+    # until the directory holding seams/definitions/__init__.py.
+    root = os.path.dirname(os.path.abspath(source_path))
+    while not os.path.exists(os.path.join(root, "seams", "definitions",
+                                          "__init__.py")):
+        parent = os.path.dirname(root)
+        if parent == root:
+            return None
+        root = parent
+    if os.path.commonpath([os.path.abspath(spec.origin), root]) != root:
+        return None
+    return spec.origin
+
+
 def _collect_keys(source_path, func_name, seen):
     """Union of return-dict keys for func_name, following same-module
     helper calls. seen guards against cycles."""
     key = (source_path, func_name)
     if key in seen:
-        return set()
+        return None, set()
     seen.add(key)
     vis, errs = _scan_source_keys(source_path, func_name)
     if errs:
@@ -192,6 +248,22 @@ def _collect_keys(source_path, func_name, seen):
         if _func_node(tree, callee) is not None:
             _, sub = _collect_keys(source_path, callee, seen)
             keys |= sub
+    # One-level cross-module follow: a pure thin wrapper whose single
+    # top-level return is `return module.fn(...)` contributes the
+    # callee's keys. Guards: exactly one return, no literal keys, no
+    # starred unpacks, no same-module calls, no browser_cdp delegates.
+    # Anything else keeps the old behavior (provider returns []).
+    if (len(vis.cross_calls) == 1 and vis.n_top_returns == 1
+            and not vis.keys and not vis.starred
+            and not vis.local_calls and not vis.delegates):
+        mod_name, callee = vis.cross_calls[0]
+        target_path = _resolve_module_file(source_path, mod_name)
+        if target_path is not None:
+            with open(target_path, encoding="utf-8") as f:
+                target_tree = ast.parse(f.read())
+            if _func_node(target_tree, callee) is not None:
+                _, sub = _collect_keys(target_path, callee, seen)
+                keys |= sub
     return vis, keys
 
 
@@ -235,8 +307,8 @@ def check_result_keys(defn, fn):
 def main():
     defs = definitions.ALL_DEFS
     print(f"definitions: {len(defs)}")
-    if len(defs) != 89:
-        fail("ALL", f"expected 89 definitions, got {len(defs)}")
+    if len(defs) != 104:
+        fail("ALL", f"expected 104 definitions, got {len(defs)}")
     for d in defs:
         if not d.platform_notes or not d.platform_notes.strip():
             fail(d.name, "platform_notes missing or empty")

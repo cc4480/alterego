@@ -404,3 +404,44 @@ def uia_set_text(window: str, name_rx: str, text: str,
                                  text[:120]))
     return {"ok": True, "method": res.get("method", "?"),
             "name": res.get("name", "")}
+
+# ---- Batch 6 (portmanteau slice): grouped dispatch -----------------------
+# No _approved here and no muting: dispatch goes through toolcall.call so
+# the member's own provider-side gate fires once at the member tier.
+
+
+def mouse(operation: str, args: dict | None = None) -> dict:
+    """Mouse as one tool: move | click | scroll."""
+    import portmanteau
+    return portmanteau.dispatch("mouse", operation, args)
+
+
+def keyboard(operation: str, args: dict | None = None) -> dict:
+    """Keyboard as one tool: type | hotkey | paste."""
+    import portmanteau
+    return portmanteau.dispatch("keyboard", operation, args)
+
+
+def window(operation: str, args: dict | None = None) -> dict:
+    """Windows as one tool: list | active | focus | close | minimize |
+    maximize."""
+    import portmanteau
+    return portmanteau.dispatch("window", operation, args)
+
+
+def uia(operation: str, args: dict | None = None) -> dict:
+    """UI Automation as one tool: find | click | set_text."""
+    import portmanteau
+    return portmanteau.dispatch("uia", operation, args)
+
+
+def clipboard(operation: str, args: dict | None = None) -> dict:
+    """Clipboard as one tool: get | set."""
+    import portmanteau
+    return portmanteau.dispatch("clipboard", operation, args)
+
+
+def process(operation: str, args: dict | None = None) -> dict:
+    """Processes as one tool: list | kill."""
+    import portmanteau
+    return portmanteau.dispatch("process", operation, args)

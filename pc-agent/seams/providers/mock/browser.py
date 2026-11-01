@@ -1,4 +1,5 @@
 """Mock browser CDP tools: canned snapshot/navigate results. No real browser."""
+import browser_refs
 from seams.providers.mock import record
 
 _PAGE_URL = "https://mock.example/"
@@ -73,25 +74,34 @@ def cdp_navigate(url: str, timeout_s: int = 30) -> dict:
 
 
 def cdp_snapshot() -> dict:
+    elements = browser_refs.store_snapshot([
+        {"selector": "#go", "tag": "button", "kind": "submit",
+         "label": "Mock Button", "context": "page"},
+        {"selector": "input[name=q]", "tag": "input",
+         "kind": "text", "label": "Mock Input",
+         "context": "page"},
+    ])
     return {"page_url": _PAGE_URL, "url": _PAGE_URL, "title": "Mock Page",
-            "elements": [
-                {"selector": "#go", "tag": "button", "kind": "submit",
-                 "label": "Mock Button", "context": "page"},
-                {"selector": "input[name=q]", "tag": "input",
-                 "kind": "text", "label": "Mock Input",
-                 "context": "page"},
-            ],
+            "elements": elements,
             "cross_origin_iframes": 0}
 
 
-def cdp_click(selector: str = "", text: str = "") -> dict:
+def cdp_click(selector: str = "", text: str = "", ref: str = "") -> dict:
+    if ref and (selector or text):
+        raise ValueError("ref is exclusive: pass ref alone, or selector/text")
+    if ref:
+        selector = browser_refs.resolve(ref)
     record("cdp_click", {"selector": selector, "text": text})
     return {"clicked": f"CLICKED:{text or selector} (mock)",
             "url": _PAGE_URL, "title": "Mock Page", "changed": False}
 
 
 def cdp_type(text: str, selector: str = "", label: str = "",
-             clear_first: bool = True) -> dict:
+             clear_first: bool = True, ref: str = "") -> dict:
+    if ref and (selector or label):
+        raise ValueError("ref is exclusive: pass ref alone, or selector/label")
+    if ref:
+        selector = browser_refs.resolve(ref)
     record("cdp_type", {"text": text, "selector": selector,
                         "label": label, "clear_first": clear_first})
     return {"value": text, "field": "input[name=q]", "verified": True}
@@ -113,3 +123,18 @@ def cdp_close(delete_profile: bool = False) -> dict:
     return {"closed": "browser", "forced": False,
             "profile_deleted": delete_profile,
             "profile_dir": "mock-profile"}
+
+# ---- Batch 6 (portmanteau slice) ----------------------------------------
+
+
+def browser(operation: str, args: dict | None = None) -> dict:
+    """Edge tab as one tool: snapshot | navigate | click | fill | eval."""
+    import portmanteau
+    return portmanteau.dispatch("browser", operation, args)
+
+
+def cdp(operation: str, args: dict | None = None) -> dict:
+    """Chrome CDP session as one tool: launch | connect | targets |
+    navigate | snapshot | click | type | evaluate | readback | close."""
+    import portmanteau
+    return portmanteau.dispatch("cdp", operation, args)

@@ -91,6 +91,13 @@ def _v_doctor_run(d):
     return _req(d, "checks", "summary")
 
 
+def _v_media_capture_consent(d):
+    # Privacy MF-3: every media capture records HOW consent was obtained —
+    # a per-capture dialog, or Carlos's session-level dontAsk choice.
+    return (_req(d, "tool", "permission_mode", "consent", "device",
+                 "duration_s")
+            + _enum(d, "consent", {"per_capture_dialog", "session_dontask"}))
+
 def _v_elicitation_created(d):
     return _req(d, "elicitation_id", "question", "options")
 
@@ -114,6 +121,7 @@ VALIDATORS = {
     "ServerStarted": _v_server_started,
     "ServerStopping": _v_server_stopping,
     "DoctorRun": _v_doctor_run,
+    "MediaCaptureConsent": _v_media_capture_consent,
     "ElicitationCreated": _v_elicitation_created,
     "ElicitationAnswered": _v_elicitation_answered,
 }

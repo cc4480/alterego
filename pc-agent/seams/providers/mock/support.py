@@ -133,3 +133,12 @@ def hot_reload(action: str) -> dict:
     return {"action": action, "enabled": action in ("enable", "trigger"),
             "watching": True, "last_change": None,
             "reloading": action == "trigger", "error": None, "fix": None}
+
+# ---- Batch 6 (portmanteau slice) ----------------------------------------
+
+
+def exec(operation: str, args: dict | None = None) -> dict:
+    """Shell execution as one tool: shell | pwsh | background | status |
+    cancel."""
+    import portmanteau
+    return portmanteau.dispatch("exec", operation, args)

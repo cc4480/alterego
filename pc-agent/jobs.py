@@ -91,10 +91,17 @@ RESOURCE_MAP = {
     "uia_click": "desktop", "uia_set_text": "desktop",
     "clipboard_get": "desktop", "clipboard_set": "desktop",
     "notify": "desktop", "speak": "desktop",
+    "record_audio": "desktop",
     "browser_snapshot": "browser", "browser_navigate": "browser",
     "browser_click": "browser", "browser_fill": "browser",
     "browser_eval": "browser",
 }
+
+# ---- Batch 6 macros: macro_replay serializes on the desktop resource
+# (mirror batch's desktop members). Appended as an assignment so the
+# literal above is untouched; the merge agent folds it into the
+# literal (alongside the audio slice's record_audio entry). ----
+RESOURCE_MAP["macro_replay"] = "desktop"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (

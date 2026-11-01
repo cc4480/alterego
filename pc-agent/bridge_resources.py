@@ -61,3 +61,28 @@ def dashboard_state():
             "windows_count": windows.get("total", len(titles)),
             "window_titles": titles[:5],
             "ui_resource_uri": DASHBOARD_URI}
+
+
+# ---- tool catalog + macro list (Batch 6) ---------------------------------
+def tools_text():
+    """Full tool catalog as JSON text, paged through search_definitions
+    (50/page cap) so the catalog is complete at any tool count. Never
+    cached: every read re-runs the search over the live definitions."""
+    from seams import definitions
+    tools = []
+    offset = 0
+    while True:
+        page = definitions.search_definitions(
+            "", max_results=50, offset=offset)
+        tools.extend(page["tools"])
+        offset += page["count"]
+        if not page["count"] or offset >= page["total"]:
+            break
+    return _dumps({"query": "", "count": len(tools),
+                   "total": len(tools), "tools": tools})
+
+
+def macros_text():
+    """Recorded macros as JSON text, read live from the macro store."""
+    import macros
+    return _dumps(macros.list_macros())

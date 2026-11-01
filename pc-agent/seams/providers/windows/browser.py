@@ -7,6 +7,7 @@ deterministic, readback-verified control. Requires websocket-client.
 """
 from approval import request_approval
 import browser_cdp
+import browser_refs
 import chrome_cdp
 
 
@@ -99,12 +100,17 @@ def cdp_navigate(url: str, timeout_s: int = 30) -> dict:
 
 def cdp_snapshot() -> dict:
     r = chrome_cdp.snapshot()
+    elements = browser_refs.store_snapshot(r["elements"])
     return {"page_url": r["page_url"], "url": r["url"],
-            "title": r["title"], "elements": r["elements"],
+            "title": r["title"], "elements": elements,
             "cross_origin_iframes": r["cross_origin_iframes"]}
 
 
-def cdp_click(selector: str = "", text: str = "") -> dict:
+def cdp_click(selector: str = "", text: str = "", ref: str = "") -> dict:
+    if ref and (selector or text):
+        raise ValueError("ref is exclusive: pass ref alone, or selector/text")
+    if ref:
+        selector = browser_refs.resolve(ref)
     if not selector and not text:
         raise ValueError("selector or text is required")
     _approved("cdp_click",
@@ -116,9 +122,13 @@ def cdp_click(selector: str = "", text: str = "") -> dict:
 
 
 def cdp_type(text: str, selector: str = "", label: str = "",
-             clear_first: bool = True) -> dict:
+             clear_first: bool = True, ref: str = "") -> dict:
     if not text:
         raise ValueError("text must be non-empty")
+    if ref and (selector or label):
+        raise ValueError("ref is exclusive: pass ref alone, or selector/label")
+    if ref:
+        selector = browser_refs.resolve(ref)
     if not selector and not label:
         raise ValueError("selector or label is required")
     preview = text if len(text) <= 200 else text[:200] + "..."
@@ -154,3 +164,20 @@ def cdp_close(delete_profile: bool = False) -> dict:
     return {"closed": r["closed"], "forced": r["forced"],
             "profile_deleted": r["profile_deleted"],
             "profile_dir": r["profile_dir"]}
+
+# ---- Batch 6 (portmanteau slice) ----------------------------------------
+# No _approved here and no muting: dispatch goes through toolcall.call so
+# the member's own provider-side gate fires once at the member tier.
+
+
+def browser(operation: str, args: dict | None = None) -> dict:
+    """Edge tab as one tool: snapshot | navigate | click | fill | eval."""
+    import portmanteau
+    return portmanteau.dispatch("browser", operation, args)
+
+
+def cdp(operation: str, args: dict | None = None) -> dict:
+    """Chrome CDP session as one tool: launch | connect | targets |
+    navigate | snapshot | click | type | evaluate | readback | close."""
+    import portmanteau
+    return portmanteau.dispatch("cdp", operation, args)

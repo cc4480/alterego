@@ -102,6 +102,14 @@ PROFILES = {
                     "relaunch browser"),
     "notify": _p("session", 10, ("toast notification shown",), "dismiss notification"),
     "speak": _p("session", 10, ("text spoken aloud",)),
+    # Capture is not transient like speak: a returned clip cannot be
+    # recalled, so honest recoverability is 3 -> computed tier
+    # always_ask (privacy MF-1). Never profile this "none"/silent.
+    "record_audio": _p("session", 3,
+                       ("microphone audio captured and returned to a "
+                        "remote operator",),
+                       "none — returned audio cannot be recalled",
+                       ("user_data", "media_capture")),
     "set_volume": _p("session", 10, ("volume changed",), "restore previous volume"),
     # ---- file writes: user-data scope ----
     "create_dir": _p("user_data", 9, ("directory created",), "remove directory"),
@@ -137,6 +145,46 @@ PROFILES = {
     "exec_cancel": _p("session", 8, ("background job cancelled",),
                       "re-run the background command"),
 }
+
+
+# ---- Batch 6 (portmanteau slice): each profile derives the most
+# restrictive member tier (mouse routine, keyboard/window/uia ask,
+# file/process/browser/cdp/exec always_ask, clipboard routine). Runtime
+# approval always uses the member's own tier; these profiles feed the
+# risk snapshot and MCP annotations only. ----
+PROFILES.update({
+    "mouse": _p("session", 10, ("cursor moves / clicks / scrolls",),
+                "depends on operation"),
+    "keyboard": _p("user_data", 6, ("text entered / keys sent",),
+                   "manually undo", ("user_data",)),
+    "window": _p("session", 7, ("window state changes",),
+                 "restore window"),
+    "uia": _p("user_data", 6, ("UI element read / activated / set",),
+              "depends on operation", ("user_data",)),
+    "file": _p("user_data", 2, ("file read or written",),
+               "undo the member operation", ("user_data", "destructive")),
+    "process": _p("system", 2, ("process listed or terminated",),
+                  "restart process (work lost)",
+                  ("system", "destructive")),
+    "browser": _p("session", 4, ("page read / navigated / scripted",),
+                  "depends on operation", ("destructive",)),
+    "cdp": _p("session", 4, ("CDP session read / driven",),
+              "depends on operation", ("destructive",)),
+    "clipboard": _p("session", 9, ("clipboard read / replaced",),
+                    "restore previous clipboard", ("user_data",)),
+    "exec": _p("system", 3, ("shell command executed",),
+               "depends on command", ("system", "destructive")),
+})
+
+PROFILES.update({
+    "macro_record": _p("session", 8, ("macro record created",),
+                       "delete the macro"),
+    "macro_list": _p("none", 10),
+    "macro_replay": _p("system", 3, ("executes multiple tool calls",),
+                       "undo each sub-call", ("destructive",)),
+    "macro_delete": _p("session", 8, ("macro record removed",),
+                       "re-record the macro"),
+})
 
 
 def get_profile(tool_name: str) -> dict:

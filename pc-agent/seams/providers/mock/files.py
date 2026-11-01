@@ -197,3 +197,12 @@ def file_info(path: str) -> dict:
     ts = (entry or {}).get("modified") or _iso_now()
     return {"path": p, "is_file": file, "is_dir": not file,
             "size": size, "modified": ts, "created": ts}
+
+# ---- Batch 6 (portmanteau slice) ----------------------------------------
+
+
+def file(operation: str, args: dict | None = None) -> dict:
+    """Files as one tool: read | read_range | write | edit | delete |
+    list | copy | move | create_dir | info | search | search_names."""
+    import portmanteau
+    return portmanteau.dispatch("file", operation, args)

@@ -104,6 +104,44 @@ def _res_file(path: str) -> str:
     return file_text(path)
 
 
+# --- Read-only MCP resources: tool catalog + macro list (Batch 6) --------
+from bridge_resources import macros_text, tools_text
+
+
+@mcp.resource("pc://bridge/tools")
+def _res_tools() -> str:
+    return tools_text()
+
+
+@mcp.resource("pc://bridge/macros")
+def _res_macros() -> str:
+    return macros_text()
+
+
+# --- MCP prompts (Batch 6): repeat-job starters, pure text ----------------
+# Str-returning functions yield one user PromptMessage (probed against
+# MCP SDK 2.3.0: list_prompts/get_prompt round-trip verified).
+import bridge_prompts
+
+
+@mcp.prompt("pc_health_check",
+            description="Run the bridge health check and summarize it.")
+def _prompt_health_check() -> str:
+    return bridge_prompts.pc_health_check()
+
+
+@mcp.prompt("find_window",
+            description="Find a window by name, focus it, and report it.")
+def _prompt_find_window(name: str) -> str:
+    return bridge_prompts.find_window(name)
+
+
+@mcp.prompt("summarize_file",
+            description="Read a profile file and summarize it.")
+def _prompt_summarize_file(path: str) -> str:
+    return bridge_prompts.summarize_file(path)
+
+
 # --- Job layer ops (Hermes-pattern, 2026-10-23): journal-ACK intake ---
 # submit_job journals the call and returns a job_id immediately; the
 # tool itself executes later on a worker thread through the very same
