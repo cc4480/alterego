@@ -14,7 +14,7 @@
 #>
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("status", "audit", "restart", "fix-duplicates", "docker")]
+    [ValidateSet("status", "audit", "restart", "fix-duplicates", "docker", "supervise", "supervisor-status")]
     [string]$Command = "status",
 
     [ValidateSet("default", "plan", "acceptEdits", "dontAsk")]
@@ -120,10 +120,37 @@ function Ensure-Docker {
     docker ps -a --filter name=msf-rpc --format "{{.Names}} {{.Status}}"
 }
 
+function Show-SupervisorStatus {
+    $status = "$env:APPDATA\pc-mcp-bridge\supervisor.json"
+    if (Test-Path $status) { Get-Content $status } else { "supervisor: not running (no supervisor.json)" }
+    $hb = "$env:APPDATA\pc-mcp-bridge\heartbeat.txt"
+    if (Test-Path $hb) { "heartbeat age: " + [math]::Round(((Get-Date) - (Get-Item $hb).LastWriteTime).TotalSeconds) + "s" }
+}
+
+function Start-Supervised {
+    if ($PermissionMode -eq "dontAsk") {
+        $env:PC_BRIDGE_FULL_ACCESS = "1"
+        Remove-Item Env:\PC_BRIDGE_PERMISSION_MODE -ErrorAction SilentlyContinue
+    } else {
+        Remove-Item Env:\PC_BRIDGE_FULL_ACCESS -ErrorAction SilentlyContinue
+        $env:PC_BRIDGE_PERMISSION_MODE = $PermissionMode
+    }
+    Start-Process -FilePath "python" `
+        -ArgumentList "pc-agent\supervisor.py" `
+        -WorkingDirectory $Repo `
+        -WindowStyle Minimized `
+        -RedirectStandardOutput "$Repo\supervisor-out.log" `
+        -RedirectStandardError "$Repo\supervisor-err.log"
+    "NOTE: the supervisor takes over port 8765 (current server restarts under supervision)."
+    "supervisor launched in $PermissionMode mode -- status: .\bridge-admin.ps1 supervisor-status"
+}
+
 switch ($Command) {
     "status"         { Show-Status }
     "audit"          { Show-Audit }
     "restart"        { Restart-Bridge }
     "fix-duplicates" { Fix-Duplicates }
     "docker"         { Ensure-Docker }
+    "supervise"         { Start-Supervised }
+    "supervisor-status" { Show-SupervisorStatus }
 }

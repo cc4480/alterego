@@ -109,3 +109,27 @@ def exec_cancel(job_id: str) -> dict:
     """Mock: pretend to cancel the job."""
     record("exec_cancel", {"job_id": job_id})
     return {"job_id": job_id, "status": "cancelled"}
+
+
+def server_reload() -> dict:
+    record("server_reload", {})
+    return {"reloading": True, "supervisor_running": True,
+            "reason": "mock", "error": None, "fix": None}
+
+
+def supervisor_status() -> dict:
+    record("supervisor_status", {})
+    return {"running": True, "present": True, "supervisor_pid": 4242,
+            "child_pid": 4243, "restarts": 0, "reloads": 0,
+            "last_exit_code": None, "last_exit_ts": None,
+            "storm_breaker": False, "heartbeat_age_s": 1.0,
+            "updated_ts": 0, "port": 8765}
+
+
+def hot_reload(action: str) -> dict:
+    record("hot_reload", {"action": action})
+    if action not in ("status", "enable", "disable", "trigger"):
+        raise ValueError("action must be status | enable | disable | trigger")
+    return {"action": action, "enabled": action in ("enable", "trigger"),
+            "watching": True, "last_change": None,
+            "reloading": action == "trigger", "error": None, "fix": None}

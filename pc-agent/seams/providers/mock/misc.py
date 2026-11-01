@@ -31,6 +31,7 @@ def doctor() -> dict:
         _check("check_startup_entry", "ok", "mock: startup entry present"),
         _check("check_tunnel_config", "ok", "mock: tunnel configured"),
         _check("check_disk_space", "ok", "mock: disk space sufficient"),
+        _check("check_supervisor", "ok", "mock: supervisor running"),
     ]
     counts = {"ok": 0, "warning": 0, "fail": 0}
     for c in checks:

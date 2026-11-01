@@ -291,9 +291,43 @@ def check_event_log():
     return _check()
 
 
+def check_supervisor():
+    """Supervisor should be running so crashes and reloads self-heal."""
+    try:
+        import supervisor as _sup
+    except ImportError as e:
+        return _unknown("supervisor", f"supervisor module unavailable: {e}",
+                        "Check the pc-agent install on the PC.")
+    try:
+        st = _sup.supervisor_status()
+    except Exception as e:  # noqa: BLE001 - a check must never crash doctor
+        return _unknown("supervisor", f"could not read supervisor status: {e}",
+                        "Check supervisor.json in the bridge data dir.")
+    if not st.get("present"):
+        return _unknown("supervisor",
+                        "no supervisor running: crashes and reloads need a manual restart",
+                        "Start supervised mode: .\\bridge-admin.ps1 supervise")
+    if st.get("storm_breaker"):
+        return _fail("supervisor",
+                     "supervisor storm breaker tripped: too many crashes, server left stopped",
+                     "Inspect server-stdout.log in the bridge data dir, fix the crash, then restart supervised.")
+    if not st.get("running"):
+        return _warn("supervisor",
+                     "supervisor status file is stale: supervisor process not alive",
+                     "Start supervised mode: .\\bridge-admin.ps1 supervise")
+    hb = st.get("heartbeat_age_s")
+    detail = (f"supervisor pid {st.get('supervisor_pid')}, child pid "
+              f"{st.get('child_pid')}, {st.get('restarts', 0)} restarts, "
+              f"{st.get('reloads', 0)} reloads")
+    if hb is not None:
+        detail += f", heartbeat {hb:.0f}s old"
+    return _ok("supervisor", detail)
+
+
 CHECKS = [check_python_version, check_port_listener,
           check_defender_exclusions, check_startup_entry,
-          check_tunnel_config, check_disk_space, check_event_log]
+          check_tunnel_config, check_disk_space, check_event_log,
+          check_supervisor]
 
 
 def doctor() -> dict:
