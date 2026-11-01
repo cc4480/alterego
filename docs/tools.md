@@ -205,7 +205,7 @@ auto-approve / `dontAsk`).
 | Tool | Args | Approval | What it does |
 |---|---|---|---|
 | `shell_pwsh` | `script` (1–8000 chars), `timeout_s` (default 60), `cwd` (profile-restricted) | **DESTRUCTIVE** | Run PowerShell directly — no `cmd.exe` wrapping |
-| `batch` | `calls` (array of `{tool, args}`, max 20) | **DESTRUCTIVE** | Run up to 20 calls in one roundtrip; **one** dialog covers all writes (sub-call gates are muted for the duration); no nesting |
+| `batch` | `calls` (array of `{tool, args}`, max 20) | **DESTRUCTIVE** | Run up to 20 calls in one roundtrip; **one** dialog covers all writes (sub-call gates are muted for the duration); no nesting. Independent calls run concurrently; calls sharing one resource (desktop/browser) serialize in plan order |
 | `exec_background` | `command`, `timeout_s` (default 300), `cwd` (profile-restricted) | **DESTRUCTIVE** | Start a long-running shell command in the background; returns a job id |
 | `exec_status` | `job_id`, `offset` (bytes) | — | Poll a background job; `offset` enables incremental output reads |
 | `exec_cancel` | `job_id` | — † | Kill a running background job's whole process tree |
@@ -250,7 +250,7 @@ or not the caller stays connected.
 | Tool | Args | What it does |
 |---|---|---|
 | `submit_job` | `tool`, `args`, `idempotency_key`, `lineage` (`typed`/`relay`/`scheduled`/`agent`) | Journal a tool call and return `{job_id, state}` immediately. Same idempotency key ⇒ same job, never executed twice |
-| `job_status` | `job_id` | Job state + started/finished receipts from the journal |
+| `job_status` | `job_id` | Job state + elapsed time + progress (running jobs: output bytes, stall age, reported message/current/total) + started/finished receipts |
 | `job_result` | `job_id` | The job's result once terminal (`succeeded`/`failed`/`killed`/`cancelled`) |
 | `job_cancel` | `job_id` | Cancel a queued or running job; a running job's process tree is fenced (only that job's processes are killed) |
 

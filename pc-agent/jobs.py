@@ -156,6 +156,9 @@ class JobContext:
         self._output_bytes = 0
         self._touches = 0
         self._procs = set()
+        self._progress_message = None
+        self._progress_current = None
+        self._progress_total = None
 
     # -- progress signals (called by executors / subproc hook) --------
     def touch(self):
@@ -169,6 +172,24 @@ class JobContext:
             if total_bytes > self._output_bytes:
                 self._output_bytes = total_bytes
                 self._last_progress = time.monotonic()
+
+    def report_progress(self, message="", current=None, total=None):
+        """Report human progress: a message and optional current/total.
+
+        Any tool running inside a job can call this via
+        jobs.current_context(). Reporting counts as a progress signal,
+        so the watchdog will not fence a job that is reporting but
+        producing no output. current/total must be numbers or None."""
+        if current is not None and not isinstance(current, (int, float)):
+            raise ValueError("current must be a number or None")
+        if total is not None and not isinstance(total, (int, float)):
+            raise ValueError("total must be a number or None")
+        with self._lock:
+            self._progress_message = str(message)
+            self._progress_current = current
+            self._progress_total = total
+            self._touches += 1
+            self._last_progress = time.monotonic()
 
     # -- process registry (the kill fence) -----------------------------
     def register_process(self, proc):
@@ -196,7 +217,10 @@ class JobContext:
             return {"output_bytes": self._output_bytes,
                     "touches": self._touches,
                     "last_progress_age_s": round(
-                        time.monotonic() - self._last_progress, 3)}
+                        time.monotonic() - self._last_progress, 3),
+                    "message": self._progress_message,
+                    "current": self._progress_current,
+                    "total": self._progress_total}
 
 
 def _kill_tree(proc):
@@ -461,6 +485,12 @@ class JobManager:
                "output_bytes": row["output_bytes"],
                "classification": row["classification"],
                "error": row["error"]}
+        if row["started_ts"] is not None:
+            end_ts = (row["finished_ts"] if row["finished_ts"] is not None
+                      else time.time())
+            out["elapsed_s"] = round(end_ts - row["started_ts"], 3)
+        else:
+            out["elapsed_s"] = None
         if row["state"] == "queued":
             est = self.estop()
             out["paused"] = est is not None
