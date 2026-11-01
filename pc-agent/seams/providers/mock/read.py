@@ -206,3 +206,35 @@ def uia_find(window: str, name_rx: str = "", control_type: str = "",
         {"name": "mock", "control_type": "ControlType.Button",
          "automation_id": "mock1", "x": 1, "y": 2,
          "width": 3, "height": 4}]}
+
+
+def desktop_state(include_screenshot: bool = True, scale: float = 0.5,
+                  max_elements: int = 25) -> dict:
+    elements = uia_find(window="Mock Window")["elements"][:max(0, int(max_elements))]
+    shot = screenshot(scale=scale) if include_screenshot else None
+    return {"windows": list_windows()["windows"],
+            "focused": {"hwnd": 12345, "pid": 1234,
+                        "title": "Mock Window"},
+            "elements": elements, "screenshot": shot, "errors": {}}
+
+
+def wait_for(kind: str, target: str, window: str = "",
+             control_type: str = "", timeout_s: float = 10.0,
+             interval_s: float = 0.5) -> dict:
+    if kind not in ("window", "element", "text"):
+        raise ValueError("kind must be window | element | text")
+    if not isinstance(target, str) or not target:
+        raise ValueError("target must be a non-empty string")
+    try:
+        re.compile(target)
+    except re.error as e:
+        raise ValueError(f"target is not a valid regex: {e}")
+    if kind == "window":
+        found = any(re.search(target, w.get("title", ""))
+                    for w in list_windows()["windows"])
+        detail = {"windows_seen": 2}
+    else:
+        found = bool(re.search(target, "mock"))
+        detail = {"count": 1 if found else 0}
+    return {"found": found, "kind": kind, "target": target,
+            "waited_s": 0.0, "attempts": 1, "detail": detail}

@@ -235,8 +235,8 @@ def check_result_keys(defn, fn):
 def main():
     defs = definitions.ALL_DEFS
     print(f"definitions: {len(defs)}")
-    if len(defs) != 73:
-        fail("ALL", f"expected 73 definitions, got {len(defs)}")
+    if len(defs) != 78:
+        fail("ALL", f"expected 78 definitions, got {len(defs)}")
     for d in defs:
         if not d.platform_notes or not d.platform_notes.strip():
             fail(d.name, "platform_notes missing or empty")

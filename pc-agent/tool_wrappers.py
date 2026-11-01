@@ -13,7 +13,7 @@ import tools_tasks  # shim -> seams.providers.windows.tasks (MCP wrappers)
 from tool_wrappers_read import (  # noqa: E402
     screenshot, list_windows, system_info, list_dir, read_file,
     clipboard_get, search_files, search_filenames, read_file_range,
-    uia_find)
+    uia_find, desktop_state, wait_for)
 
 # ---- write tools (each pops a native approval dialog on the PC) -----------
 def focus_window(hwnd: int) -> dict:
@@ -383,6 +383,7 @@ ALL_TOOLS = [
     focus_window, close_window, type_text, shell_exec,
     hotkey, mouse_move, mouse_click, mouse_scroll,
     uia_find, uia_click, uia_set_text,
+    desktop_state, wait_for,
     minimize_window, maximize_window, kill_process, clipboard_set,
     paste_text,
     write_file, edit_file, delete_file, create_dir,

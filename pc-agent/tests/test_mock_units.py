@@ -103,7 +103,7 @@ def test_doctor_defender_warning():
     assert by_name["check_defender_exclusions"]["status"] == "warning"
     assert all(c["status"] == "ok" for n, c in by_name.items()
                if n != "check_defender_exclusions")
-    assert r["counts"] == {"ok": 5, "warning": 1, "fail": 0}
+    assert r["counts"] == {"ok": 6, "warning": 1, "fail": 0}
 
 
 def test_batch_fan_out():

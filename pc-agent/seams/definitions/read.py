@@ -182,6 +182,52 @@ UIA_FIND = ToolDef(
                    "Honest gap on other platforms — omit rather than fake.",
 )
 
+DESKTOP_STATE = ToolDef(
+    name="desktop_state",
+    group="read",
+    doc="One call for the whole desktop picture: visible windows, the "
+        "focused window, its interactive UI elements, and a screenshot. "
+        "Each section is best-effort: a section that cannot be read "
+        "reports its own error instead of failing the call.",
+    args={"include_screenshot": {"type": "bool", "required": False,
+                                 "default": True},
+          "scale": {"type": "float", "required": False, "default": 0.5},
+          "max_elements": {"type": "int", "required": False,
+                           "default": 25}},
+    result_keys=["windows", "focused", "elements", "screenshot",
+                 "errors"],
+    approval_tier="silent",
+    side_effects="none",
+    platform_notes="Windows: win32gui + UIA + mss. Elements come from "
+                   "the focused window only; other platforms report "
+                   "their own gaps per section.",
+)
+
+WAIT_FOR = ToolDef(
+    name="wait_for",
+    group="read",
+    doc="Poll until something appears, instead of sleep-and-retry. "
+        "kind window: a visible window title matches target (regex). "
+        "kind element: a UI element name matches target (regex) in "
+        "window. kind text: visible element text matches target. "
+        "Returns found=false on timeout, never an error.",
+    args={"kind": {"type": "str", "required": True},
+          "target": {"type": "str", "required": True},
+          "window": {"type": "str", "required": False, "default": ""},
+          "control_type": {"type": "str", "required": False, "default": ""},
+          "timeout_s": {"type": "float", "required": False, "default": 10.0},
+          "interval_s": {"type": "float", "required": False,
+                         "default": 0.5}},
+    result_keys=["found", "kind", "target", "waited_s", "attempts",
+                 "detail"],
+    approval_tier="silent",
+    side_effects="none",
+    platform_notes="Polling loop over list_windows / uia_find. "
+                   "Text search is element-name search: UIA exposes "
+                   "visible text as element names on most controls.",
+)
+
 ALL_READ_DEFS = [SCREENSHOT, LIST_WINDOWS, SYSTEM_INFO, LIST_DIR,
                  READ_FILE, CLIPBOARD_GET, SEARCH_FILES,
-                 SEARCH_FILENAMES, READ_FILE_RANGE, UIA_FIND]
+                 SEARCH_FILENAMES, READ_FILE_RANGE, UIA_FIND,
+                 DESKTOP_STATE, WAIT_FOR]
