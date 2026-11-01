@@ -13,7 +13,7 @@ import os
 from seams import definitions
 
 _GROUPS = ("read", "write", "files", "pc", "browser",
-           "recon", "support", "tasks", "misc")
+           "recon", "support", "tasks", "misc", "macros")
 
 _VALID_PROVIDERS = ("windows", "linux", "mock")
 

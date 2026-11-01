@@ -9,10 +9,11 @@ from seams.definitions.recon import ALL_RECON_DEFS
 from seams.definitions.support import ALL_SUPPORT_DEFS
 from seams.definitions.tasks import ALL_TASKS_DEFS
 from seams.definitions.misc import ALL_MISC_DEFS
+from seams.definitions.macros import ALL_MACRO_DEFS
 
 ALL_DEFS = (ALL_READ_DEFS + ALL_WRITE_DEFS + ALL_FILES_DEFS + ALL_PC_DEFS
             + ALL_BROWSER_DEFS + ALL_RECON_DEFS + ALL_SUPPORT_DEFS
-            + ALL_TASKS_DEFS + ALL_MISC_DEFS)
+            + ALL_TASKS_DEFS + ALL_MISC_DEFS + ALL_MACRO_DEFS)
 
 _BY_GROUP = {}
 for _d in ALL_DEFS:

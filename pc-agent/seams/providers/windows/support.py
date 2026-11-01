@@ -413,3 +413,14 @@ def hot_reload(action: str) -> dict:
             "enabled": _hr.hot_reload_enabled(data), "watching": True,
             "last_change": None, "reloading": True,
             "error": None, "fix": None}
+
+# ---- Batch 6 (portmanteau slice) ----------------------------------------
+# No _approved here and no muting: dispatch goes through toolcall.call so
+# the member's own provider-side gate fires once at the member tier.
+
+
+def exec(operation: str, args: dict | None = None) -> dict:
+    """Shell execution as one tool: shell | pwsh | background | status |
+    cancel."""
+    import portmanteau
+    return portmanteau.dispatch("exec", operation, args)

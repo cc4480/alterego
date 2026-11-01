@@ -10,6 +10,7 @@ from seams.providers.windows.pc import (
     list_processes,
     notify,
     power,
+    record_audio,
     set_volume,
     speak,
 )

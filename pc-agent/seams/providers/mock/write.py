@@ -109,3 +109,44 @@ def uia_set_text(window: str, name_rx: str, text: str,
                {"window": window, "name_rx": name_rx, "text": text,
                 "control_type": control_type, "index": index},
                {"ok": True, "method": "value", "name": "mock"})
+
+# ---- Batch 6 (portmanteau slice): grouped dispatch -----------------------
+# No _approved in the mock provider (nothing to approve); dispatch goes
+# through toolcall.call so the member mock function runs the pipeline.
+
+
+def mouse(operation: str, args: dict | None = None) -> dict:
+    """Mouse as one tool: move | click | scroll."""
+    import portmanteau
+    return portmanteau.dispatch("mouse", operation, args)
+
+
+def keyboard(operation: str, args: dict | None = None) -> dict:
+    """Keyboard as one tool: type | hotkey | paste."""
+    import portmanteau
+    return portmanteau.dispatch("keyboard", operation, args)
+
+
+def window(operation: str, args: dict | None = None) -> dict:
+    """Windows as one tool: list | active | focus | close | minimize |
+    maximize."""
+    import portmanteau
+    return portmanteau.dispatch("window", operation, args)
+
+
+def uia(operation: str, args: dict | None = None) -> dict:
+    """UI Automation as one tool: find | click | set_text."""
+    import portmanteau
+    return portmanteau.dispatch("uia", operation, args)
+
+
+def clipboard(operation: str, args: dict | None = None) -> dict:
+    """Clipboard as one tool: get | set."""
+    import portmanteau
+    return portmanteau.dispatch("clipboard", operation, args)
+
+
+def process(operation: str, args: dict | None = None) -> dict:
+    """Processes as one tool: list | kill."""
+    import portmanteau
+    return portmanteau.dispatch("process", operation, args)

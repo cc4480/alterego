@@ -1,7 +1,7 @@
 # Tool reference
 
 The catalog below is the MCP surface exactly as the server registers
-it: **93 tools** — 89 wrapper tools (`pc-agent/tool_wrappers*.py`,
+it: **108 tools** — 104 wrapper tools (`pc-agent/tool_wrappers*.py`,
 registered from `ALL_TOOLS`) plus 4 job-layer ops registered by
 `server.py`. All are exposed over MCP (Streamable HTTP) at
 `POST {tunnel-url}/mcp`, authenticated with the session bearer token
@@ -79,6 +79,12 @@ Windows system directories and other users' profiles.
 | `paste_text` | `text` | Dialog | Paste into the focused window (reliable for long text) |
 | `shell_exec` | `command`, `timeout_s` (default 60), `cwd` (profile-restricted) | **DESTRUCTIVE** | Run a command in `cmd.exe` |
 | `kill_process` | `pid` | **DESTRUCTIVE** | Terminate a process by PID (refuses the bridge's own PID) |
+| `mouse` | `operation` (`move`/`click`/`scroll`), `args` | Dialog | Mouse as one tool; the member's own gate fires once |
+| `keyboard` | `operation` (`type`/`hotkey`/`paste`), `args` | Dialog | Keyboard as one tool; the member's own gate fires once |
+| `window` | `operation` (`list`/`active`/`focus`/`close`/`minimize`/`maximize`), `args` | Dialog | Window management as one tool |
+| `uia` | `operation` (`find`/`click`/`set_text`), `args` | Dialog | UI Automation as one tool |
+| `clipboard` | `operation` (`get`/`set`), `args` | Dialog | Clipboard as one tool |
+| `process` | `operation` (`list`/`kill`), `args` | **DESTRUCTIVE** | Processes as one tool; `kill` is destructive |
 
 ## Files — absolute paths anywhere on the machine
 
@@ -99,6 +105,7 @@ fails the write if the file changed since it was read.
 | `copy_file` | `src`, `dst`, `dry_run` | Dialog (unless `dry_run`) | Copy a file, metadata preserved |
 | `move_file` | `src`, `dst`, `dry_run` | Dialog (unless `dry_run`) | Move/rename a file |
 | `file_info` | `path` | — | Size and timestamps for a file or directory |
+| `file` | `operation` (`read`/`read_range`/`write`/`edit`/`delete`/`list`/`copy`/`move`/`create_dir`/`info`/`search`/`search_names`), `args` | **DESTRUCTIVE** (unless `dry_run`) | All file ops as one tool; returns `{"operation", "tool", "result"}` |
 
 ## PC awareness & control
 
@@ -111,6 +118,7 @@ fails the write if the file changed since it was read.
 | `speak` | `text` | Dialog | Speak text aloud through the PC speakers |
 | `set_volume` | `level` (0–100) | — † | Set master volume |
 | `power` | `action`: `lock` / `sleep` / `restart` / `shutdown` | **DESTRUCTIVE** | Lock, sleep, restart, or shut down the PC |
+| `record_audio` | `duration_s` (1–30, default 5), `device` (substring match, optional) | **DESTRUCTIVE** | Capture microphone audio (44.1 kHz mono WAV, base64); explicit per-capture consent naming the resolved device; near-silent captures fail loud; 10 s minimum between captures |
 
 † `set_volume`'s wrapper passes the write flag (so `plan` posture
 stubs it), but the current Windows implementation sets the volume
@@ -149,6 +157,7 @@ snapshot tags such elements `[shadow]` / `[iframe]` and reports
 | `browser_click` | `text`, `url_contains` | Dialog | Click the element containing `text` |
 | `browser_fill` | `label`, `text`, `url_contains` | Dialog | Fill the field matching `label` |
 | `browser_eval` | `js`, `url_contains` | **DESTRUCTIVE** | Run JavaScript in the tab |
+| `browser` | `operation` (`snapshot`/`navigate`/`click`/`fill`/`eval`), `args` | **DESTRUCTIVE** | The Edge tab as one tool; the member's own gate fires once |
 
 ### Chrome CDP session hand (`cdp_*`) — registered on the MCP surface
 
@@ -178,11 +187,14 @@ gate it passes through.
 | `cdp_targets` | `target_id` (optional) | — | List page targets; switch active target when given |
 | `cdp_navigate` | `url`, `timeout_s` (default 30) | Dialog | Navigate and prove the landing (url + title) |
 | `cdp_snapshot` | — | — | Interactive elements with stable CSS selectors |
-| `cdp_click` | `selector` or `text` | Dialog | Click by identity; returns the landing readback |
-| `cdp_type` | `text`, `selector` or `label`, `clear_first` | Dialog | Type via `Input.insertText`; readback must equal the typed text |
+| `cdp_click` | `selector`, `text`, or `ref` (stable ref from `cdp_snapshot`, e.g. `e1`; exclusive with both) | Dialog | Click by identity; returns the landing readback |
+| `cdp_type` | `text`, `selector`/`label`/`ref`, `clear_first` | Dialog | Type via `Input.insertText`; readback must equal the typed text |
 | `cdp_evaluate` | `js` | **DESTRUCTIVE** | Run JavaScript in the tab |
 | `cdp_readback` | — | — | URL, title, ready state, active element |
 | `cdp_close` | `delete_profile` (optional) | Dialog | Graceful `Browser.close` (launched) or detach (attached) |
+| `cdp` | `operation` (`launch`/`connect`/`targets`/`navigate`/`snapshot`/`click`/`type`/`evaluate`/`readback`/`close`), `args` | **DESTRUCTIVE** | The Chrome CDP session as one tool |
+
+Stable refs: `cdp_snapshot` attaches a short ref (`e1`, `e2`, …) to each element; `cdp_click`/`cdp_type` accept `ref` instead of a selector/label. Refs cover the last snapshot only — a stale ref fails loud telling the caller to re-snapshot. Edge `browser_snapshot` elements carry no selectors, so refs are CDP-only.
 
 ## Recon & web — network reads
 
@@ -209,6 +221,7 @@ auto-approve / `dontAsk`).
 | `exec_background` | `command`, `timeout_s` (default 300), `cwd` (profile-restricted) | **DESTRUCTIVE** | Start a long-running shell command in the background; returns a job id |
 | `exec_status` | `job_id`, `offset` (bytes) | — | Poll a background job; `offset` enables incremental output reads |
 | `exec_cancel` | `job_id` | — † | Kill a running background job's whole process tree |
+| `exec` | `operation` (`shell`/`pwsh`/`background`/`status`/`cancel`), `args` | **DESTRUCTIVE** | Shell execution as one tool; the member's own gate fires once |
 
 ## Tasks & arbitration — local bookkeeping, no approval
 
@@ -229,6 +242,17 @@ with the risk profiles: `score = 0.25·(1−blast) + 0.35·recoverability
 tiers: `> 0.8` → `auto`, `0.5–0.8` → `confirm`, `< 0.5` →
 `explicit_intent`.
 
+## Macros — cached tool-call combinations
+
+A macro records a combination of tool calls (1–20 steps) under a name and replays it as one call. The combination is what is cached — every replay reads live state fresh; nothing is memoized. Replay goes through the `batch` layer, so independent steps run concurrently and calls sharing one resource serialize; one approval covers all writes.
+
+| Tool | Args | Approval | What it does |
+|---|---|---|---|
+| `macro_record` | `name`, `steps` (list of `{tool, args}`) | Dialog | Record a named macro; steps are validated (tool exists, arg keys are a subset of the def args, no nesting) |
+| `macro_list` | — | — | Recorded macros, sorted by name, with their steps |
+| `macro_replay` | `name` | **DESTRUCTIVE** | Replay a macro through the batch layer; steps re-validated on every replay |
+| `macro_delete` | `name` | Dialog | Delete a recorded macro; fails loud on unknown names |
+
 ## Misc — memory, health, audit
 
 | Tool | Args | Approval | What it does |
@@ -248,6 +272,25 @@ tiers: `> 0.8` → `auto`, `0.5–0.8` → `confirm`, `< 0.5` →
 | `list_watches` | — | — | Registered watches with last fingerprints |
 | `poll_changes` | `since_seq` (default 0), `limit` (default 50) | — | Change journal entries after a sequence cursor (window-set + watched-file changes) |
 | `dashboard` | — | — | Bridge status summary for the MCP Apps widget (same data as text for clients without Apps) |
+
+## Prompts & resources
+
+Prompts are starting points, not tools — each returns a single instruction message for a repeat job. Resources are read-only MCP reads; every read re-runs the provider, nothing is cached.
+
+| Prompt | Args | What it does |
+|---|---|---|
+| `pc_health_check` | — | Run the bridge health check and summarize it |
+| `find_window` | `name` | Find a window by name, focus it, and report it |
+| `summarize_file` | `path` | Read a profile file and summarize it |
+
+| Resource | What it returns |
+|---|---|
+| `pc://bridge/health` | Bridge health summary |
+| `pc://desktop/windows` | Visible windows |
+| `pc://desktop/state` | Desktop state without a screenshot |
+| `pc://files/{+path}` | A profile-jailed file's contents |
+| `pc://bridge/tools` | The full tool catalog as JSON (paged internally so nothing truncates) |
+| `pc://bridge/macros` | Recorded macros as JSON |
 
 ## Deferred in Batch 5, with verified blockers
 

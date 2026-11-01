@@ -142,3 +142,21 @@ HOT_RELOAD = ToolDef(
 ALL_SUPPORT_DEFS = [SHELL_PWSH, BATCH, EXEC_BACKGROUND, EXEC_STATUS,
                     EXEC_CANCEL, SERVER_RELOAD, SUPERVISOR_STATUS,
                     HOT_RELOAD]
+
+# ---- Batch 6 (portmanteau slice) ----------------------------------------
+EXEC = ToolDef(
+    name="exec",
+    group="support",
+    doc="Shell execution as one tool: operation shell | pwsh | background "
+        "| status | cancel, args are the member tool's args.",
+    args={"operation": {"type": "str", "required": True},
+          "args": {"type": "dict", "required": False, "default": None}},
+    result_keys=["operation", "tool", "result"],
+    approval_tier="always_ask",
+    side_effects="system",
+    platform_notes="Dispatches to shell_exec / shell_pwsh / "
+                   "exec_background / exec_status / exec_cancel; same "
+                   "platform story as the members.",
+)
+
+ALL_SUPPORT_DEFS.extend([EXEC])

@@ -117,3 +117,25 @@ FILE_INFO = ToolDef(
 
 ALL_FILES_DEFS = [WRITE_FILE, EDIT_FILE, DELETE_FILE, CREATE_DIR,
                   COPY_FILE, MOVE_FILE, FILE_INFO]
+
+# ---- Batch 6 (portmanteau slice) ----------------------------------------
+FILE = ToolDef(
+    name="file",
+    group="files",
+    doc="Files as one tool: operation read | read_range | write | edit | "
+        "delete | list | copy | move | create_dir | info | search | "
+        "search_names, args are the member tool's args. Write operations "
+        "honor dry_run in args, like the member tools.",
+    args={"operation": {"type": "str", "required": True},
+          "args": {"type": "dict", "required": False, "default": None}},
+    result_keys=["operation", "tool", "result"],
+    approval_tier="always_ask",
+    side_effects="local-fs",
+    supports_dry_run=True,
+    platform_notes="Dispatches to read_file / read_file_range / write_file "
+                   "/ edit_file / delete_file / list_dir / copy_file / "
+                   "move_file / create_dir / file_info / search_files / "
+                   "search_filenames; same platform story as the members.",
+)
+
+ALL_FILES_DEFS.extend([FILE])

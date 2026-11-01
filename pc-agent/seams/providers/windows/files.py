@@ -258,3 +258,14 @@ def file_info(path: str) -> dict:
     return {"path": str(p), "is_file": p.is_file(), "is_dir": p.is_dir(),
             "size": st.st_size, "modified": iso(st.st_mtime),
             "created": iso(st.st_ctime)}
+
+# ---- Batch 6 (portmanteau slice) ----------------------------------------
+# No _approved here and no muting: dispatch goes through toolcall.call so
+# the member's own provider-side gate fires once at the member tier.
+
+
+def file(operation: str, args: dict | None = None) -> dict:
+    """Files as one tool: read | read_range | write | edit | delete |
+    list | copy | move | create_dir | info | search | search_names."""
+    import portmanteau
+    return portmanteau.dispatch("file", operation, args)

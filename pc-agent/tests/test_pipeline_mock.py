@@ -2,7 +2,7 @@
 provider — hooks -> plan-mode -> execute -> typed events (the primary
 record since the Phase 5 cutover; the legacy audit.log is gone).
 
-Covers: result_keys contract for all 86 tools, hook allow/deny/modify,
+Covers: result_keys contract for all 99 tools, hook allow/deny/modify,
 plan-mode dry-run, approval tiers, and the expected event chain per call.
 """
 import pytest
@@ -36,6 +36,7 @@ ARGS = {
     "file_info": {"path": "seed.txt"},
     "active_window": {}, "idle_seconds": {}, "list_processes": {},
     "notify": {"title": "t", "message": "m"}, "speak": {"text": "hi"},
+    "record_audio": {"duration_s": 2},
     "set_volume": {"level": 50}, "power": {"action": "shutdown"},
     "browser_snapshot": {},
     "browser_navigate": {"url": "https://example.com"},
@@ -91,13 +92,27 @@ ARGS = {
     "poll_changes": {},
     "dashboard": {},
     "tool_finder": {"query": "window"},
+    "mouse": {"operation": "move", "args": {"x": 10, "y": 20}},
+    "keyboard": {"operation": "type", "args": {"text": "hi"}},
+    "window": {"operation": "list", "args": {}},
+    "uia": {"operation": "find", "args": {"window": "w", "name_rx": "x"}},
+    "file": {"operation": "read", "args": {"path": "seed.txt"}},
+    "process": {"operation": "list", "args": {}},
+    "browser": {"operation": "snapshot", "args": {}},
+    "cdp": {"operation": "snapshot", "args": {}},
+    "clipboard": {"operation": "get", "args": {}},
+    "exec": {"operation": "shell", "args": {"command": "echo hello"}},
+    "macro_record": {"name": "pipeline_probe",
+                     "steps": [{"tool": "idle_seconds", "args": {}}]},
+    "macro_list": {},
 }
 
 ALL_NAMES = [d.name for d in definitions.ALL_DEFS]
 PARAM_NAMES = [n for n in ALL_NAMES
                if n not in ("task_checkpoint", "task_status",
-                            "answer_elicitation")]
-assert len(PARAM_NAMES) == 86, len(PARAM_NAMES)
+                            "answer_elicitation",
+                            "macro_replay", "macro_delete")]
+assert len(PARAM_NAMES) == 99, len(PARAM_NAMES)
 
 
 def _write_flag(name):

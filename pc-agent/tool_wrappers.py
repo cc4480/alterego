@@ -221,6 +221,14 @@ def speak(text: str) -> dict:
     return toolcall.call("speak", {"text": text}, write=True)
 
 
+def record_audio(duration_s: int = 5, device: str = None) -> dict:
+    """Record microphone audio to a WAV clip (1-30s). Always requires
+    approval (always_ask); the audio is returned to the caller."""
+    return toolcall.call("record_audio",
+                         {"duration_s": duration_s, "device": device},
+                         write=True)
+
+
 def set_volume(level: int) -> dict:
     """Set master volume 0-100. Requires approval."""
     return toolcall.call("set_volume", {"level": level}, write=True)
@@ -408,21 +416,25 @@ def cdp_snapshot() -> dict:
     return toolcall.call("cdp_snapshot", {})
 
 
-def cdp_click(selector: str = "", text: str = "") -> dict:
+def cdp_click(selector: str = "", text: str = "", ref: str = "") -> dict:
     """Click an element by CSS selector or visible text (never
-    coordinates); returns the landing readback. Requires approval."""
+    coordinates); returns the landing readback. Requires approval.
+    A stable ref from cdp_snapshot may be passed instead."""
     return toolcall.call("cdp_click",
-                         {"selector": selector, "text": text}, write=True)
+                         {"selector": selector, "text": text, "ref": ref},
+                         write=True)
 
 
 def cdp_type(text: str, selector: str = "", label: str = "",
-             clear_first: bool = True) -> dict:
+             clear_first: bool = True, ref: str = "") -> dict:
     """Type into a field addressed by selector or label via CDP
     Input.insertText; success requires value readback equality.
-    Requires approval."""
+    Requires approval. A stable ref from cdp_snapshot may be passed
+    instead of selector/label."""
     return toolcall.call("cdp_type",
                          {"text": text, "selector": selector,
-                          "label": label, "clear_first": clear_first},
+                          "label": label, "clear_first": clear_first,
+                          "ref": ref},
                          write=True)
 
 
@@ -479,8 +491,137 @@ ALL_TOOLS = [
     exec_background, exec_status, exec_cancel,
     http_headers, dns_query, tls_info, tcp_check, web_fetch, web_search,
     active_window, idle_seconds, list_processes,
-    notify, speak, set_volume, power, tools_tasks.task_create,
+    notify, speak, record_audio, set_volume, power, tools_tasks.task_create,
     tools_tasks.task_checkpoint, tools_tasks.task_status, _arb.arbitrate_tool,
     doctor, query_events, replay_session,
     server_reload, supervisor_status, hot_reload,
 ]
+
+# ---- Registration fix (Batch 6): the 11 Batch 4/5 wrappers below were
+# defined but never added to ALL_TOOLS at 3cf5476, so server.py exposed
+# only 83 tools live. Registered here so the surface is real. ----
+ALL_TOOLS.extend([search_tools, complete_arg, elicit_input,
+                  answer_elicitation, list_elicitations, watch_path,
+                  unwatch_path, list_watches, poll_changes, dashboard,
+                  tool_finder])
+
+# ---- Batch 6 (portmanteau slice): grouped tools ---------------------------
+# Each wrapper passes a per-operation write flag (plan mode stubs write
+# operations, read operations execute). Dispatch goes through the
+# pipeline so the member's own approval gate fires once.
+import portmanteau as _portmanteau
+
+
+def mouse(operation: str, args: dict | None = None) -> dict:
+    """Mouse as one tool: operation move | click | scroll, args are the
+    member tool's args."""
+    return toolcall.call("mouse", {"operation": operation, "args": args},
+                         write=_portmanteau.write_flag("mouse", operation,
+                                                       args))
+
+
+def keyboard(operation: str, args: dict | None = None) -> dict:
+    """Keyboard as one tool: operation type | hotkey | paste, args are
+    the member tool's args."""
+    return toolcall.call("keyboard", {"operation": operation, "args": args},
+                         write=_portmanteau.write_flag("keyboard", operation,
+                                                       args))
+
+
+def window(operation: str, args: dict | None = None) -> dict:
+    """Windows as one tool: operation list | active | focus | close |
+    minimize | maximize, args are the member tool's args."""
+    return toolcall.call("window", {"operation": operation, "args": args},
+                         write=_portmanteau.write_flag("window", operation,
+                                                       args))
+
+
+def uia(operation: str, args: dict | None = None) -> dict:
+    """UI Automation as one tool: operation find | click | set_text,
+    args are the member tool's args."""
+    return toolcall.call("uia", {"operation": operation, "args": args},
+                         write=_portmanteau.write_flag("uia", operation,
+                                                       args))
+
+
+def file(operation: str, args: dict | None = None) -> dict:
+    """Files as one tool: operation read | read_range | write | edit |
+    delete | list | copy | move | create_dir | info | search |
+    search_names, args are the member tool's args. Write operations honor
+    dry_run in args."""
+    return toolcall.call("file", {"operation": operation, "args": args},
+                         write=_portmanteau.write_flag("file", operation,
+                                                       args))
+
+
+def process(operation: str, args: dict | None = None) -> dict:
+    """Processes as one tool: operation list | kill, args are the member
+    tool's args."""
+    return toolcall.call("process", {"operation": operation, "args": args},
+                         write=_portmanteau.write_flag("process", operation,
+                                                       args))
+
+
+def browser(operation: str, args: dict | None = None) -> dict:
+    """Edge tab as one tool: operation snapshot | navigate | click |
+    fill | eval, args are the member tool's args."""
+    return toolcall.call("browser", {"operation": operation, "args": args},
+                         write=_portmanteau.write_flag("browser", operation,
+                                                       args))
+
+
+def cdp(operation: str, args: dict | None = None) -> dict:
+    """Chrome CDP session as one tool: operation launch | connect |
+    targets | navigate | snapshot | click | type | evaluate | readback |
+    close, args are the member tool's args."""
+    return toolcall.call("cdp", {"operation": operation, "args": args},
+                         write=_portmanteau.write_flag("cdp", operation,
+                                                       args))
+
+
+def clipboard(operation: str, args: dict | None = None) -> dict:
+    """Clipboard as one tool: operation get | set, args are the member
+    tool's args."""
+    return toolcall.call("clipboard", {"operation": operation, "args": args},
+                         write=_portmanteau.write_flag("clipboard",
+                                                       operation, args))
+
+
+def exec(operation: str, args: dict | None = None) -> dict:
+    """Shell execution as one tool: operation shell | pwsh | background |
+    status | cancel, args are the member tool's args."""
+    return toolcall.call("exec", {"operation": operation, "args": args},
+                         write=_portmanteau.write_flag("exec", operation,
+                                                       args))
+
+
+ALL_TOOLS.extend([mouse, keyboard, window, uia, file, process, browser,
+                  cdp, clipboard, exec])
+
+
+# ---- macros (Batch 6): cached tool-call combinations ----------------------
+def macro_record(name: str, steps: list) -> dict:
+    """Record a named macro: 1-20 tool calls replayed as one call with
+    macro_replay. Steps run live on every replay. Requires approval."""
+    return toolcall.call("macro_record", {"name": name, "steps": steps},
+                         write=True)
+
+
+def macro_list() -> dict:
+    """Recorded macros, sorted by name, with their steps. No approval."""
+    return toolcall.call("macro_list", {})
+
+
+def macro_replay(name: str) -> dict:
+    """Replay a recorded macro as one call through the batch layer.
+    One approval covers all writes. Requires approval."""
+    return toolcall.call("macro_replay", {"name": name}, write=True)
+
+
+def macro_delete(name: str) -> dict:
+    """Delete a recorded macro. Fails loud on unknown names.
+    Requires approval."""
+    return toolcall.call("macro_delete", {"name": name}, write=True)
+
+
+ALL_TOOLS += [macro_record, macro_list, macro_replay, macro_delete]

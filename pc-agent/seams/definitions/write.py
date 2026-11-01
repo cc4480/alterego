@@ -243,3 +243,97 @@ ALL_WRITE_DEFS = [FOCUS_WINDOW, CLOSE_WINDOW, TYPE_TEXT, SHELL_EXEC, HOTKEY,
                   MOUSE_MOVE, MOUSE_CLICK, MOUSE_SCROLL, MINIMIZE_WINDOW,
                   MAXIMIZE_WINDOW, KILL_PROCESS, CLIPBOARD_SET, PASTE_TEXT,
                   UIA_CLICK, UIA_SET_TEXT]
+
+# ---- Batch 6 (portmanteau slice): grouped tools, one per family --------
+# Each takes (operation, args) and dispatches to exactly one member tool
+# through the pipeline, so the member's own approval gate fires once at
+# the member tier. The def approval_tier is the most restrictive member
+# tier (risk snapshot / annotations only). result_keys are the uniform
+# dispatch envelope keys. supports_dry_run mirrors the member tools.
+
+MOUSE = ToolDef(
+    name="mouse",
+    group="write",
+    doc="Mouse as one tool: operation move | click | scroll, args are the "
+        "member tool's args (x/y, button, direction/clicks).",
+    args={"operation": {"type": "str", "required": True},
+          "args": {"type": "dict", "required": False, "default": None}},
+    result_keys=["operation", "tool", "result"],
+    approval_tier="routine",
+    side_effects="session",
+    platform_notes="Dispatches to mouse_move / mouse_click / mouse_scroll; "
+                   "same platform story as the members.",
+)
+
+KEYBOARD = ToolDef(
+    name="keyboard",
+    group="write",
+    doc="Keyboard as one tool: operation type | hotkey | paste, args are "
+        "the member tool's args (text, keys).",
+    args={"operation": {"type": "str", "required": True},
+          "args": {"type": "dict", "required": False, "default": None}},
+    result_keys=["operation", "tool", "result"],
+    approval_tier="ask",
+    side_effects="session",
+    platform_notes="Dispatches to type_text / hotkey / paste_text; same "
+                   "platform story as the members.",
+)
+
+WINDOW = ToolDef(
+    name="window",
+    group="write",
+    doc="Windows as one tool: operation list | active | focus | close | "
+        "minimize | maximize, args are the member tool's args.",
+    args={"operation": {"type": "str", "required": True},
+          "args": {"type": "dict", "required": False, "default": None}},
+    result_keys=["operation", "tool", "result"],
+    approval_tier="ask",
+    side_effects="session",
+    platform_notes="Dispatches to list_windows / active_window / "
+                   "focus_window / close_window / minimize_window / "
+                   "maximize_window; same platform story as the members.",
+)
+
+UIA = ToolDef(
+    name="uia",
+    group="write",
+    doc="UI Automation as one tool: operation find | click | set_text, "
+        "args are the member tool's args.",
+    args={"operation": {"type": "str", "required": True},
+          "args": {"type": "dict", "required": False, "default": None}},
+    result_keys=["operation", "tool", "result"],
+    approval_tier="ask",
+    side_effects="session",
+    platform_notes="Dispatches to uia_find / uia_click / uia_set_text. "
+                   "Windows-only, like the members.",
+)
+
+CLIPBOARD = ToolDef(
+    name="clipboard",
+    group="write",
+    doc="Clipboard as one tool: operation get | set, args are the member "
+        "tool's args (text for set).",
+    args={"operation": {"type": "str", "required": True},
+          "args": {"type": "dict", "required": False, "default": None}},
+    result_keys=["operation", "tool", "result"],
+    approval_tier="routine",
+    side_effects="session",
+    platform_notes="Dispatches to clipboard_get / clipboard_set; same "
+                   "platform story as the members.",
+)
+
+PROCESS = ToolDef(
+    name="process",
+    group="write",
+    doc="Processes as one tool: operation list | kill, args are the member "
+        "tool's args (pid for kill).",
+    args={"operation": {"type": "str", "required": True},
+          "args": {"type": "dict", "required": False, "default": None}},
+    result_keys=["operation", "tool", "result"],
+    approval_tier="always_ask",
+    side_effects="system",
+    platform_notes="Dispatches to list_processes / kill_process; same "
+                   "platform story as the members.",
+)
+
+ALL_WRITE_DEFS.extend([MOUSE, KEYBOARD, WINDOW, UIA, CLIPBOARD, PROCESS])
