@@ -17,6 +17,8 @@ def _p(blast, rec, effects=(), undo=None, tags=()):
 PROFILES = {
     # ---- read-only: no blast, fully recoverable ----
     "screenshot": _p("none", 10),
+    "desktop_state": _p("none", 10),
+    "wait_for": _p("none", 10),
     "list_windows": _p("none", 10),
     "system_info": _p("none", 10),
     "list_dir": _p("none", 10),

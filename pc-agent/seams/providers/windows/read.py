@@ -509,3 +509,118 @@ def uia_find(window: str, name_rx: str = "", control_type: str = "",
         raise RuntimeError(res.get("error", "uia_find failed"))
     return {"ok": True, "count": int(res.get("count", 0)),
             "elements": res.get("elements") or []}
+
+
+def _focused_window() -> dict | None:
+    """Foreground window via win32gui, or None when unavailable."""
+    try:
+        import win32gui
+        import win32process
+        hwnd = win32gui.GetForegroundWindow()
+        if not hwnd:
+            return None
+        title = win32gui.GetWindowText(hwnd)
+        _, pid = win32process.GetWindowThreadProcessId(hwnd)
+        return {"hwnd": hwnd, "pid": pid, "title": title}
+    except Exception:
+        return None
+
+
+def desktop_state(include_screenshot: bool = True, scale: float = 0.5,
+                  max_elements: int = 25) -> dict:
+    """Windows + focused window + its UI elements + screenshot, one call.
+
+    Every section is best-effort: a section that cannot be read reports
+    its own error in ``errors`` instead of failing the whole call.
+    """
+    errors = {}
+    try:
+        windows = list_windows().get("windows", [])
+    except Exception as e:  # noqa: BLE001 - per-section best effort
+        windows = []
+        errors["windows"] = f"{type(e).__name__}: {e}"
+    focused = _focused_window()
+    if focused is None:
+        errors["focused"] = "could not determine the foreground window"
+    elements = []
+    if focused is not None:
+        try:
+            found = uia_find(window=str(focused["hwnd"]),
+                             max_results=max(1, min(int(max_elements), 200)))
+            elements = found.get("elements", [])
+        except Exception as e:  # noqa: BLE001 - per-section best effort
+            errors["elements"] = f"{type(e).__name__}: {e}"
+    shot = None
+    if include_screenshot:
+        try:
+            shot = screenshot(scale=float(scale))
+        except Exception as e:  # noqa: BLE001 - per-section best effort
+            errors["screenshot"] = f"{type(e).__name__}: {e}"
+    return {"windows": windows, "focused": focused,
+            "elements": elements, "screenshot": shot, "errors": errors}
+
+
+def _wait_probe(kind, target, window, control_type):
+    """One probe. Returns (found, detail dict)."""
+    import re
+    if kind == "window":
+        wins = list_windows().get("windows", [])
+        for w in wins:
+            if re.search(target, w.get("title", "")):
+                return True, {"window": w}
+        return False, {"windows_seen": len(wins)}
+    if kind in ("element", "text"):
+        win = window
+        if not win:
+            focused = _focused_window()
+            if focused is None:
+                return False, {"error": "no window given and no "
+                                        "foreground window"}
+            win = str(focused["hwnd"])
+        res = uia_find(window=win, name_rx=target,
+                       control_type=control_type or "")
+        elements = res.get("elements", [])
+        if elements:
+            return True, {"count": res.get("count", len(elements)),
+                          "elements": elements[:5]}
+        return False, {"count": 0}
+    raise ValueError(f"unknown kind: {kind!r}")
+
+
+def wait_for(kind: str, target: str, window: str = "",
+             control_type: str = "", timeout_s: float = 10.0,
+             interval_s: float = 0.5) -> dict:
+    """Poll until target appears. Returns found=false on timeout."""
+    import re
+    import time
+    if kind not in ("window", "element", "text"):
+        raise ValueError("kind must be window | element | text")
+    if not isinstance(target, str) or not target:
+        raise ValueError("target must be a non-empty string")
+    try:
+        re.compile(target)
+    except re.error as e:
+        raise ValueError(f"target is not a valid regex: {e}")
+    timeout_s = float(timeout_s)
+    interval_s = float(interval_s)
+    if not 0 < timeout_s <= 120:
+        raise ValueError("timeout_s must be > 0 and <= 120")
+    if not 0.1 <= interval_s <= 10:
+        raise ValueError("interval_s must be 0.1-10")
+    started = time.monotonic()
+    attempts = 0
+    while True:
+        attempts += 1
+        try:
+            found, detail = _wait_probe(kind, target, window, control_type)
+        except Exception as e:  # noqa: BLE001 - transient probe failure
+            found, detail = False, {"error": f"{type(e).__name__}: {e}"}
+        if found:
+            return {"found": True, "kind": kind, "target": target,
+                    "waited_s": round(time.monotonic() - started, 3),
+                    "attempts": attempts, "detail": detail}
+        if time.monotonic() - started >= timeout_s:
+            return {"found": False, "kind": kind, "target": target,
+                    "waited_s": round(time.monotonic() - started, 3),
+                    "attempts": attempts, "detail": detail}
+        time.sleep(interval_s)

@@ -52,6 +52,8 @@ are auto-approved while shell and destructive tools still ask. See
 | `search_filenames` | `pattern` (glob), `path`, `max_results`, `sort_by`, `offset` | Find files by name. **Profile-restricted** |
 | `clipboard_get` | — | Current Windows clipboard text |
 | `uia_find` | `window`, `name_rx`, `control_type`, `max_results` | UI elements via Windows UI Automation — name, control type, bounding rect; no screenshot needed |
+| `desktop_state` | `include_screenshot` (default true), `scale` (default 0.5), `max_elements` (default 25) | One call: visible windows, focused window, its UI elements, screenshot. Each section best-effort with its own error in `errors` |
+| `wait_for` | `kind` (window \| element \| text), `target` (regex), `window`, `control_type`, `timeout_s` (default 10), `interval_s` (default 0.5) | Poll until target appears. `found=false` on timeout, never an error |
 
 **Profile restriction:** the read tools resolve paths under the
 user's own profile (`%USERPROFILE%`; override with

@@ -66,3 +66,22 @@ def uia_find(window: str, name_rx: str = "", control_type: str = "",
                          {"window": window, "name_rx": name_rx,
                           "control_type": control_type,
                           "max_results": max_results})
+
+
+def desktop_state(include_screenshot: bool = True, scale: float = 0.5,
+                  max_elements: int = 25) -> dict:
+    """One call: windows, focused window, its UI elements, screenshot."""
+    return toolcall.call("desktop_state",
+                         {"include_screenshot": include_screenshot,
+                          "scale": scale, "max_elements": max_elements})
+
+
+def wait_for(kind: str, target: str, window: str = "",
+             control_type: str = "", timeout_s: float = 10.0,
+             interval_s: float = 0.5) -> dict:
+    """Poll until target appears; found=false on timeout, never an error."""
+    return toolcall.call("wait_for",
+                         {"kind": kind, "target": target, "window": window,
+                          "control_type": control_type,
+                          "timeout_s": timeout_s,
+                          "interval_s": interval_s})

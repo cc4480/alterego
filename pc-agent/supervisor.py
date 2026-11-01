@@ -147,7 +147,9 @@ def supervisor_status(data=None):
             "storm_breaker": bool(st.get("storm_breaker", False)),
             "heartbeat_age_s": hb,
             "updated_ts": st.get("updated_ts"),
-            "port": st.get("port", DEFAULT_PORT)}
+            "port": st.get("port", DEFAULT_PORT),
+            "detail": ("supervisor process alive" if alive
+                       else "supervisor process not running")}
 
 
 def find_port_holders(port, exclude_pids=()):

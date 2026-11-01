@@ -123,7 +123,7 @@ def supervisor_status() -> dict:
             "child_pid": 4243, "restarts": 0, "reloads": 0,
             "last_exit_code": None, "last_exit_ts": None,
             "storm_breaker": False, "heartbeat_age_s": 1.0,
-            "updated_ts": 0, "port": 8765}
+            "updated_ts": 0, "port": 8765, "detail": "mock"}
 
 
 def hot_reload(action: str) -> dict:
