@@ -91,6 +91,14 @@ def _v_doctor_run(d):
     return _req(d, "checks", "summary")
 
 
+def _v_elicitation_created(d):
+    return _req(d, "elicitation_id", "question", "options")
+
+
+def _v_elicitation_answered(d):
+    return _req(d, "elicitation_id", "choice")
+
+
 VALIDATORS = {
     "SessionPaired": _v_session_paired,
     "SessionRevoked": _v_session_revoked,
@@ -106,6 +114,8 @@ VALIDATORS = {
     "ServerStarted": _v_server_started,
     "ServerStopping": _v_server_stopping,
     "DoctorRun": _v_doctor_run,
+    "ElicitationCreated": _v_elicitation_created,
+    "ElicitationAnswered": _v_elicitation_answered,
 }
 
 VALID_EVENT_TYPES = frozenset(VALIDATORS)

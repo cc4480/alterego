@@ -1,7 +1,7 @@
 # Tool reference
 
 The catalog below is the MCP surface exactly as the server registers
-it: **84 tools** — 80 wrapper tools (`pc-agent/tool_wrappers*.py`,
+it: **93 tools** — 89 wrapper tools (`pc-agent/tool_wrappers*.py`,
 registered from `ALL_TOOLS`) plus 4 job-layer ops registered by
 `server.py`. All are exposed over MCP (Streamable HTTP) at
 `POST {tunnel-url}/mcp`, authenticated with the session bearer token
@@ -239,6 +239,32 @@ tiers: `> 0.8` → `auto`, `0.5–0.8` → `confirm`, `< 0.5` →
 | `replay_session` | `session_id`, `format` (`human`) | — | Full causal transcript of one operator session |
 | `search_tools` | `query`, `group`, `max_results` (default 10), `offset` (default 0) | — | Keyword search over the tool catalog (name/doc/group), scored name-first, paginated |
 | `complete_arg` | `tool`, `argument`, `prefix`, `max_results` (default 10) | — | Complete an argument value from live state: window titles, profile-relative paths |
+| `tool_finder` | `query`, `group`, `max_results` (default 10), `offset` (default 0) | — | Find tools by keyword (plain-name alias for `search_tools`); returns matching tool calls, never file locations |
+| `elicit_input` | `question`, `options` (2–10), `tool`, `argument`, `context` | — | Ask a structured question with a pick-list instead of failing or guessing; answer with `answer_elicitation` |
+| `answer_elicitation` | `elicitation_id`, `choice` | — | Answer a pending elicitation with one of its options |
+| `list_elicitations` | `status`, `limit` (default 20) | — | Pending/answered/all elicitations, newest first |
+| `watch_path` | `path` | — | Register a profile-jailed file to watch for changes |
+| `unwatch_path` | `path` | — | Drop a watched file |
+| `list_watches` | — | — | Registered watches with last fingerprints |
+| `poll_changes` | `since_seq` (default 0), `limit` (default 50) | — | Change journal entries after a sequence cursor (window-set + watched-file changes) |
+| `dashboard` | — | — | Bridge status summary for the MCP Apps widget (same data as text for clients without Apps) |
+
+## Deferred in Batch 5, with verified blockers
+
+- **Sampling** (server borrows the client model mid-tool): needs the
+  framework's `Resolve`/`Sample` markers plus a client that answers
+  `sampling/createMessage` and retries with `input_responses`. Brio's
+  raw JSON-RPC client implements neither, and the sync tool pipeline
+  has no marker concept. No code shipped; faking it would return
+  unsummarized text labeled as sampled.
+- **Native push** (`subscriptions/listen` + `ResourceUpdated`): the
+  framework provides the listen stream, but publishing needs a
+  publisher on the server event loop; the watcher runs in a daemon
+  thread with no loop access, and static resources cannot take a
+  `Context` (verified: the SDK raises at registration). The journal +
+  `poll_changes` + fresh resource reads are the working channels.
+- **Structured output**: still blocked on the TypedDict migration
+  (Batch 4 finding, unchanged).
 
 ## Job layer — registered by `server.py`
 

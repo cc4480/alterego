@@ -41,27 +41,68 @@ import uvicorn
 import approval
 import events
 import hooks
+from dashboard_ui import DASHBOARD_HTML, DASHBOARD_URI
 from mcp.types import ToolAnnotations
 from tool_profiles import annotations_for
 from tool_wrappers import ALL_TOOLS
+
+try:
+    from mcp.server.apps import Apps
+except ImportError:
+    Apps = None
 
 HOST, PORT = "127.0.0.1", 8765
 
 _BRIDGE_INSTRUCTIONS = (
     "AlterEgo PC bridge: tools over one Windows PC. Prefer desktop_state "
     "for a one-call view of windows, UI, and screen; wait_for instead of "
-    "sleep-and-retry; search_tools to find a tool instead of reading every "
-    "schema; batch for independent calls (desktop/browser calls in one "
+    "sleep-and-retry; tool_finder to find a tool instead of reading every "
+    "schema; poll_changes for window/file changes; batch for independent calls (desktop/browser calls in one "
     "batch serialize). Reads are silent; writes ask unless the server "
     "runs in dontAsk mode. job_status is the progress channel for "
     "background jobs — poll it, do not re-submit."
 )
 
-mcp = MCPServer("pc-bridge", instructions=_BRIDGE_INSTRUCTIONS)
+_APPS = None
+if Apps is not None:
+    _APPS = Apps()
+    _APPS.add_html_resource(DASHBOARD_URI, DASHBOARD_HTML)
+
+mcp = MCPServer("pc-bridge", instructions=_BRIDGE_INSTRUCTIONS,
+                extensions=[_APPS] if _APPS is not None else None)
 
 for _tool_fn in ALL_TOOLS:
+    _meta = None
+    if _tool_fn.__name__ == "dashboard":
+        _meta = {"ui": {"resourceUri": DASHBOARD_URI}}
     mcp.tool(annotations=ToolAnnotations(
-        **annotations_for(_tool_fn.__name__)))(_tool_fn)
+        **annotations_for(_tool_fn.__name__)), meta=_meta)(_tool_fn)
+
+# --- Read-only MCP resources (Batch 5): live PC state, addressable ---
+# Resource reads are never cached: every read re-runs the provider.
+# {+path} matches multi-segment profile-relative paths (probed).
+from bridge_resources import file_text, health_text, state_text, windows_text
+
+
+@mcp.resource("pc://bridge/health")
+def _res_health() -> str:
+    return health_text()
+
+
+@mcp.resource("pc://desktop/windows")
+def _res_windows() -> str:
+    return windows_text()
+
+
+@mcp.resource("pc://desktop/state")
+def _res_state() -> str:
+    return state_text()
+
+
+@mcp.resource("pc://files/{+path}")
+def _res_file(path: str) -> str:
+    return file_text(path)
+
 
 # --- Job layer ops (Hermes-pattern, 2026-10-23): journal-ACK intake ---
 # submit_job journals the call and returns a job_id immediately; the
@@ -499,6 +540,11 @@ def main():
     _refresh_pairing_code()
     threading.Thread(target=_pairing_refresher, daemon=True).start()
     threading.Thread(target=_heartbeat_writer, daemon=True).start()
+    try:
+        import changes
+        threading.Thread(target=changes.watch_loop, daemon=True).start()
+    except Exception:
+        pass
     # Gate dontask mode: require explicit confirmation at startup
     # unless PC_BRIDGE_FULL_ACCESS_CONFIRM=0 (trusted automated startup)
     if approval.get_permission_mode() == "dontask":

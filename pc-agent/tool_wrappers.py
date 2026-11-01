@@ -274,6 +274,69 @@ def complete_arg(tool: str, argument: str, prefix: str = "",
                           "prefix": prefix, "max_results": max_results})
 
 
+def elicit_input(question: str, options: list, tool: str = "",
+                 argument: str = "", context: str = "") -> dict:
+    """Ask a structured question with a pick-list instead of failing
+    or guessing. Read-only, no approval."""
+    return toolcall.call("elicit_input",
+                         {"question": question, "options": options,
+                          "tool": tool, "argument": argument,
+                          "context": context})
+
+
+def answer_elicitation(elicitation_id: str, choice: str) -> dict:
+    """Answer a pending elicitation with one of its options.
+    Read-only, no approval."""
+    return toolcall.call("answer_elicitation",
+                         {"elicitation_id": elicitation_id,
+                          "choice": choice})
+
+
+def list_elicitations(status: str = "", limit: int = 20) -> dict:
+    """Pending/answered/all elicitations, newest first. Read-only,
+    no approval."""
+    return toolcall.call("list_elicitations",
+                         {"status": status, "limit": limit})
+
+
+def watch_path(path: str) -> dict:
+    """Register a file to watch for changes. Read-only, no approval."""
+    return toolcall.call("watch_path", {"path": path})
+
+
+def unwatch_path(path: str) -> dict:
+    """Drop a watched file. Read-only, no approval."""
+    return toolcall.call("unwatch_path", {"path": path})
+
+
+def list_watches() -> dict:
+    """Registered watches with last fingerprints. Read-only, no
+    approval."""
+    return toolcall.call("list_watches", {})
+
+
+def poll_changes(since_seq: int = 0, limit: int = 50) -> dict:
+    """Change journal entries after a sequence cursor. Read-only,
+    no approval."""
+    return toolcall.call("poll_changes",
+                         {"since_seq": since_seq, "limit": limit})
+
+
+def dashboard() -> dict:
+    """Bridge status summary for the MCP Apps widget (same data as
+    text for clients without Apps). Read-only, no approval."""
+    return toolcall.call("dashboard", {})
+
+
+def tool_finder(query: str = "", group: str = "", max_results: int = 10,
+                offset: int = 0) -> dict:
+    """Find tools by keyword — plain-name alias for search_tools.
+    Read-only, no approval."""
+    return toolcall.call("tool_finder",
+                         {"query": query, "group": group,
+                          "max_results": max_results, "offset": offset})
+
+
 # ---- browser tools (CDP; Edge needs --remote-debugging-port=9222) ----------
 def browser_snapshot(url_contains: str = "") -> dict:
     """List interactive elements of the live Edge tab (no approval)."""
