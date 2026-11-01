@@ -279,3 +279,87 @@ def exec_cancel(job_id: str) -> dict:
     events.append("BackgroundJobCancelled", {"job_id": job_id},
                   session_id=toolcall._session_id())
     return {"job_id": job_id, "status": "cancelled"}
+
+
+# ---- supervisor / hot reload (Batch 1) ---------------------------------
+def _supervisor_data_dir():
+    try:
+        from auth import app_dir
+        return app_dir()
+    except Exception:
+        import os
+        from pathlib import Path
+        return Path(os.environ.get("APPDATA") or Path.home()) / "pc-mcp-bridge"
+
+
+def server_reload() -> dict:
+    """Restart the bridge server via the supervisor. Refuses when no
+    supervisor is running, so the bridge is never darkened with nobody
+    to bring it back."""
+    import supervisor as _sup
+    data = _supervisor_data_dir()
+    st = _sup.supervisor_status(data)
+    if not st.get("running"):
+        return {"reloading": False, "supervisor_running": False,
+                "reason": None,
+                "error": "no supervisor running",
+                "fix": "Start supervised mode: .\\bridge-admin.ps1 supervise"}
+    _approved("server_reload",
+              "Restart the bridge server via the supervisor "
+              "(fresh code, same tunnel and tokens).")
+    _sup.request_reload(data, reason="server_reload tool")
+    return {"reloading": True, "supervisor_running": True,
+            "reason": "server_reload tool", "error": None, "fix": None}
+
+
+def supervisor_status() -> dict:
+    """Supervisor health. Read-only, no approval."""
+    import supervisor as _sup
+    return _sup.supervisor_status(_supervisor_data_dir())
+
+
+def hot_reload(action: str) -> dict:
+    """Hot reload: status | enable | disable | trigger."""
+    import hot_reload as _hr
+    import supervisor as _sup
+    data = _supervisor_data_dir()
+    if action == "status":
+        last_change = None
+        try:
+            import json
+            last_change = json.loads(
+                _sup.state_path(data).read_text(
+                    encoding="utf-8")).get("last_change")
+        except Exception:
+            last_change = None
+        return {"action": "status",
+                "enabled": _hr.hot_reload_enabled(data),
+                "watching": _sup.supervisor_status(data).get("running",
+                                                            False),
+                "last_change": last_change,
+                "reloading": False, "error": None, "fix": None}
+    if action not in ("enable", "disable", "trigger"):
+        raise ValueError("action must be status | enable | disable | trigger")
+    _approved("hot_reload", f"Hot reload: {action}")
+    if action == "enable":
+        _hr.set_hot_reload(data, True)
+        return {"action": "enable", "enabled": True, "watching": True,
+                "last_change": None, "reloading": False,
+                "error": None, "fix": None}
+    if action == "disable":
+        _hr.set_hot_reload(data, False)
+        return {"action": "disable", "enabled": False, "watching": False,
+                "last_change": None, "reloading": False,
+                "error": None, "fix": None}
+    st = _sup.supervisor_status(data)
+    if not st.get("running"):
+        return {"action": "trigger", "enabled":
+                _hr.hot_reload_enabled(data), "watching": False,
+                "last_change": None, "reloading": False,
+                "error": "no supervisor running",
+                "fix": "Start supervised mode: .\\bridge-admin.ps1 supervise"}
+    _sup.request_reload(data, reason="hot_reload trigger")
+    return {"action": "trigger",
+            "enabled": _hr.hot_reload_enabled(data), "watching": True,
+            "last_change": None, "reloading": True,
+            "error": None, "fix": None}

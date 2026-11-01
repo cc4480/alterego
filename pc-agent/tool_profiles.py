@@ -112,6 +112,11 @@ PROFILES = {
     # ---- batch: inherits the riskiest sub-call ----
     "batch": _p("system", 3, ("executes multiple tool calls",),
                 "undo each sub-call", ("destructive",)),
+    "server_reload": _p("system", 6, ("server process restarts",),
+                        "supervisor restarts the server automatically"),
+    "supervisor_status": _p("none", 10),
+    "hot_reload": _p("session", 8, ("reload behavior change",),
+                     "hot_reload disable"),
 }
 
 

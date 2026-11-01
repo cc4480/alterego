@@ -362,6 +362,20 @@ def cdp_close(delete_profile: bool = False) -> dict:
                          write=True)
 
 
+def server_reload() -> dict:
+    """Restart the bridge server via the supervisor (fresh code, same tunnel and tokens). Refuses when no supervisor is running. Requires approval."""
+    return toolcall.call("server_reload", {}, write=True)
+
+
+def supervisor_status() -> dict:
+    """Supervisor health: running, child pid, restarts, heartbeat age. No approval."""
+    return toolcall.call("supervisor_status", {})
+
+
+def hot_reload(action: str) -> dict:
+    """Hot reload: status | enable | disable | trigger. Enable/disable/trigger require approval."""
+    return toolcall.call("hot_reload", {"action": action}, write=True)
+
 ALL_TOOLS = [
     screenshot, list_windows, system_info, list_dir, read_file,
     clipboard_get, memory_recall,
@@ -384,4 +398,5 @@ ALL_TOOLS = [
     notify, speak, set_volume, power, tools_tasks.task_create,
     tools_tasks.task_checkpoint, tools_tasks.task_status, _arb.arbitrate_tool,
     doctor, query_events, replay_session,
+    server_reload, supervisor_status, hot_reload,
 ]
