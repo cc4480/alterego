@@ -33,12 +33,19 @@ def put(value):
 
 
 def get(ref):
-    """Fetch bytes for a 'sha256:<hex>' reference, or None if missing."""
+    """Fetch bytes for a 'sha256:<hex>' reference, or None if missing
+    — or if the stored bytes no longer hash to the reference. The
+    store is content-addressed, so a corrupted or truncated blob file
+    is detectable; it must read as missing (callers surface that as a
+    typed 'result_missing'), never as intact content."""
     hexpart = ref.split(":", 1)[1] if ref.startswith("sha256:") else ref
     try:
-        return _blob_path(hexpart).read_bytes()
+        data = _blob_path(hexpart).read_bytes()
     except OSError:
         return None
+    if hashlib.sha256(data).hexdigest() != hexpart:
+        return None
+    return data
 
 
 def store_if_large(value, threshold=BLOB_THRESHOLD):
