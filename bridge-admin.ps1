@@ -85,7 +85,7 @@ function Restart-Bridge {
         -RedirectStandardOutput "$Repo\server-out.log" `
         -RedirectStandardError "$Repo\server-err.log"
     "LAUNCHED $(Get-Date)" | Out-File $Log -Append
-    "restarted in $PermissionMode mode — log: $Log"
+    "restarted in $PermissionMode mode -- log: $Log"
 }
 
 function Fix-Duplicates {
