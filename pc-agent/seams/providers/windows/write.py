@@ -6,7 +6,13 @@ from ctypes import wintypes  # pure type aliases; windll itself is Windows-only
 
 import subproc
 from approval import request_approval
-from seams.providers.windows.read import _check_path, _resolve_cwd, _uia_invoke
+from seams.providers.windows.read import (
+    UIA_ENUM_MAX,
+    UiaReadbackError,
+    _check_path,
+    _resolve_cwd,
+    _uia_invoke,
+)
 
 MAX_OUTPUT = 65536  # truncate captured output at 64 KB
 
@@ -296,12 +302,32 @@ def paste_text(text: str) -> dict:
     return {"pasted_chars": len(text)}
 
 
+def _uia_index(index: int | None) -> int:
+    """Translate the public index argument to the helper payload value.
+
+    None (omitted) becomes -1: the helper must resolve a unique best-tier
+    candidate and fails loud on ambiguity. An explicit index picks within
+    the winning match tier (exact name, then anchored regex, then
+    partial regex).
+    """
+    if index is None:
+        return -1
+    if isinstance(index, bool) or not isinstance(index, int) or index < 0:
+        raise ValueError("index must be a non-negative int or None")
+    return int(index)
+
+
 def uia_click(window: str, name_rx: str, control_type: str = "",
-              index: int = 0, button: str = "left") -> dict:
+              index: int | None = None, button: str = "left") -> dict:
     """Click a UI element found by name regex, via UI Automation.
 
     Prefers InvokePattern (no mouse movement); falls back to a coordinate
     click at the element's center using physical pixels.
+
+    Resolution is tiered (exact name > anchored regex > partial regex).
+    With no index, the best tier must hold exactly one candidate or
+    UiaAmbiguousError is raised listing them -- the helper never silently
+    clicks the first of several equally-good matches.
     """
     if button not in ("left", "right", "middle"):
         raise ValueError("button must be left, right, or middle")
@@ -313,7 +339,8 @@ def uia_click(window: str, name_rx: str, control_type: str = "",
               "UIA click element /%s/ in window /%s/." % (name_rx, window))
     res = _uia_invoke({"op": "click", "window": window, "name_rx": name_rx,
                        "control_type": control_type or "",
-                       "index": int(index), "max_results": int(index) + 1})
+                       "index": _uia_index(index),
+                       "max_results": UIA_ENUM_MAX})
     if not res.get("ok"):
         raise RuntimeError(res.get("error", "uia_click failed"))
     x, y = int(res.get("x", 0)), int(res.get("y", 0))
@@ -327,12 +354,24 @@ def uia_click(window: str, name_rx: str, control_type: str = "",
             "name": res.get("name", ""), "x": x, "y": y}
 
 
+def _norm_text(s: str) -> str:
+    """Normalize a field value for readback comparison: unify line
+    endings and forgive trailing whitespace only."""
+    return s.replace("\r\n", "\n").replace("\r", "\n").rstrip()
+
+
 def uia_set_text(window: str, name_rx: str, text: str,
-                 control_type: str = "", index: int = 0) -> dict:
+                 control_type: str = "", index: int | None = None) -> dict:
     """Set text of an edit control found by name regex, via UI Automation.
 
     Prefers ValuePattern.SetValue (instant, no keystrokes); falls back to
     focusing the element and typing via SendInput KEYEVENTF_UNICODE.
+
+    Resolution is tiered like uia_click (no index = unique best-tier
+    candidate or UiaAmbiguousError). Success requires readback proof on
+    both paths: the ValuePattern path is verified inside the helper, and
+    the focus path is verified here by re-reading the field (helper 'get'
+    op) and comparing -- a mismatch raises UiaReadbackError.
     """
     if not isinstance(text, str) or not text or len(text) > 2000:
         raise ValueError("text must be a non-empty string up to 2000 chars")
@@ -344,13 +383,24 @@ def uia_set_text(window: str, name_rx: str, text: str,
     _approved("uia_set_text",
               "UIA set %d chars into /%s/ in window /%s/:\n%s"
               % (len(text), name_rx, window, preview))
-    res = _uia_invoke({"op": "set", "window": window, "name_rx": name_rx,
-                       "control_type": control_type or "",
-                       "index": int(index), "max_results": int(index) + 1,
-                       "text": text})
+    payload = {"op": "set", "window": window, "name_rx": name_rx,
+               "control_type": control_type or "",
+               "index": _uia_index(index), "max_results": UIA_ENUM_MAX,
+               "text": text}
+    res = _uia_invoke(payload)
     if not res.get("ok"):
         raise RuntimeError(res.get("error", "uia_set_text failed"))
     if res.get("method") == "focus":
         _send_unicode(text)  # helper focused the element; type directly
+        chk = _uia_invoke({**payload, "op": "get"})
+        if not chk.get("ok"):
+            raise RuntimeError(chk.get("error", "uia_set_text readback "
+                                             "failed"))
+        got = chk.get("value", "")
+        if _norm_text(got) != _norm_text(text):
+            raise UiaReadbackError(
+                "set_text readback mismatch on %r: field holds %r, "
+                "expected %r" % (res.get("name", ""), got[:120],
+                                 text[:120]))
     return {"ok": True, "method": res.get("method", "?"),
             "name": res.get("name", "")}

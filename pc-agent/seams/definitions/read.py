@@ -167,8 +167,10 @@ UIA_FIND = ToolDef(
     group="read",
     doc="Find UI elements in a window via Windows UI Automation — match "
         "by name regex and/or control type. Returns name, control type, "
-        "automation id, and bounding rect for each match. No screenshots "
-        "needed. window: window title regex (or hwnd digits).",
+        "automation id, bounding rect, and match_tier (1 exact name, "
+        "2 anchored regex, 3 partial regex) for each match, best tier "
+        "first. No screenshots needed. window: window title regex (or "
+        "hwnd digits); equally-good window-title ties are an error.",
     args={"window": {"type": "str", "required": True},
           "name_rx": {"type": "str", "required": False, "default": ""},
           "control_type": {"type": "str", "required": False, "default": ""},

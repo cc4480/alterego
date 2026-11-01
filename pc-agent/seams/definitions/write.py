@@ -200,12 +200,15 @@ UIA_CLICK = ToolDef(
     group="write",
     doc="Click a UI element found by name regex in a window, via Windows "
         "UI Automation (InvokePattern; falls back to a coordinate click "
-        "at the element's center). No screenshots needed. Requires on-PC "
+        "at the element's center). Matching is tiered (exact name, then "
+        "anchored regex, then partial regex); with no index the best "
+        "tier must resolve to exactly one element or the call errors "
+        "listing the candidates. No screenshots needed. Requires on-PC "
         "approval.",
     args={"window": {"type": "str", "required": True},
           "name_rx": {"type": "str", "required": True},
           "control_type": {"type": "str", "required": False, "default": ""},
-          "index": {"type": "int", "required": False, "default": 0},
+          "index": {"type": "int", "required": False, "default": None},
           "button": {"type": "str", "required": False, "default": "left"}},
     result_keys=["ok", "method", "name", "x", "y"],
     approval_tier="routine",
@@ -220,13 +223,14 @@ UIA_SET_TEXT = ToolDef(
     group="write",
     doc="Set text of an edit control found by name regex in a window, via "
         "Windows UI Automation (ValuePattern; falls back to focus + "
-        "keystroke synthesis). No screenshots needed. Requires on-PC "
-        "approval.",
+        "keystroke synthesis). Same tiered resolution as uia_click; "
+        "success requires the field to read back with the requested "
+        "text. No screenshots needed. Requires on-PC approval.",
     args={"window": {"type": "str", "required": True},
           "name_rx": {"type": "str", "required": True},
           "text": {"type": "str", "required": True},
           "control_type": {"type": "str", "required": False, "default": ""},
-          "index": {"type": "int", "required": False, "default": 0}},
+          "index": {"type": "int", "required": False, "default": None}},
     result_keys=["ok", "method", "name"],
     approval_tier="ask",
     side_effects="session",
