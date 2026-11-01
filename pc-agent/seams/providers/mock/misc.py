@@ -52,3 +52,62 @@ def arbitrate(trajectories: list) -> dict:
 # engine is platform-independent — re-export the shared implementation
 # so the mock behaves exactly like the Windows provider here.
 from event_query import query_events, replay_session  # noqa: E402
+
+
+# ---- tool discovery + argument completion (Batch 4) -----------------------
+def search_tools(query="", group="", max_results=10, offset=0):
+    """Keyword search over the tool catalog (metadata only)."""
+    from seams import definitions
+    return definitions.search_definitions(query, group, max_results, offset)
+
+
+_WINDOW_ARGS = {"uia_find", "wait_for"}
+_PATH_ARGS = {"read_file", "list_dir", "read_file_range", "search_files",
+              "search_filenames"}
+
+
+def _match_candidates(candidates, prefix, max_results):
+    pre = (prefix or "").lower()
+    matched = ([c for c in candidates if c.lower().startswith(pre)]
+               if pre else list(candidates))
+    total = len(matched)
+    return matched[:max(1, min(int(max_results or 10), 50))], total
+
+
+def _mock_path_candidates(prefix):
+    from seams.providers.mock import (PROFILE_ROOT, is_dir,
+                                      list_children, norm_path)
+    pre = prefix or ""
+    if "/" in pre:
+        dir_part, _name = pre.rsplit("/", 1)
+        base = norm_path(dir_part) if dir_part else PROFILE_ROOT
+    else:
+        dir_part = ""
+        base = PROFILE_ROOT
+    if not is_dir(base):
+        return []
+    out = []
+    for child in list_children(base):
+        rel = f"{dir_part}/{child['name']}" if dir_part else child["name"]
+        if child["is_dir"]:
+            rel += "/"
+        out.append(rel)
+    return out
+
+
+def complete_arg(tool, argument, prefix="", max_results=10):
+    """Complete an argument value from live state (fail loud)."""
+    from seams import definitions
+    if definitions.by_name(tool) is None:
+        raise ValueError(f"unknown tool: {tool}")
+    if tool in _WINDOW_ARGS and argument == "window":
+        from seams.providers.mock.read import list_windows
+        candidates = [w.get("title", "") for w in
+                      list_windows().get("windows", []) if w.get("title")]
+    elif tool in _PATH_ARGS and argument == "path":
+        candidates = _mock_path_candidates(prefix)
+    else:
+        raise ValueError(f"no completions for {tool}.{argument}")
+    values, total = _match_candidates(candidates, prefix, max_results)
+    return {"tool": tool, "argument": argument, "prefix": prefix or "",
+            "values": values, "total": total}

@@ -128,7 +128,7 @@ def screenshot(region: dict | None = None, scale: float = 1.0) -> dict:
     }
 
 
-def list_windows() -> dict:
+def list_windows(offset: int = 0, limit: int = 0) -> dict:
     import win32gui
     import win32process
 
@@ -144,7 +144,11 @@ def list_windows() -> dict:
         out.append({"hwnd": hwnd, "pid": pid, "title": title})
 
     win32gui.EnumWindows(_cb, None)
-    return {"windows": out}
+    out.sort(key=lambda w: w["title"].lower())
+    total = len(out)
+    offset = max(0, int(offset or 0))
+    page = out[offset:] if not limit else out[offset:offset + max(0, int(limit))]
+    return {"windows": page, "total": total, "offset": offset}
 
 
 def system_info() -> dict:
@@ -163,7 +167,7 @@ def system_info() -> dict:
     }
 
 
-def list_dir(path: str = "") -> dict:
+def list_dir(path: str = "", offset: int = 0, limit: int = 0) -> dict:
     p = _check_path(path or ".")
     if not p.is_dir():
         raise ValueError("not a directory")
@@ -179,7 +183,10 @@ def list_dir(path: str = "") -> dict:
             )
         except OSError:
             continue
-    return {"path": str(p), "items": items}
+    total = len(items)
+    offset = max(0, int(offset or 0))
+    page = items[offset:] if not limit else items[offset:offset + max(0, int(limit))]
+    return {"path": str(p), "items": page, "total": total, "offset": offset}
 
 
 def read_file(path: str) -> dict:

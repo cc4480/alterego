@@ -204,9 +204,9 @@ def idle_seconds() -> dict:
     return toolcall.call("idle_seconds", {})
 
 
-def list_processes() -> dict:
-    """Running processes (pid + exe). No approval."""
-    return toolcall.call("list_processes", {})
+def list_processes(offset: int = 0, limit: int = 0) -> dict:
+    """Running processes (pid + exe). No approval. Paginated."""
+    return toolcall.call("list_processes", {"offset": offset, "limit": limit})
 
 
 def notify(title: str, message: str, timeout_s: int = 5) -> dict:
@@ -238,13 +238,15 @@ def doctor() -> dict:
 
 
 def query_events(tool: str = None, type: str = None, since: str = "7d",
-                 session_id: str = None, limit: int = 50) -> dict:
+                 session_id: str = None, limit: int = 50,
+                 offset: int = 0) -> dict:
     """Search the event-sourced operation log: filter by tool name, event
     type, session, and time window (5m/1h/24h/7d/30d or ISO). Read-only,
-    no approval."""
+    no approval. Paginated: offset skips, limit caps."""
     return toolcall.call("query_events",
                          {"tool": tool, "type": type, "since": since,
-                          "session_id": session_id, "limit": limit})
+                          "session_id": session_id, "limit": limit,
+                          "offset": offset})
 
 
 def replay_session(session_id: str, format: str = "human") -> dict:
@@ -252,6 +254,24 @@ def replay_session(session_id: str, format: str = "human") -> dict:
     operations against the log. Read-only, no approval."""
     return toolcall.call("replay_session",
                          {"session_id": session_id, "format": format})
+
+
+def search_tools(query: str = "", group: str = "", max_results: int = 10,
+                 offset: int = 0) -> dict:
+    """Find tools by keyword over names, docs, and groups — use this
+    instead of reading all tool schemas. Read-only, no approval."""
+    return toolcall.call("search_tools",
+                         {"query": query, "group": group,
+                          "max_results": max_results, "offset": offset})
+
+
+def complete_arg(tool: str, argument: str, prefix: str = "",
+                 max_results: int = 10) -> dict:
+    """Complete an argument value from live state: window titles or
+    profile-relative paths. Read-only, no approval."""
+    return toolcall.call("complete_arg",
+                         {"tool": tool, "argument": argument,
+                          "prefix": prefix, "max_results": max_results})
 
 
 # ---- browser tools (CDP; Edge needs --remote-debugging-port=9222) ----------

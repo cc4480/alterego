@@ -29,9 +29,11 @@ IDLE_SECONDS = ToolDef(
 LIST_PROCESSES = ToolDef(
     name="list_processes",
     group="pc",
-    doc="Running processes (pid + exe). No approval.",
-    args={},
-    result_keys=["count", "processes"],
+    doc="Running processes (pid + exe). No approval. Paginated: "
+        "offset skips, limit caps (0 = all). count is the page size.",
+    args={"offset": {"type": "int", "required": False, "default": 0},
+          "limit": {"type": "int", "required": False, "default": 0}},
+    result_keys=["count", "processes", "total", "offset"],
     approval_tier="silent",
     side_effects="none",
     platform_notes="Windows: Toolhelp32 snapshot (ctypes). Linux: /proc "

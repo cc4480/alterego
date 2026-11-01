@@ -15,17 +15,18 @@ def screenshot(region: dict | None = None, scale: float = 1.0) -> dict:
         a["scale"] = scale
     return toolcall.call("screenshot", a)
 
-def list_windows() -> dict:
-    """List visible windows: handle, pid, title."""
-    return toolcall.call("list_windows", {})
+def list_windows(offset: int = 0, limit: int = 0) -> dict:
+    """List visible windows: handle, pid, title. Paginated."""
+    return toolcall.call("list_windows", {"offset": offset, "limit": limit})
 
 def system_info() -> dict:
     """OS, host, user, CPU/memory."""
     return toolcall.call("system_info", {})
 
-def list_dir(path: str = "") -> dict:
-    """List a directory. Restricted to the user's profile."""
-    return toolcall.call("list_dir", {"path": path})
+def list_dir(path: str = "", offset: int = 0, limit: int = 0) -> dict:
+    """List a directory. Restricted to the user's profile. Paginated."""
+    return toolcall.call("list_dir",
+                         {"path": path, "offset": offset, "limit": limit})
 
 def read_file(path: str) -> dict:
     """Read a UTF-8 text file (<=1MB). Restricted to the user's profile."""

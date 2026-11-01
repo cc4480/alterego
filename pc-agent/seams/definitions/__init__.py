@@ -32,4 +32,35 @@ def by_name(name: str):
     return _BY_NAME.get(name)
 
 
-__all__ = ["ToolDef", "ALL_DEFS", "for_group", "by_name"]
+def search_definitions(query="", group="", max_results=10, offset=0):
+    """Keyword search over ALL_DEFS, scored name-first, paginated.
+
+    Terms are ANDed over name + group + doc. A term in the tool name
+    scores 3, plus one per occurrence in the haystack. Empty query
+    lists every tool (by name). Shared by both providers so search
+    results are identical on Windows and mock."""
+    max_results = max(1, min(int(max_results or 10), 50))
+    offset = max(0, int(offset or 0))
+    terms = (query or "").lower().split()
+    scored = []
+    for d in ALL_DEFS:
+        if group and d.group != group:
+            continue
+        name = d.name.lower()
+        hay = f"{name} {d.group} {d.doc}".lower()
+        if terms and not all(t in hay for t in terms):
+            continue
+        score = sum(3 for t in terms if t in name)
+        score += sum(hay.count(t) for t in terms)
+        scored.append((score, d))
+    scored.sort(key=lambda s: (-s[0], s[1].name))
+    total = len(scored)
+    page = scored[offset:offset + max_results]
+    return {"query": query or "", "count": len(page), "total": total,
+            "tools": [{"name": d.name, "group": d.group, "doc": d.doc,
+                       "approval_tier": d.approval_tier,
+                       "args": sorted(d.args)} for _s, d in page]}
+
+
+__all__ = ["ToolDef", "ALL_DEFS", "for_group", "by_name",
+           "search_definitions"]

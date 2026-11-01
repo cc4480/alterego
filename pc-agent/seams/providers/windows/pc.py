@@ -58,7 +58,7 @@ def idle_seconds() -> dict:
     return {"idle_seconds": max(0, (now - lii.dwTime) // 1000)}
 
 
-def list_processes() -> dict:
+def list_processes(offset: int = 0, limit: int = 0) -> dict:
     """Running processes: pid + exe name. No approval."""
     TH32CS_SNAPPROCESS = 0x00000002
 
@@ -88,7 +88,11 @@ def list_processes() -> dict:
                     break
     finally:
         k32.CloseHandle(snap)
-    return {"count": len(procs), "processes": procs}
+    total = len(procs)
+    offset = max(0, int(offset or 0))
+    page = procs[offset:] if not limit else procs[offset:offset + max(0, int(limit))]
+    return {"count": len(page), "processes": page,
+            "total": total, "offset": offset}
 
 
 def _ps_quote(s: str) -> str:

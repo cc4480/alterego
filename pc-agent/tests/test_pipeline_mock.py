@@ -2,7 +2,7 @@
 provider — hooks -> plan-mode -> execute -> typed events (the primary
 record since the Phase 5 cutover; the legacy audit.log is gone).
 
-Covers: result_keys contract for all 76 tools, hook allow/deny/modify,
+Covers: result_keys contract for all 78 tools, hook allow/deny/modify,
 plan-mode dry-run, approval tiers, and the expected event chain per call.
 """
 import pytest
@@ -78,12 +78,15 @@ ARGS = {
     "hot_reload": {"action": "status"},
     "desktop_state": {},
     "wait_for": {"kind": "window", "target": "Mock"},
+    "search_tools": {"query": "window"},
+    "complete_arg": {"tool": "uia_find", "argument": "window",
+                     "prefix": "Mock"},
 }
 
 ALL_NAMES = [d.name for d in definitions.ALL_DEFS]
 PARAM_NAMES = [n for n in ALL_NAMES
                if n not in ("task_checkpoint", "task_status")]
-assert len(PARAM_NAMES) == 76, len(PARAM_NAMES)
+assert len(PARAM_NAMES) == 78, len(PARAM_NAMES)
 
 
 def _write_flag(name):
