@@ -265,6 +265,19 @@ def read_file_range(path: str, start_line: int,
 # Windows UI Automation core (shared by uia_find / uia_click / uia_set_text).
 # One PowerShell script, JSON in/out via temp files (no quoting pitfalls).
 # Pure ASCII for PowerShell 5.1.
+#
+# Resolution discipline (2026-10-31, plan F2): candidates are tiered --
+# tier 1 literal name equality (case-insensitive), tier 2 anchored regex
+# full match, tier 3 partial regex match. The best non-empty tier wins.
+# Single-element ops (click/set/get) resolve inside the winning tier:
+# an explicit index picks within the tier; NO index requires exactly one
+# candidate, otherwise the helper returns a structured ambiguous_target
+# (or ambiguous_window) error listing the candidates -- it never silently
+# acts on the first match. (2026-10-29 battery: an unanchored substring
+# match resolved 'Message' to an 'Add imessage' button instead of the
+# chat composer.) All coordinate casts go through Safe-Int: offscreen /
+# virtualized elements can report NaN or out-of-range BoundingRectangle
+# doubles, and a raw [int] cast throws and kills the whole query.
 # ---------------------------------------------------------------------------
 _UIA_PS = r'''
 param([string]$ReqPath)
@@ -273,6 +286,22 @@ Add-Type -AssemblyName UIAutomationClient
 $req = Get-Content -LiteralPath $ReqPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $AE = [System.Windows.Automation.AutomationElement]
 $root = $AE::RootElement
+function Safe-Int($v) {
+  try {
+    $d = [double]$v
+    if ([double]::IsNaN($d) -or [double]::IsInfinity($d)) { return 0 }
+    if ($d -gt 2147483647) { return 2147483647 }
+    if ($d -lt -2147483648) { return -2147483648 }
+    return [int]$d
+  } catch { return 0 }
+}
+function Name-Tier($name, $rx) {
+  if ($rx -eq '') { return 3 }
+  if ($name -ieq $rx) { return 1 }
+  if ($name -match ('^(?:' + $rx + ')$')) { return 2 }
+  if ($name -match $rx) { return 3 }
+  return 0
+}
 function Find-Window($spec) {
   $hwnd = 0
   if ([int]::TryParse($spec, [ref]$hwnd) -and $hwnd -ne 0) {
@@ -280,36 +309,71 @@ function Find-Window($spec) {
   }
   $wc = New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::Window)
   $wins = $root.FindAll([System.Windows.Automation.TreeScope]::Children, $wc)
+  $cands = @()
   foreach ($w in $wins) {
     try { $n = $w.Current.Name } catch { continue }
-    if ($n -match $spec) { return $w }
+    $t = Name-Tier $n $spec
+    if ($t -gt 0) { $cands += [pscustomobject]@{el=$w; name=$n; tier=$t} }
   }
-  return $null
+  if ($cands.Count -eq 0) { return $null }
+  $best = 4
+  foreach ($c in $cands) { if ($c.tier -lt $best) { $best = $c.tier } }
+  $top = @($cands | Where-Object { $_.tier -eq $best })
+  if ($top.Count -gt 1) {
+    $list = @($top | Select-Object -First 10 | ForEach-Object {
+      $h = 0
+      try { $h = $_.el.Current.NativeWindowHandle } catch { }
+      [pscustomobject]@{name=$_.name; hwnd=(Safe-Int $h)} })
+    @{ok=$false; error_code='ambiguous_window'; error=('ambiguous window: ' + $top.Count + ' windows match the spec at the best match tier; pass an hwnd from list_windows to disambiguate'); candidates=$list} | ConvertTo-Json -Compress -Depth 4
+    exit 0
+  }
+  return $top[0].el
 }
 $win = Find-Window $req.window
 if (-not $win) { @{ok=$false; error='window not found'} | ConvertTo-Json -Compress; exit 0 }
 $all = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+$nameRx = [string]$req.name_rx
+$ctReq = [string]$req.control_type
 $elems = @()
 $limit = [int]$req.max_results
 foreach ($el in $all) {
   try { $n = $el.Current.Name } catch { continue }
-  if ($req.name_rx -ne '' -and ($n -notmatch $req.name_rx)) { continue }
+  $tier = Name-Tier $n $nameRx
+  if ($nameRx -ne '' -and $tier -eq 0) { continue }
   try { $ct = $el.Current.ControlType.ProgrammaticName } catch { $ct = '' }
-  if ($req.control_type -ne '' -and ($ct -ne $req.control_type)) { continue }
+  if ($ctReq -ne '') {
+    $ctAlt = $ctReq
+    if ($ctAlt -notlike 'ControlType.*') { $ctAlt = 'ControlType.' + $ctAlt }
+    if (($ct -ne $ctReq) -and ($ct -ne $ctAlt)) { continue }
+  }
   try { $r = $el.Current.BoundingRectangle } catch { continue }
   try { $aid = $el.Current.AutomationId } catch { $aid = '' }
-  $elems += [pscustomobject]@{el=$el; name=$n; control_type=$ct; automation_id=$aid; x=[int]$r.X; y=[int]$r.Y; width=[int]$r.Width; height=[int]$r.Height}
+  $elems += [pscustomobject]@{el=$el; name=$n; control_type=$ct; automation_id=$aid; tier=$tier; x=(Safe-Int $r.X); y=(Safe-Int $r.Y); width=(Safe-Int $r.Width); height=(Safe-Int $r.Height)}
   if ($elems.Count -ge $limit) { break }
 }
 $op = $req.op
 if ($op -eq 'find') {
-  $proj = @($elems | ForEach-Object { [pscustomobject]@{name=$_.name; control_type=$_.control_type; automation_id=$_.automation_id; x=$_.x; y=$_.y; width=$_.width; height=$_.height} })
+  $sorted = @()
+  foreach ($tno in 1,2,3) { $sorted += @($elems | Where-Object { $_.tier -eq $tno }) }
+  $proj = @($sorted | ForEach-Object { [pscustomobject]@{name=$_.name; control_type=$_.control_type; automation_id=$_.automation_id; match_tier=$_.tier; x=$_.x; y=$_.y; width=$_.width; height=$_.height} })
   @{ok=$true; count=$proj.Count; elements=$proj} | ConvertTo-Json -Compress -Depth 4
   exit 0
 }
+$best = 4
+foreach ($e in $elems) { if ($e.tier -lt $best) { $best = $e.tier } }
+$sel = @($elems | Where-Object { $_.tier -eq $best })
 $idx = [int]$req.index
-if ($idx -lt 0 -or $idx -ge $elems.Count) { @{ok=$false; error='element index out of range'} | ConvertTo-Json -Compress; exit 0 }
-$t = $elems[$idx]
+if ($idx -lt 0) {
+  if ($sel.Count -eq 0) { @{ok=$false; error_code='not_found'; error=('no element matches name_rx "' + $nameRx + '" control_type "' + $ctReq + '"')} | ConvertTo-Json -Compress; exit 0 }
+  if ($sel.Count -gt 1) {
+    $cands = @($sel | Select-Object -First 10 | ForEach-Object { [pscustomobject]@{name=$_.name; control_type=$_.control_type; automation_id=$_.automation_id; x=$_.x; y=$_.y; width=$_.width; height=$_.height} })
+    @{ok=$false; error_code='ambiguous_target'; error=('ambiguous target: ' + $sel.Count + ' elements match name_rx "' + $nameRx + '" control_type "' + $ctReq + '" at the best match tier; pass an index or a narrower name_rx'); candidates=$cands} | ConvertTo-Json -Compress -Depth 4; exit 0
+  }
+  $t = $sel[0]
+} else {
+  if ($idx -ge $sel.Count) { @{ok=$false; error='element index out of range'} | ConvertTo-Json -Compress; exit 0 }
+  $t = $sel[$idx]
+}
 $cx = $t.x + [int]($t.width / 2)
 $cy = $t.y + [int]($t.height / 2)
 if ($op -eq 'click') {
@@ -325,14 +389,66 @@ if ($op -eq 'set') {
     $vp = $t.el.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
     if ($vp.Current.IsReadOnly) { throw 'readonly' }
     $vp.SetValue($req.text)
+    $after = $null
+    try { $after = $t.el.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value } catch { }
+    if ($null -eq $after) {
+      @{ok=$false; error_code='readback_mismatch'; error='set_text readback failed: the field value could not be read back after SetValue'} | ConvertTo-Json -Compress; exit 0
+    }
+    $normA = ($after -replace "`r`n", "`n").TrimEnd()
+    $normE = ([string]$req.text -replace "`r`n", "`n").TrimEnd()
+    if ($normA -cne $normE) {
+      @{ok=$false; error_code='readback_mismatch'; error=('set_text readback mismatch on "' + $t.name + '": the field does not hold the requested text')} | ConvertTo-Json -Compress; exit 0
+    }
     @{ok=$true; method='value'; name=$t.name} | ConvertTo-Json -Compress; exit 0
   } catch { }
   try { $t.el.SetFocus(); @{ok=$true; method='focus'; name=$t.name} | ConvertTo-Json -Compress }
   catch { @{ok=$false; error='set_text failed: no value pattern and focus failed'} | ConvertTo-Json -Compress }
   exit 0
 }
+if ($op -eq 'get') {
+  $val = $null; $chan = ''
+  try { $val = $t.el.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value; $chan = 'value' } catch { }
+  if ($null -eq $val) {
+    try { $tp = $t.el.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern); $val = $tp.DocumentRange.GetText(-1); $chan = 'text' } catch { }
+  }
+  if ($null -eq $val) {
+    try { $val = $t.el.GetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern).Current.Value; $chan = 'legacy' } catch { }
+  }
+  if ($null -eq $val) { @{ok=$false; error_code='readback_unavailable'; error=('cannot read back the value of "' + $t.name + '": no value, text, or legacy pattern')} | ConvertTo-Json -Compress; exit 0 }
+  @{ok=$true; name=$t.name; value=$val; channel=$chan} | ConvertTo-Json -Compress; exit 0
+}
 @{ok=$false; error='unknown op'} | ConvertTo-Json -Compress
 '''
+
+
+class UiaAmbiguousError(RuntimeError):
+    """Two or more equally-good UIA candidates; the helper refused to
+    guess. Carries the candidate list so the caller can disambiguate
+    (narrower name_rx, an explicit index, or an hwnd for windows)."""
+
+    def __init__(self, message: str, candidates: list | None = None):
+        self.candidates = list(candidates or [])
+        lines = [message or "ambiguous target"]
+        for c in self.candidates:
+            if isinstance(c, dict):
+                label = c.get("name", "?")
+                if c.get("control_type"):
+                    label += " [%s]" % c["control_type"]
+                if c.get("hwnd"):
+                    label += " (hwnd %s)" % c["hwnd"]
+                lines.append("  candidate: %s" % label)
+        super().__init__("\n".join(lines))
+
+
+class UiaReadbackError(RuntimeError):
+    """A set/type action could not be verified by reading the field
+    back (value mismatch, or no readable pattern). Never a success."""
+
+
+# Enumeration cap for single-element ops: resolution tiers are computed
+# over the collected set, so acting ops must enumerate generously --
+# stopping at the first match is exactly the failure being fixed.
+UIA_ENUM_MAX = 2000
 
 
 def _uia_invoke(payload: dict, timeout_s: int = 30) -> dict:
@@ -359,9 +475,17 @@ def _uia_invoke(payload: dict, timeout_s: int = 30) -> dict:
     if rc != 0:
         raise RuntimeError("UIA helper failed: %s" % err[-500:])
     try:
-        return json.loads(out.strip())
+        res = json.loads(out.strip())
     except json.JSONDecodeError:
         raise RuntimeError("UIA helper returned bad JSON: %s" % out[-300:])
+    if isinstance(res, dict):
+        code = res.get("error_code")
+        if code in ("ambiguous_target", "ambiguous_window"):
+            raise UiaAmbiguousError(res.get("error", "ambiguous target"),
+                                    res.get("candidates") or [])
+        if code in ("readback_mismatch", "readback_unavailable"):
+            raise UiaReadbackError(res.get("error", "readback failed"))
+    return res
 
 
 def uia_find(window: str, name_rx: str = "", control_type: str = "",
@@ -369,7 +493,10 @@ def uia_find(window: str, name_rx: str = "", control_type: str = "",
     """Find UI elements in a window via UI Automation (read-only).
 
     window: window title regex, or hwnd digits. Returns matching elements
-    with name, control type, automation id, and bounding rect.
+    with name, control type, automation id, bounding rect, and match_tier
+    (1 = exact name, 2 = anchored regex full match, 3 = partial match),
+    best tier first. The window itself is resolved by the same tiers;
+    equally-good window ties raise UiaAmbiguousError.
     """
     if not isinstance(window, str) or not window.strip():
         raise ValueError("window must be a non-empty title regex or hwnd")

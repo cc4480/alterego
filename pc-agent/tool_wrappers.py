@@ -57,8 +57,12 @@ def mouse_click(x: int, y: int, button: str = "left") -> dict:
 
 
 def uia_click(window: str, name_rx: str, control_type: str = "",
-              index: int = 0, button: str = "left") -> dict:
-    """Click a UI element by name via UI Automation. Requires on-PC approval."""
+              index: int = None, button: str = "left") -> dict:
+    """Click a UI element by name via UI Automation. Requires on-PC approval.
+
+    index omitted = the element must resolve uniquely (tiered matching:
+    exact name, then anchored regex, then partial); ambiguity is an
+    error listing the candidates, never a silent first pick."""
     return toolcall.call("uia_click",
                          {"window": window, "name_rx": name_rx,
                           "control_type": control_type, "index": index,
@@ -66,8 +70,11 @@ def uia_click(window: str, name_rx: str, control_type: str = "",
 
 
 def uia_set_text(window: str, name_rx: str, text: str,
-                 control_type: str = "", index: int = 0) -> dict:
-    """Set text of a UI element via UI Automation. Requires on-PC approval."""
+                 control_type: str = "", index: int = None) -> dict:
+    """Set text of a UI element via UI Automation. Requires on-PC approval.
+
+    Same resolution discipline as uia_click; success requires the field
+    to read back with the requested text."""
     return toolcall.call("uia_set_text",
                          {"window": window, "name_rx": name_rx, "text": text,
                           "control_type": control_type, "index": index},
