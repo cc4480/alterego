@@ -485,12 +485,23 @@ class ChromeSession:
                 # Last resort only — a forced kill is what marks the
                 # profile's exit unclean and summons the restore
                 # bubble next launch. The result reports it honestly.
-                self._proc.terminate()
+                # Chrome spawns a process tree: terminating only the
+                # Popen handle can leave the browser process alive
+                # (observed 2026-11-01: pid still listed after
+                # terminate()). Kill the whole tree, then fall back
+                # to terminate() if anything still survives.
+                subprocess.run(
+                    ["taskkill", "/PID", str(self._proc.pid), "/T", "/F"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 forced = True
                 try:
                     self._proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    pass
+                    self._proc.terminate()
+                    try:
+                        self._proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        pass
         self.detach()
         return forced
 
@@ -709,11 +720,11 @@ def close(delete_profile=False):
         closed = "detached"
     deleted = False
     if delete_profile and s.owned and profile_dir:
-        for _ in range(3):
+        for _ in range(6):
             shutil.rmtree(profile_dir, ignore_errors=True)
             if not os.path.exists(profile_dir):
                 deleted = True
                 break
-            time.sleep(0.5)
+            time.sleep(1.0)
     return {"closed": closed, "forced": forced,
             "profile_deleted": deleted, "profile_dir": profile_dir}

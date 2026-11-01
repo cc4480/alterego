@@ -20,8 +20,8 @@ CDP_PORT = 9222
 def _ensure_edge_headless(timeout_s: float = 15.0) -> None:
     """Launch headless Edge with CDP if none is reachable.
 
-    Uses --headless=new so no window ever appears on the user's screen.
-    A fresh user-data-dir keeps it isolated from the user's real Edge
+    Runs VISIBLE (headed) so the user can log in; the window appears on the user's screen.
+    A persistent dedicated profile keeps it separate from the user's real Edge
     profile. Called automatically before any CDP operation.
     """
     import subprocess
@@ -45,9 +45,10 @@ def _ensure_edge_headless(timeout_s: float = 15.0) -> None:
     if not edge:
         raise CDPError("Microsoft Edge not found; cannot start headless CDP")
 
-    profile_dir = tempfile.mkdtemp(prefix="pc-bridge-edge-cdp-")
+    profile_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "browser-profile")
+    os.makedirs(profile_dir, exist_ok=True)
     subprocess.Popen(
-        [edge, "--headless=new",
+        [edge,
          f"--remote-debugging-port={CDP_PORT}",
          f"--user-data-dir={profile_dir}",
          "--remote-allow-origins=*",

@@ -429,7 +429,7 @@
  },
  {
   "name": "uia_click",
-  "description": "Click a UI element by name via UI Automation. Requires on-PC approval.",
+  "description": "Click a UI element by name via UI Automation. Requires on-PC approval.\n\n    index omitted = the element must resolve uniquely (tiered matching:\n    exact name, then anchored regex, then partial); ambiguity is an\n    error listing the candidates, never a silent first pick.",
   "inputSchema": {
    "properties": {
     "window": {
@@ -446,7 +446,7 @@
      "type": "string"
     },
     "index": {
-     "default": 0,
+     "default": null,
      "title": "Index",
      "type": "integer"
     },
@@ -466,7 +466,7 @@
  },
  {
   "name": "uia_set_text",
-  "description": "Set text of a UI element via UI Automation. Requires on-PC approval.",
+  "description": "Set text of a UI element via UI Automation. Requires on-PC approval.\n\n    Same resolution discipline as uia_click; success requires the field\n    to read back with the requested text.",
   "inputSchema": {
    "properties": {
     "window": {
@@ -487,7 +487,7 @@
      "type": "string"
     },
     "index": {
-     "default": 0,
+     "default": null,
      "title": "Index",
      "type": "integer"
     }
@@ -900,6 +900,185 @@
    ],
    "type": "object",
    "title": "browser_evalArguments"
+  }
+ },
+ {
+  "name": "cdp_launch",
+  "description": "Launch Chrome on the prepared presentation profile with a CDP\n    debug port and attach the session. Requires approval.",
+  "inputSchema": {
+   "properties": {
+    "profile_dir": {
+     "default": "",
+     "title": "Profile Dir",
+     "type": "string"
+    },
+    "debug_port": {
+     "default": 0,
+     "title": "Debug Port",
+     "type": "integer"
+    },
+    "start_url": {
+     "default": "",
+     "title": "Start Url",
+     "type": "string"
+    }
+   },
+   "type": "object",
+   "title": "cdp_launchArguments"
+  }
+ },
+ {
+  "name": "cdp_connect",
+  "description": "Attach the CDP session to a Chrome already serving a debug port\n    (no process ownership). Requires approval.",
+  "inputSchema": {
+   "properties": {
+    "debug_port": {
+     "default": 0,
+     "title": "Debug Port",
+     "type": "integer"
+    }
+   },
+   "type": "object",
+   "title": "cdp_connectArguments"
+  }
+ },
+ {
+  "name": "cdp_targets",
+  "description": "List the session browser's page targets; switches the active\n    target when target_id is given (no approval).",
+  "inputSchema": {
+   "properties": {
+    "target_id": {
+     "default": "",
+     "title": "Target Id",
+     "type": "string"
+    }
+   },
+   "type": "object",
+   "title": "cdp_targetsArguments"
+  }
+ },
+ {
+  "name": "cdp_navigate",
+  "description": "Navigate the CDP session tab to a URL and verify the landing\n    (url + title readback; hard timeout, never a silent hang).\n    Requires approval.",
+  "inputSchema": {
+   "properties": {
+    "url": {
+     "title": "Url",
+     "type": "string"
+    },
+    "timeout_s": {
+     "default": 30,
+     "title": "Timeout S",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "url"
+   ],
+   "type": "object",
+   "title": "cdp_navigateArguments"
+  }
+ },
+ {
+  "name": "cdp_snapshot",
+  "description": "Compact index of the page's interactive elements with stable CSS\n    selectors \u2014 the addressing/verification primitive (no approval).",
+  "inputSchema": {
+   "properties": {},
+   "type": "object",
+   "title": "cdp_snapshotArguments"
+  }
+ },
+ {
+  "name": "cdp_click",
+  "description": "Click an element by CSS selector or visible text (never\n    coordinates); returns the landing readback. Requires approval.",
+  "inputSchema": {
+   "properties": {
+    "selector": {
+     "default": "",
+     "title": "Selector",
+     "type": "string"
+    },
+    "text": {
+     "default": "",
+     "title": "Text",
+     "type": "string"
+    }
+   },
+   "type": "object",
+   "title": "cdp_clickArguments"
+  }
+ },
+ {
+  "name": "cdp_type",
+  "description": "Type into a field addressed by selector or label via CDP\n    Input.insertText; success requires value readback equality.\n    Requires approval.",
+  "inputSchema": {
+   "properties": {
+    "text": {
+     "title": "Text",
+     "type": "string"
+    },
+    "selector": {
+     "default": "",
+     "title": "Selector",
+     "type": "string"
+    },
+    "label": {
+     "default": "",
+     "title": "Label",
+     "type": "string"
+    },
+    "clear_first": {
+     "default": true,
+     "title": "Clear First",
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "text"
+   ],
+   "type": "object",
+   "title": "cdp_typeArguments"
+  }
+ },
+ {
+  "name": "cdp_evaluate",
+  "description": "Run JavaScript in the CDP session tab. Requires on-PC approval.",
+  "inputSchema": {
+   "properties": {
+    "js": {
+     "title": "Js",
+     "type": "string"
+    }
+   },
+   "required": [
+    "js"
+   ],
+   "type": "object",
+   "title": "cdp_evaluateArguments"
+  }
+ },
+ {
+  "name": "cdp_readback",
+  "description": "Read back the session page's url, title, ready_state and active\n    element \u2014 verify a landing without acting (no approval).",
+  "inputSchema": {
+   "properties": {},
+   "type": "object",
+   "title": "cdp_readbackArguments"
+  }
+ },
+ {
+  "name": "cdp_close",
+  "description": "End the CDP session: a launched browser is closed gracefully via\n    Browser.close; an attached browser is only detached. Optionally\n    deletes the presentation profile. Requires approval.",
+  "inputSchema": {
+   "properties": {
+    "delete_profile": {
+     "default": false,
+     "title": "Delete Profile",
+     "type": "boolean"
+    }
+   },
+   "type": "object",
+   "title": "cdp_closeArguments"
   }
  },
  {

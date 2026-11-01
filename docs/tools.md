@@ -1,7 +1,7 @@
 # Tool reference
 
 The catalog below is the MCP surface exactly as the server registers
-it: **67 tools** — 63 wrapper tools (`pc-agent/tool_wrappers*.py`,
+it: **77 tools** — 73 wrapper tools (`pc-agent/tool_wrappers*.py`,
 registered from `ALL_TOOLS`) plus 4 job-layer ops registered by
 `server.py`. All are exposed over MCP (Streamable HTTP) at
 `POST {tunnel-url}/mcp`, authenticated with the session bearer token
@@ -148,7 +148,7 @@ snapshot tags such elements `[shadow]` / `[iframe]` and reports
 | `browser_fill` | `label`, `text`, `url_contains` | Dialog | Fill the field matching `label` |
 | `browser_eval` | `js`, `url_contains` | **DESTRUCTIVE** | Run JavaScript in the tab |
 
-### Chrome CDP session hand (`cdp_*`) — implemented, not yet on the MCP surface
+### Chrome CDP session hand (`cdp_*`) — registered on the MCP surface
 
 The deterministic presentation hand: where `browser_*` attaches
 opportunistically to Edge for one-shot DOM access, `cdp_*` owns a
@@ -160,13 +160,14 @@ equality; graceful `Browser.close`). It launches Chrome on a prepared
 presentation profile (`%LocalAppData%\AlterEgo\cdp-profiles\presentation`);
 the user's real Chrome profile is refused.
 
-**Status at this commit:** the ten ops below are implemented in the
-seams layer (definitions, Windows + mock providers, risk profiles)
-with a fake-socket unit suite (`pc-agent/test_chrome_cdp.py`) and an
-on-PC smoke script (`pc-agent/smoke_chrome_cdp.py`, **not yet run on
-a PC**) — but they are **not registered in `tools/list`** yet. The
-table describes the implemented seams behavior, including the
-approval gate each op will pass through.
+**Status at this commit:** the ten ops below are registered in
+`tools/list` (commit 245dfde) and verified live at 77 tools. The
+on-PC smoke script (`pc-agent/smoke_chrome_cdp.py`) passed 6 of 7
+steps on 2026-11-01 (launch, navigate, snapshot, type, click,
+readback); the graceful-close step fell back to a forced kill, so
+`cdp_close` may report `forced: true` and leave the throwaway
+profile behind. The table describes each op including the approval
+gate it passes through.
 
 | Tool | Args | Approval (seams) | What it does |
 |---|---|---|---|
