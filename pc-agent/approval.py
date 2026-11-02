@@ -33,9 +33,23 @@ NAMED PERMISSION POSTURES (PC_BRIDGE_PERMISSION_MODE):
 
 Backward compat: PC_BRIDGE_FULL_ACCESS=1 with no explicit mode is
 treated as dontAsk.
+
+STACK SAFETY (2026-11-02): approval dialogs are serialized through one
+lock — at most one approval window exists at any moment, however many
+tool calls arrive concurrently. The window is shown with
+MessageBoxTimeoutW, which closes ITSELF when the timeout expires, so a
+timed-out dialog can never be orphaned on screen. (The previous design
+ran each MessageBoxW on its own thread and, on timeout, tried to close
+"the" dialog by title lookup; every destructive dialog shares one
+title, so with several queued the close hit the wrong window or none,
+and unanswered dialogs stacked a dozen deep on the desktop.) A request
+identical to one that already timed out unanswered within the last
+120 seconds is denied immediately without a new window, so a retrying
+caller cannot re-spam the desktop for a decision nobody made.
 """
 import os
 import threading
+import time
 
 TITLE = "pc-mcp-bridge: approve remote action"
 MB_YESNO = 0x04
@@ -115,13 +129,50 @@ def request_approval(summary: str, timeout_s: int = 30,
     return _show_dialog(summary, timeout_s, destructive=False)
 
 
+MB_TIMEDOUT = 32000  # MessageBoxTimeoutW return value on timeout
+
+# One approval window at a time, ever. Callers queue on this lock; a
+# queued caller whose request is identical to one that just timed out
+# unanswered is denied from the cache below instead of re-showing.
+_DIALOG_LOCK = threading.Lock()
+
+# summary -> monotonic timestamp of its last unanswered timeout.
+_RECENT_TIMEOUTS: dict = {}
+_TIMEOUT_DEDUPE_S = 120
+
+
 def _show_dialog(summary: str, timeout_s: int, destructive: bool) -> bool:
+    with _DIALOG_LOCK:
+        now = time.monotonic()
+        # Prune stale entries so the cache stays bounded.
+        for key in [k for k, ts in _RECENT_TIMEOUTS.items()
+                    if now - ts >= _TIMEOUT_DEDUPE_S]:
+            del _RECENT_TIMEOUTS[key]
+        if summary in _RECENT_TIMEOUTS:
+            return False  # identical request already timed out once
+        approved, timed_out = _show_dialog_once(summary, timeout_s,
+                                                destructive)
+        if timed_out:
+            _RECENT_TIMEOUTS[summary] = time.monotonic()
+        return approved
+
+
+def _show_dialog_once(summary: str, timeout_s: int,
+                      destructive: bool):
+    """Show exactly one dialog. Returns (approved, timed_out).
+
+    Prefers MessageBoxTimeoutW: it dismisses its own window when the
+    timeout expires, so nothing can be left orphaned on the desktop.
+    Falls back to a threaded MessageBoxW whose timeout close is safe
+    only because _DIALOG_LOCK guarantees this is the sole approval
+    window on screen, making the title lookup unambiguous.
+    """
     import ctypes  # Windows-only; imported lazily
 
     try:
         user32 = ctypes.windll.user32
     except AttributeError:
-        return False  # no Win32 dialog available: fail closed
+        return False, False  # no Win32 dialog available: fail closed
     title = ("pc-mcp-bridge: DESTRUCTIVE ACTION - approve?"
              if destructive else TITLE)
     text = (
@@ -129,13 +180,28 @@ def _show_dialog(summary: str, timeout_s: int, destructive: bool) -> bool:
         + summary
         + f"\n\nAllow it? (auto-denies in {timeout_s} seconds)"
     )
+    flags = MB_YESNO | MB_ICONWARNING | MB_SYSTEMMODAL
+
+    timeout_fn = getattr(user32, "MessageBoxTimeoutW", None)
+    if timeout_fn is not None:
+        timeout_fn.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p,
+                               ctypes.c_wchar_p, ctypes.c_uint,
+                               ctypes.c_ushort, ctypes.c_uint]
+        timeout_fn.restype = ctypes.c_int
+        try:
+            rc = timeout_fn(None, text, title, flags, 0,
+                            int(timeout_s * 1000))
+        except Exception:
+            return False, False  # fail closed
+        if rc == MB_TIMEDOUT:
+            return False, True
+        return rc == IDYES, False
+
     outcome: dict = {}
 
     def _show():
         try:
-            rc = user32.MessageBoxW(
-                None, text, title, MB_YESNO | MB_ICONWARNING | MB_SYSTEMMODAL
-            )
+            rc = user32.MessageBoxW(None, text, title, flags)
         except Exception as exc:  # no interactive desktop, etc.
             outcome["error"] = str(exc)
         else:
@@ -145,11 +211,14 @@ def _show_dialog(summary: str, timeout_s: int, destructive: bool) -> bool:
     t.start()
     t.join(timeout_s)
     if t.is_alive():
-        # Timed out: close the dialog, then treat as denied.
+        # Timed out: close the dialog, then treat as denied. This is
+        # the only approval window (see _DIALOG_LOCK), so the title
+        # lookup cannot hit a different request's dialog.
         hwnd = user32.FindWindowW(None, title)
         if hwnd:
             user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
         t.join(5)
+        return False, "error" not in outcome
     if "error" in outcome:
-        return False  # fail closed
-    return outcome.get("rc") == IDYES
+        return False, False  # fail closed
+    return outcome.get("rc") == IDYES, False
