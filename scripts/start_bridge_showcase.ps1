@@ -60,4 +60,13 @@ Write-Host " to return to normal approval-dialog operation."
 Write-Host "=============================================================="
 
 Set-Location $Repo
-& python pc-agent\server.py
+# Launch with the bridge's own venv interpreter: a bare `python` on PATH
+# may lack the server's dependencies (ModuleNotFoundError: mcp) — that
+# mismatch is what killed the showcase relaunches on 2026-11-02, leaving
+# the old server dead and no replacement running.
+$venvPython = Join-Path $Repo 'pc-agent\.venv\Scripts\python.exe'
+if (Test-Path $venvPython) {
+    & $venvPython pc-agent\server.py
+} else {
+    & python pc-agent\server.py
+}
