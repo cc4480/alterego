@@ -332,6 +332,17 @@ def exec_cancel(job_id: str) -> dict:
 
 
 # ---- supervisor / hot reload (Batch 1) ---------------------------------
+def _ensure_pc_agent_on_path() -> None:
+    """supervisor / hot_reload are imported below by plain name; they
+    live beside server.py in pc-agent/. A script launch puts that dir
+    on sys.path, but other entry points may not, so ensure it."""
+    import sys
+    from pathlib import Path
+    pc_agent = str(Path(__file__).resolve().parents[3])
+    if pc_agent not in sys.path:
+        sys.path.insert(0, pc_agent)
+
+
 def _supervisor_data_dir():
     try:
         from auth import app_dir
@@ -346,6 +357,7 @@ def server_reload() -> dict:
     """Restart the bridge server via the supervisor. Refuses when no
     supervisor is running, so the bridge is never darkened with nobody
     to bring it back."""
+    _ensure_pc_agent_on_path()
     import supervisor as _sup
     data = _supervisor_data_dir()
     st = _sup.supervisor_status(data)
@@ -364,12 +376,14 @@ def server_reload() -> dict:
 
 def supervisor_status() -> dict:
     """Supervisor health. Read-only, no approval."""
+    _ensure_pc_agent_on_path()
     import supervisor as _sup
     return _sup.supervisor_status(_supervisor_data_dir())
 
 
 def hot_reload(action: str) -> dict:
     """Hot reload: status | enable | disable | trigger."""
+    _ensure_pc_agent_on_path()
     import hot_reload as _hr
     import supervisor as _sup
     data = _supervisor_data_dir()

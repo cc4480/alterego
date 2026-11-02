@@ -294,6 +294,12 @@ def check_event_log():
 def check_supervisor():
     """Supervisor should be running so crashes and reloads self-heal."""
     try:
+        # supervisor lives beside server.py in pc-agent/ and is
+        # imported by plain name; ensure that dir is on sys.path the
+        # way a script launch guarantees (same fix as support.py).
+        _pc_agent = str(Path(__file__).resolve().parents[3])
+        if _pc_agent not in sys.path:
+            sys.path.insert(0, _pc_agent)
         import supervisor as _sup
     except ImportError as e:
         return _unknown("supervisor", f"supervisor module unavailable: {e}",

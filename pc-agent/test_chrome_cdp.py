@@ -288,6 +288,75 @@ def test_launch_refuses_real_chrome_profile():
         chrome_cdp.real_chrome_profile_dir = saved
 
 
+def test_connect_reuses_active_session_same_port():
+    """cdp_connect is an attach, not an allocation: with a session
+    already active on the requested (or default) port it must return
+    that session, not error 'already active' — the portmanteau
+    dispatcher issues connect-then-act sequences without tracking
+    earlier connects. A DIFFERENT port still errors."""
+    s = _session(_nav_responder(load=True))
+    s.port = 9333
+    chrome_cdp._session = s
+    real_http = chrome_cdp._http_json
+    chrome_cdp._http_json = lambda port, path, method="GET": {
+        "Browser": "Chrome/156.0.0.0"}
+    try:
+        r = chrome_cdp.connect()            # no port named: reuse
+        assert r["reused"] is True and r["cdp_port"] == 9333, r
+        assert r["browser"] == "Chrome/156.0.0.0", r
+        assert r["url"] == "https://example.com/", r
+        r = chrome_cdp.connect(9333)        # same port named: reuse
+        assert r["reused"] is True, r
+        try:
+            chrome_cdp.connect(9999)        # different port: error
+        except chrome_cdp.CDPError as e:
+            assert "already active" in str(e) and "9333" in str(e), str(e)
+        else:
+            raise AssertionError("different port should have raised")
+        assert chrome_cdp._session is s     # never swapped out
+        print("PASS connect reuses active session (same port only)")
+    finally:
+        chrome_cdp._http_json = real_http
+        chrome_cdp._session = None
+        s.detach()
+
+
+def test_connect_replaces_dead_session():
+    """A session whose readback fails is stale, not reusable:
+    connect() must drop it and attach fresh instead of erroring
+    'already active' forever."""
+    dead = _session(lambda m: [{"id": m["id"],
+                                "error": {"message": "gone"}}])
+    dead.port = 9333
+    chrome_cdp._session = dead
+    target = {"id": "T9", "type": "page", "url": "https://fresh.example/",
+              "title": "Fresh",
+              "webSocketDebuggerUrl": "ws://127.0.0.1:9333/devtools/page/T9"}
+    saved = (chrome_cdp._http_json, chrome_cdp._page_targets,
+             chrome_cdp.ChromeSession._open_ws)
+    chrome_cdp._http_json = lambda port, path, method="GET": {
+        "Browser": "Chrome/156.0.0.0"}
+    chrome_cdp._page_targets = lambda port: [target]
+
+    def fake_open(self, ws_url):
+        return FakeWS(_nav_responder(load=True))
+    chrome_cdp.ChromeSession._open_ws = fake_open
+    try:
+        r = chrome_cdp.connect(9333)
+        assert chrome_cdp._session is not dead, r
+        assert r["url"] == "https://example.com/", r
+        assert "reused" not in r, r
+        print("PASS connect replaces dead session with fresh attach")
+    finally:
+        (chrome_cdp._http_json, chrome_cdp._page_targets,
+         chrome_cdp.ChromeSession._open_ws) = saved
+        fresh = chrome_cdp._session
+        chrome_cdp._session = None
+        if fresh is not None:
+            fresh.detach()
+        dead.detach()
+
+
 def test_session_required():
     assert chrome_cdp._session is None
     try:
@@ -319,6 +388,8 @@ if __name__ == "__main__":
     test_graceful_close_sends_browser_close()
     test_fill_requires_readback_equality()
     test_launch_refuses_real_chrome_profile()
+    test_connect_reuses_active_session_same_port()
+    test_connect_replaces_dead_session()
     test_session_required()
     test_snippets_present()
     print("ALL CHROME_CDP TESTS PASS")

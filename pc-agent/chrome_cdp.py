@@ -585,11 +585,44 @@ def launch(profile_dir="", debug_port=0, start_url="", timeout_s=20):
 def connect(debug_port=0):
     """Attach to a Chrome already serving a debug port (no process
     ownership: close() on this session detaches, it does not close
-    someone else's browser)."""
+    someone else's browser).
+
+    Idempotent for the same endpoint: connect() is an attach, not an
+    allocation, so when a session is already active on the requested
+    port (or no port was named) the active session is REUSED and
+    returned — callers driving the portmanteau dispatcher routinely
+    connect-then-act without tracking whether an earlier call in the
+    conversation already connected, and erroring there stranded the
+    whole cdp_* family behind a cdp_close nobody knew was needed.
+    A DIFFERENT port still errors: one hand, one browser — silently
+    switching browsers mid-session would be worse than the error.
+    A session whose readback proves it dead is dropped and replaced
+    with a fresh attach instead of being "reused"."""
     global _session
     if _session is not None:
-        raise CDPError(
-            "a CDP session is already active — close it first")
+        port = debug_port or DEFAULT_DEBUG_PORT
+        if _session.port is not None and port != _session.port:
+            raise CDPError(
+                f"a CDP session is already active on port "
+                f"{_session.port} — close it before connecting to "
+                f"port {port}")
+        s = _session
+        try:
+            rb = s.readback()
+        except CDPError:
+            # Stale hand: the browser (or socket) is gone. Drop it
+            # and fall through to a fresh attach on the named port.
+            s.detach()
+            _session = None
+        else:
+            try:
+                version = _http_json(s.port or port, "/json/version")
+            except CDPError:
+                version = {}
+            return {"cdp_port": s.port or port,
+                    "browser": version.get("Browser", ""),
+                    "url": rb.get("url", ""), "title": rb.get("title", ""),
+                    "reused": True}
     port = debug_port or DEFAULT_DEBUG_PORT
     version = _http_json(port, "/json/version")
     s = ChromeSession()

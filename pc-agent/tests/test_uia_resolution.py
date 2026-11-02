@@ -302,6 +302,88 @@ def test_set_text_focus_path_readback_unavailable_errors(write_env,
         win_write.uia_set_text("Hermes", "Message", "hello")
 
 
+# ---------------------------------------------------------------------------
+# Stale-window resilience: 'window not found' re-resolution
+# ---------------------------------------------------------------------------
+
+def _sequenced_invoke(env, outcomes):
+    """Fake _uia_invoke returning `outcomes` in call order (last repeats)."""
+    def fake_invoke(payload):
+        env["payloads"].append(dict(payload))
+        outcome = outcomes[min(len(env["payloads"]) - 1, len(outcomes) - 1)]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+    return fake_invoke
+
+
+_NOT_FOUND = {"ok": False, "error": "window not found"}
+
+
+def test_click_title_spec_reresolves_and_retries_once(write_env,
+                                                      monkeypatch):
+    monkeypatch.setattr(win_write, "_uia_invoke", _sequenced_invoke(
+        write_env, [_NOT_FOUND,
+                    {"ok": True, "method": "invoke", "name": "Send",
+                     "x": 5, "y": 6}]))
+    res = win_write.uia_click("Hermes", "Send")
+    assert res["ok"] is True and res["name"] == "Send"
+    assert len(write_env["payloads"]) == 2   # initial + exactly one retry
+    assert all(p["window"] == "Hermes" for p in write_env["payloads"])
+
+
+def test_click_title_spec_still_missing_after_retry_errors(write_env,
+                                                           monkeypatch):
+    monkeypatch.setattr(win_write, "_uia_invoke", _sequenced_invoke(
+        write_env, [_NOT_FOUND]))
+    with pytest.raises(RuntimeError) as ei:
+        win_write.uia_click("Hermes", "Send")
+    assert "Hermes" in str(ei.value)
+    assert "re-resolution" in str(ei.value)
+    assert len(write_env["payloads"]) == 2   # retried once, no loop
+
+
+def test_click_stale_hwnd_gets_specific_error_no_retry(write_env,
+                                                       monkeypatch):
+    monkeypatch.setattr(win_write, "_uia_invoke", _sequenced_invoke(
+        write_env, [_NOT_FOUND]))
+    with pytest.raises(RuntimeError) as ei:
+        win_write.uia_click("12345", "Send")
+    msg = str(ei.value)
+    assert "12345" in msg and "no longer resolves" in msg
+    assert "list_windows" in msg
+    assert len(write_env["payloads"]) == 1   # nothing to re-find by
+
+
+def test_set_text_title_spec_reresolves_and_retries_once(write_env,
+                                                         monkeypatch):
+    monkeypatch.setattr(win_write, "_uia_invoke", _sequenced_invoke(
+        write_env, [_NOT_FOUND,
+                    {"ok": True, "method": "value", "name": "Message"}]))
+    res = win_write.uia_set_text("Hermes", "Message", "hello")
+    assert res == {"ok": True, "method": "value", "name": "Message"}
+    assert len(write_env["payloads"]) == 2
+
+
+def test_set_text_stale_hwnd_gets_specific_error(write_env, monkeypatch):
+    monkeypatch.setattr(win_write, "_uia_invoke", _sequenced_invoke(
+        write_env, [_NOT_FOUND]))
+    with pytest.raises(RuntimeError) as ei:
+        win_write.uia_set_text("999", "Message", "hello")
+    assert "999" in str(ei.value)
+    assert "no longer resolves" in str(ei.value)
+    assert len(write_env["payloads"]) == 1
+
+
+def test_click_other_errors_are_not_retried(write_env, monkeypatch):
+    monkeypatch.setattr(win_write, "_uia_invoke", _sequenced_invoke(
+        write_env, [{"ok": False, "error": "element index out of range"}]))
+    with pytest.raises(RuntimeError) as ei:
+        win_write.uia_click("Hermes", "Send")
+    assert "element index out of range" in str(ei.value)
+    assert len(write_env["payloads"]) == 1
+
+
 def test_set_text_readback_forgives_line_endings(write_env, monkeypatch):
     monkeypatch.setattr(win_write, "_uia_invoke", _scripted_invoke(
         write_env, {"set": {"ok": True, "method": "focus",
