@@ -94,6 +94,28 @@ def test_destructive_tier_uses_same_serialized_path(monkeypatch):
     assert calls[0][1] is True  # destructive flag reached the dialog
 
 
+def test_override_to_default_revokes_legacy_full_access(monkeypatch):
+    # PC_BRIDGE_FULL_ACCESS=1 at import freezes FULL_ACCESS=True and
+    # resolves the mode to dontask. The declined-confirmation fallback
+    # (server.py) overrides the mode to "default"; that must actually
+    # revoke full access, not leave is_full_access() True via the
+    # frozen global.
+    monkeypatch.setattr(approval, "FULL_ACCESS", True)
+    monkeypatch.setattr(approval, "PERMISSION_MODE", "dontask")
+    assert approval.is_full_access() is True
+    approval.override_permission_mode("default")
+    assert approval.get_permission_mode() == "default"
+    assert approval.is_full_access() is False
+
+
+def test_override_to_other_modes_keeps_full_access(monkeypatch):
+    monkeypatch.setattr(approval, "FULL_ACCESS", True)
+    monkeypatch.setattr(approval, "PERMISSION_MODE", "dontask")
+    approval.override_permission_mode("plan")
+    assert approval.get_permission_mode() == "plan"
+    assert approval.is_full_access() is True
+
+
 def test_dialogs_never_overlap(monkeypatch):
     active = 0
     max_active = 0

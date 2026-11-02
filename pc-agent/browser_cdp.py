@@ -6,6 +6,17 @@ browser tools never pop a visible window on the user's screen.
 Attaches to the live tab and gets full DOM access: buttons, inputs, open
 shadow roots, and same-origin iframes that UI Automation cannot see.
 
+Endpoint robustness (the 2026-11-02 sweep defect): HTTP discovery
+(/json) succeeds against ANY Edge serving 9222 — including one started
+WITHOUT --remote-allow-origins=*, whose WebSocket handshake then dies
+with 403 Forbidden. Discovery alone therefore does not prove the
+endpoint is usable. If the WebSocket connect to the endpoint on 9222
+is rejected or otherwise unusable, the session falls back to a
+DEDICATED Edge the agent launches itself — own port (9223), own
+--user-data-dir, --remote-allow-origins=* — the same pattern the
+chrome_cdp hand uses for its presentation Chrome. The pre-existing
+browser is never killed or restarted; it is simply not used.
+
 Requires: pip install websocket-client
 """
 import json
@@ -15,41 +26,41 @@ import urllib.error
 
 CDP_HOST = "127.0.0.1"
 CDP_PORT = 9222
+# Dedicated fallback instance: separate port + profile so it can run
+# alongside (never instead of) whatever already serves CDP_PORT.
+FALLBACK_CDP_PORT = 9223
 
 
-def _ensure_edge_headless(timeout_s: float = 15.0) -> None:
-    """Launch headless Edge with CDP if none is reachable.
-
-    Runs VISIBLE (headed) so the user can log in; the window appears on the user's screen.
-    A persistent dedicated profile keeps it separate from the user's real Edge
-    profile. Called automatically before any CDP operation.
-    """
-    import subprocess
-    import tempfile
+def _profile_dir(name):
     import os
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
 
-    # Already up? Nothing to do.
-    try:
-        _targets()
-        return
-    except CDPError:
-        pass
 
-    # Find Edge.
+def _find_edge():
+    import os
     candidates = [
         os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
         os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
         os.path.expandvars(r"%LocalAppData%\Microsoft\Edge\Application\msedge.exe"),
     ]
-    edge = next((c for c in candidates if os.path.isfile(c)), None)
+    return next((c for c in candidates if os.path.isfile(c)), None)
+
+
+def _launch_edge(port, profile_dir, timeout_s: float = 15.0) -> None:
+    """Launch Edge with CDP on `port` against `profile_dir` and wait
+    for its endpoint. Always passes --remote-allow-origins=* — an
+    instance launched without it rejects our WebSocket handshake."""
+    import subprocess
+    import os
+
+    edge = _find_edge()
     if not edge:
         raise CDPError("Microsoft Edge not found; cannot start headless CDP")
 
-    profile_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "browser-profile")
     os.makedirs(profile_dir, exist_ok=True)
     subprocess.Popen(
         [edge,
-         f"--remote-debugging-port={CDP_PORT}",
+         f"--remote-debugging-port={port}",
          f"--user-data-dir={profile_dir}",
          "--remote-allow-origins=*",
          "--no-first-run", "--no-default-browser-check",
@@ -62,32 +73,70 @@ def _ensure_edge_headless(timeout_s: float = 15.0) -> None:
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         try:
-            _targets()
+            _targets(port)
             return
         except CDPError:
             time.sleep(0.5)
-    raise CDPError(f"headless Edge did not expose CDP on {CDP_PORT} in time")
+    raise CDPError(f"headless Edge did not expose CDP on {port} in time")
+
+
+def _ensure_endpoint(port, profile_dir, timeout_s: float = 15.0) -> int:
+    """Return `port` with a reachable CDP endpoint: the one already
+    serving there if there is one, else a freshly launched Edge."""
+    try:
+        _targets(port)
+        return port
+    except CDPError:
+        pass
+    _launch_edge(port, profile_dir, timeout_s)
+    return port
+
+
+def _ensure_edge_headless(timeout_s: float = 15.0) -> int:
+    """Launch headless Edge with CDP on CDP_PORT if none is reachable.
+
+    Runs VISIBLE (headed) so the user can log in; the window appears on the user's screen.
+    A persistent dedicated profile keeps it separate from the user's real Edge
+    profile. Called automatically before any CDP operation.
+
+    NOTE: reachable here only means HTTP discovery answered. A foreign
+    Edge started without --remote-allow-origins=* is reachable yet
+    rejects the WebSocket handshake — Browser handles that by falling
+    back to _ensure_fallback_edge().
+    """
+    return _ensure_endpoint(CDP_PORT, _profile_dir("browser-profile"),
+                            timeout_s)
+
+
+def _ensure_fallback_edge(timeout_s: float = 15.0) -> int:
+    """The dedicated fallback instance: own port, own profile,
+    --remote-allow-origins=* (via _launch_edge). Reused if a previous
+    call already launched it; the pre-existing browser on CDP_PORT is
+    never touched."""
+    return _ensure_endpoint(FALLBACK_CDP_PORT,
+                            _profile_dir("browser-profile-fallback"),
+                            timeout_s)
 
 
 class CDPError(Exception):
     pass
 
 
-def _targets():
-    url = f"http://{CDP_HOST}:{CDP_PORT}/json"
+def _targets(port=CDP_PORT):
+    url = f"http://{CDP_HOST}:{port}/json"
     try:
         with urllib.request.urlopen(url, timeout=5) as r:
             return json.load(r)
     except (urllib.error.URLError, OSError) as exc:
         raise CDPError(
             "cannot reach Edge CDP at "
-            f"{CDP_HOST}:{CDP_PORT} — is Edge running with "
-            "--remote-debugging-port=9222?"
+            f"{CDP_HOST}:{port} — is Edge running with "
+            f"--remote-debugging-port={port}?"
         ) from exc
 
 
-def _ws_url(url_contains=None):
-    pages = [t for t in _targets() if t.get("type") == "page"]
+def _ws_url(url_contains=None, port=CDP_PORT):
+    pages = [t for t in _targets(port) if t.get("type") == "page"]
     if url_contains:
         pages = [p for p in pages if url_contains in p.get("url", "")]
     if not pages:
@@ -98,21 +147,58 @@ def _ws_url(url_contains=None):
     return ws, pages[0].get("url", "")
 
 
+def _require_websocket():
+    """The websocket-client module, or a CDPError naming the fix.
+    Isolated so tests can substitute the transport."""
+    try:
+        import websocket  # pip install websocket-client
+    except ImportError as exc:
+        raise CDPError(
+            "websocket-client not installed — run: "
+            "pip install websocket-client"
+        ) from exc
+    return websocket
+
+
+def _open_ws(ws_url):
+    """Isolated so tests can substitute a fake socket (same pattern
+    as chrome_cdp.ChromeSession._open_ws)."""
+    return _require_websocket().create_connection(ws_url, timeout=30)
+
+
 class Browser:
     """One CDP session against a live Edge tab."""
 
     def __init__(self, url_contains=None):
-        try:
-            import websocket  # pip install websocket-client
-        except ImportError as exc:
-            raise CDPError(
-                "websocket-client not installed — run: "
-                "pip install websocket-client"
-            ) from exc
+        _require_websocket()
 
-        _ensure_edge_headless()
-        ws_url, self.page_url = _ws_url(url_contains)
-        self.ws = websocket.create_connection(ws_url, timeout=30)
+        port = _ensure_edge_headless()
+        try:
+            ws_url, page_url = _ws_url(url_contains, port=port)
+            self.ws = _open_ws(ws_url)
+        except Exception as primary_exc:
+            # The endpoint on CDP_PORT answered HTTP discovery but is
+            # not usable — classically a foreign Edge launched without
+            # --remote-allow-origins=*, which rejects the WebSocket
+            # handshake with 403. Do NOT touch that browser; fall back
+            # to our own dedicated instance (own port + profile).
+            if "websocket-client not installed" in str(primary_exc):
+                raise
+            try:
+                fb_port = _ensure_fallback_edge()
+                if fb_port == port:
+                    raise CDPError("fallback port equals primary port")
+                ws_url, page_url = _ws_url(url_contains, port=fb_port)
+                self.ws = _open_ws(ws_url)
+            except Exception as fb_exc:
+                raise CDPError(
+                    f"Edge CDP on {port} is unusable ({primary_exc}); "
+                    f"dedicated fallback Edge on {FALLBACK_CDP_PORT} "
+                    f"also failed: {fb_exc}"
+                ) from fb_exc
+            port = fb_port
+        self.page_url = page_url
+        self.cdp_port = port
         self._id = 0
 
     def cmd(self, method, params=None, timeout=30):

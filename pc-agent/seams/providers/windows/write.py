@@ -302,6 +302,52 @@ def paste_text(text: str) -> dict:
     return {"pasted_chars": len(text)}
 
 
+def _is_hwnd_spec(window: str) -> bool:
+    """True when `window` is a raw hwnd (digits only), not a title spec."""
+    return str(window).strip().isdigit()
+
+
+def _is_window_not_found(res) -> bool:
+    """True for the helper's plain 'window not found' failure dict."""
+    return (isinstance(res, dict) and not res.get("ok")
+            and str(res.get("error", "")).strip().lower()
+            == "window not found")
+
+
+def _uia_invoke_reresolving(payload: dict) -> dict:
+    """_uia_invoke with one fresh re-resolution on 'window not found'.
+
+    The UIA helper resolves `window` from scratch on every invocation
+    (its Find-Window enumerates the live top-level windows), so for a
+    title spec a second invocation IS a fresh find by the original
+    title criteria, against whatever handle a recreated window now
+    has: retry exactly once instead of failing on the window that
+    vanished between the caller's earlier resolution and this call.
+
+    A raw-hwnd spec carries no title/class criteria to re-find by, so
+    there is nothing honest to retry against: keep the failure, but
+    make it specific instead of the generic 'window not found'.
+    """
+    res = _uia_invoke(payload)
+    if not _is_window_not_found(res):
+        return res
+    window = str(payload.get("window", ""))
+    if _is_hwnd_spec(window):
+        raise RuntimeError(
+            "window not found: hwnd %s no longer resolves -- the window "
+            "was closed or recreated since that handle was obtained, "
+            "and a raw hwnd carries no title criteria to re-find it by; "
+            "pass the window title (regex) instead, or re-run "
+            "list_windows / uia_find and use the fresh hwnd" % window)
+    res = _uia_invoke(payload)  # fresh Find-Window by title, one retry
+    if _is_window_not_found(res):
+        raise RuntimeError(
+            "window not found: no live window matches title %r after a "
+            "fresh re-resolution and one retry -- the window was closed, "
+            "or recreated under a different title" % window)
+    return res
+
+
 def _uia_index(index: int | None) -> int:
     """Translate the public index argument to the helper payload value.
 
@@ -328,6 +374,10 @@ def uia_click(window: str, name_rx: str, control_type: str = "",
     With no index, the best tier must hold exactly one candidate or
     UiaAmbiguousError is raised listing them -- the helper never silently
     clicks the first of several equally-good matches.
+
+    A 'window not found' on a title spec is retried once after a fresh
+    re-resolution by that title (see _uia_invoke_reresolving); a stale
+    raw hwnd fails with a specific stale-handle error.
     """
     if button not in ("left", "right", "middle"):
         raise ValueError("button must be left, right, or middle")
@@ -337,10 +387,11 @@ def uia_click(window: str, name_rx: str, control_type: str = "",
         raise ValueError("window must be a non-empty title regex or hwnd")
     _approved("uia_click",
               "UIA click element /%s/ in window /%s/." % (name_rx, window))
-    res = _uia_invoke({"op": "click", "window": window, "name_rx": name_rx,
-                       "control_type": control_type or "",
-                       "index": _uia_index(index),
-                       "max_results": UIA_ENUM_MAX})
+    res = _uia_invoke_reresolving(
+        {"op": "click", "window": window, "name_rx": name_rx,
+         "control_type": control_type or "",
+         "index": _uia_index(index),
+         "max_results": UIA_ENUM_MAX})
     if not res.get("ok"):
         raise RuntimeError(res.get("error", "uia_click failed"))
     x, y = int(res.get("x", 0)), int(res.get("y", 0))
@@ -387,12 +438,12 @@ def uia_set_text(window: str, name_rx: str, text: str,
                "control_type": control_type or "",
                "index": _uia_index(index), "max_results": UIA_ENUM_MAX,
                "text": text}
-    res = _uia_invoke(payload)
+    res = _uia_invoke_reresolving(payload)
     if not res.get("ok"):
         raise RuntimeError(res.get("error", "uia_set_text failed"))
     if res.get("method") == "focus":
         _send_unicode(text)  # helper focused the element; type directly
-        chk = _uia_invoke({**payload, "op": "get"})
+        chk = _uia_invoke_reresolving({**payload, "op": "get"})
         if not chk.get("ok"):
             raise RuntimeError(chk.get("error", "uia_set_text readback "
                                              "failed"))

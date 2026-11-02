@@ -82,9 +82,14 @@ PERMISSION_MODE = _resolve_permission_mode()
 def override_permission_mode(mode: str) -> None:
     """Override the permission mode at runtime (e.g., after a declined
     dontask confirmation falls back to default)."""
-    global PERMISSION_MODE
+    global PERMISSION_MODE, FULL_ACCESS
     if mode in ("plan", "acceptedits", "dontask", "default"):
         PERMISSION_MODE = mode
+        if mode == "default":
+            # is_full_access() also ORs the frozen FULL_ACCESS global,
+            # so setting the mode alone could never revoke dontAsk
+            # granted via PC_BRIDGE_FULL_ACCESS=1.
+            FULL_ACCESS = False
 
 
 def get_permission_mode() -> str:
