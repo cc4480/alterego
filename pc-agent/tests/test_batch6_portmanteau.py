@@ -164,7 +164,8 @@ def test_mock_dispatch_read_and_write():
     r = toolcall.call("keyboard", {"operation": "type",
                                    "args": {"text": "hi"}}, write=True)
     assert r == {"operation": "type", "tool": "type_text",
-                 "result": {"typed_chars": 2}}, r
+                 "result": {"typed_chars": 2, "window": "Mock Window",
+                            "hwnd": 12345, "focus_changed": False}}, r
 
 
 def test_args_filtered_and_nones_dropped():

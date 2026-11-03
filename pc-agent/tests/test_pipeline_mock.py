@@ -179,7 +179,8 @@ def test_hook_modify_args(_clean_hooks):
         return "modify", {"text": args["text"].upper()}
     hooks.register_hook("PreToolUse", "type_text", upper, name="upper")
     result = toolcall.call("type_text", {"text": "hi"}, write=True)
-    assert result == {"typed_chars": 2}  # "HI"
+    assert result == {"typed_chars": 2, "window": "Mock Window",
+                      "hwnd": 12345, "focus_changed": False}  # "HI"
     assert mock_state.CALLS[-1]["args"] == {"text": "HI"}
 
 

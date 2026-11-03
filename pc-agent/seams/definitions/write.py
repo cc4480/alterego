@@ -35,9 +35,11 @@ CLOSE_WINDOW = ToolDef(
 TYPE_TEXT = ToolDef(
     name="type_text",
     group="write",
-    doc="Type text into the focused window. Requires on-PC approval.",
+    doc="Type text into the focused window. Requires on-PC approval. "
+        "The result names the foreground window the text was aimed at "
+        "and whether focus moved while typing.",
     args={"text": {"type": "str", "required": True}},
-    result_keys=["typed_chars"],
+    result_keys=["typed_chars", "window", "hwnd", "focus_changed"],
     approval_tier="ask",
     side_effects="session",
     platform_notes="Windows: SendInput with KEYEVENTF_UNICODE (full "
@@ -74,7 +76,7 @@ HOTKEY = ToolDef(
     group="write",
     doc="Press a key combo: 'enter', 'esc', 'tab', 'ctrl+c', 'alt+f4', 'win+r'.",
     args={"keys": {"type": "str", "required": True}},
-    result_keys=["hotkey", "pressed"],
+    result_keys=["hotkey", "pressed", "window", "hwnd", "focus_changed"],
     approval_tier="routine",
     side_effects="session",
     platform_notes="Windows: virtual-key codes via SendInput. Linux: pynput "

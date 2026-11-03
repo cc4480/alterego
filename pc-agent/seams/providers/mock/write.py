@@ -24,7 +24,8 @@ def close_window(hwnd: int) -> dict:
 
 def type_text(text: str) -> dict:
     return _ui("type_text", {"text": text},
-               {"typed_chars": len(text)})
+               {"typed_chars": len(text), "window": "Mock Window",
+                "hwnd": 12345, "focus_changed": False})
 
 
 def shell_exec(command: str, timeout_s: int = 60,
@@ -46,7 +47,8 @@ def shell_exec(command: str, timeout_s: int = 60,
 
 def hotkey(keys: str) -> dict:
     return _ui("hotkey", {"keys": keys},
-               {"hotkey": keys, "pressed": True})
+               {"hotkey": keys, "pressed": True, "window": "Mock Window",
+                "hwnd": 12345, "focus_changed": False})
 
 
 def mouse_move(x: int, y: int) -> dict:
