@@ -89,13 +89,28 @@ def close_window(hwnd: int) -> dict:
     return {"hwnd": int(hwnd), "close_requested": ok}
 
 
+def _foreground_window() -> tuple[int, str]:
+    """(hwnd, title) of the foreground window -- where synthetic
+    keystrokes will land. (0, "") when no window holds the foreground."""
+    user32 = ctypes.windll.user32
+    hwnd = int(user32.GetForegroundWindow() or 0)
+    if not hwnd:
+        return 0, ""
+    buf = ctypes.create_unicode_buffer(512)
+    user32.GetWindowTextW(hwnd, buf, len(buf))
+    return hwnd, buf.value
+
+
 def type_text(text: str) -> dict:
     if not isinstance(text, str) or not text or len(text) > 2000:
         raise ValueError("text must be a non-empty string up to 2000 chars")
     preview = text if len(text) <= 300 else text[:300] + "..."
     _approved("type_text", f"Type {len(text)} chars into the focused window:\n{preview}")
+    hwnd, title = _foreground_window()
     _send_unicode(text)
-    return {"typed_chars": len(text)}
+    after, _ = _foreground_window()
+    return {"typed_chars": len(text), "window": title, "hwnd": hwnd,
+            "focus_changed": after != hwnd}
 
 
 def _send_unicode(text: str) -> None:
@@ -183,6 +198,7 @@ def hotkey(keys: str) -> dict:
     """Press a key combo: 'enter', 'esc', 'tab', 'ctrl+c', 'alt+f4', 'win+r'."""
     mods, vk = _parse_hotkey(keys)
     _approved("hotkey", f"Press key combo:\n{keys}")
+    hwnd, title = _foreground_window()
     try:
         for m in mods:
             _key_event(m, True)
@@ -190,7 +206,9 @@ def hotkey(keys: str) -> dict:
     finally:
         for m in reversed(mods):
             _key_event(m, False)
-    return {"hotkey": keys, "pressed": True}
+    after, _ = _foreground_window()
+    return {"hotkey": keys, "pressed": True, "window": title,
+            "hwnd": hwnd, "focus_changed": after != hwnd}
 
 
 def _mouse_event(flags: int, data: int = 0) -> None:
