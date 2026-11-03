@@ -7,7 +7,7 @@
 **AlterEgo gives a Muse agent a second self on a Windows PC.** Not a sandbox.
 Not a screenshot API. A real operator's seat: the agent sees your screen,
 drives your mouse and keyboard, runs shells, manages files, and drives a real
-browser — through **67 MCP tools** — while every dangerous action pops a
+browser — through **108 MCP tools** — while every dangerous action pops a
 native **Yes/No dialog on your own screen** that *you* answer.
 
 It was built for one specific partnership: **Cho-zen1**, a personal agent
@@ -24,7 +24,7 @@ everything.
 <p align="center">
   <a href="https://www.python.org/downloads/"><img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white"></a>
   <a href="docs/setup.md"><img alt="Platform: Windows 10/11" src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6?logo=windows&logoColor=white"></a>
-  <a href="docs/tools.md"><img alt="67 MCP tools" src="https://img.shields.io/badge/MCP-67%20tools-6D5CFF"></a>
+  <a href="docs/tools.md"><img alt="108 MCP tools" src="https://img.shields.io/badge/MCP-108%20tools-6D5CFF"></a>
   <a href="https://modelcontextprotocol.io"><img alt="Transport: MCP Streamable HTTP" src="https://img.shields.io/badge/transport-MCP%20Streamable%20HTTP-38E1FF"></a>
   <a href="demo-evidence/"><img alt="Status: live, verified on a real PC" src="https://img.shields.io/badge/status-live%20on%20a%20real%20PC-E5484D"></a>
 </p>
@@ -111,7 +111,7 @@ autostart, watchdog, permissions postures:
 export PC_BRIDGE_URL=https://pc.secscan.info
 python3 bridge/op_call.py health              # tunnel / server / token, layer by layer
 python3 bridge/op_call.py pair 279416         # exchange the code; token saved (0600)
-python3 bridge/op_call.py tools               # 67 tools
+python3 bridge/op_call.py tools               # 108 tools
 python3 bridge/op_call.py call system_info '{}'
 ```
 
@@ -164,7 +164,7 @@ every knob: [docs/configuration.md](docs/configuration.md).
 | [docs/architecture.md](docs/architecture.md) | How the pieces fit: server, seams/providers, tool pipeline, job layer, event log, chat |
 | [docs/setup.md](docs/setup.md) | PC owner: install (venv rule), tunnel, autostart, watchdog, daily use |
 | [docs/operator.md](docs/operator.md) | Operator: health checks, pairing, CLI, job mode, protocol notes |
-| [docs/tools.md](docs/tools.md) | The full catalog: all 67 MCP tools, grouped, with arguments and approval behavior |
+| [docs/tools.md](docs/tools.md) | The full catalog: all 108 MCP tools, grouped, with arguments and approval behavior |
 | [docs/security.md](docs/security.md) | Pairing, tokens, approval tiers and postures, hooks, ESTOP, revocation |
 | [docs/configuration.md](docs/configuration.md) | Every environment variable, `command_rules.json`, data-directory layout |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Field-proven diagnoses, including "tunnel up, server down" |
