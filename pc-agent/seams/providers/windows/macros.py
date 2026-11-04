@@ -17,7 +17,7 @@ def _approved(tool: str, summary: str) -> None:
 
 
 def macro_record(name, steps):
-    """Record (or overwrite) a macro. Requires approval."""
+    """Record (or overwrite) a macro. No approval dialog (owner-local record; replay gates)."""
     import macros
     return macros.record_macro(name, steps)
 
@@ -29,7 +29,7 @@ def macro_list():
 
 
 def macro_delete(name):
-    """Delete a macro. Fails loud on unknown names. Requires approval."""
+    """Delete a macro. Fails loud on unknown names. No approval dialog (owner-local record)."""
     import macros
     return macros.delete_macro(name)
 

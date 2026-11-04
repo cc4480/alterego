@@ -39,8 +39,10 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 import uvicorn
 
 import approval
+import auth
 import events
 import hooks
+import toolcall
 from dashboard_ui import DASHBOARD_HTML, DASHBOARD_URI
 from mcp.types import ToolAnnotations
 from tool_profiles import annotations_for
@@ -200,8 +202,8 @@ def job_cancel(job_id: str) -> dict:
 @mcp.tool(annotations=ToolAnnotations(
     read_only_hint=True, destructive_hint=False,
     idempotent_hint=True, open_world_hint=False))
-def doctor() -> dict:
-    """Read-only bridge health report: listener, tunnel, token,
+def doctor_jobs() -> dict:
+    """Read-only jobs/infra health report: listener, tunnel, token,
     journal, and ESTOP state — every component that is not ok carries
     its one concrete fix. Never starts, stops, or changes anything."""
     return _jobs.doctor_op()
@@ -331,6 +333,18 @@ class BearerAuth(BaseHTTPMiddleware):
         valid = any(
             secrets.compare_digest(auth, f"Bearer {t}") for t in tokens
         )
+        if valid:
+            # Attribute this request's events to the presenting token
+            # (toolcall falls back to the token file when unset).
+            matched = next(t for t in tokens
+                           if secrets.compare_digest(auth, f"Bearer {t}"))
+            ctx_token = toolcall.set_request_session_token(matched)
+            try:
+                return await call_next(request)
+            finally:
+                toolcall.reset_request_session(ctx_token)
+        # NOTE: the tail below is now reached only when not valid; the
+        # final return is unreachable but kept as the original tail.
         if not valid:
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         return await call_next(request)
@@ -392,6 +406,12 @@ async def _pair(request: Request):
     except Exception:
         return JSONResponse({"error": "bad request"}, status_code=400)
     code = str(body.get("code", "")).strip()
+    requested_name = body.get("name", "")
+    paired_name = (auth.normalize_name(str(requested_name))
+                   if requested_name else None)
+    if requested_name and not paired_name:
+        return JSONResponse({"error": "invalid name: 1-32 chars, "
+                             "a-z 0-9 _ -"}, status_code=400)
 
     ok, reason = _pairing.check(code)
     if not ok:
@@ -401,7 +421,7 @@ async def _pair(request: Request):
         return JSONResponse({"error": reason}, status_code=status)
 
     token = secrets.token_hex(32)
-    _save_session_token(token)
+    auth.save_client(token, paired_name)
     sid, data = events.new_session(token)
     events.append("SessionPaired", data, session_id=sid)
     return JSONResponse({"token": token})
@@ -434,30 +454,34 @@ _ws_clients: dict = {}  # name -> set of WebSockets (one name, many sockets)
 async def _ws_relay(websocket: WebSocket):
     """WebSocket endpoint for direct agent-to-agent messaging.
 
-    Connect: /ws?client=cosmo&token=<bearer> (or client=cho-zen1)
+    Connect: /ws?token=<bearer> (display name comes from the pairing record).
     Send JSON: {"to": "cho-zen1", "text": "...", "id": "..."}
     Receive JSON: {"from": "cosmo", "text": "...", "id": "...", "ts": ...}
     """
     params = dict(websocket.query_params)
-    client_name = params.get("client", "").strip().lower()
     token = params.get("token", "").strip()
-
-    # Auth: localhost (127.0.0.1) bypasses token check — physical access
-    # is trusted. Remote connections must present a valid bearer token.
-    client_host = websocket.client.host if websocket.client else ""
-    is_localhost = client_host in ("127.0.0.1", "::1")
-    tokens = _load_session_tokens()
-    valid = is_localhost or any(
-        secrets.compare_digest(token, t) for t in tokens
-    )
-
-    if not valid or client_name not in ("cosmo", "cho-zen1", "judith"):
+    # Room auth: a valid paired token is required from every peer -
+    # no localhost bypass (the tunnel arrives via loopback). The
+    # display name comes from the pairing record, never the query.
+    record = next((c for c in auth.load_clients()
+                   if token and secrets.compare_digest(token, c["token"])),
+                  None)
+    if record is None:
         await websocket.close(code=4401, reason="unauthorized")
         return
+    client_name = record["name"] or auth.guest_name(token)
+    session_fp = auth.fingerprint_token(token)
 
     await websocket.accept()
     _ws_clients.setdefault(client_name, set()).add(websocket)
-    events.append("WsConnected", {"client": client_name})
+    events.append("WsConnected", {"client": client_name},
+                  session_id=session_fp)
+    try:
+        await websocket.send_json({"from": "system",
+                                   "text": "connected as %s" % client_name,
+                                   "you": client_name, "ts": time.time()})
+    except Exception:
+        pass  # connect race; join notify below is best-effort too
     print(f"[ws] {client_name} connected "
           f"({sum(len(s) for s in _ws_clients.values())} sockets, "
           f"{len(_ws_clients)} names online)")
@@ -519,7 +543,8 @@ async def _ws_relay(websocket: WebSocket):
             sockets.discard(websocket)
             if not sockets:
                 del _ws_clients[client_name]
-        events.append("WsDisconnected", {"client": client_name})
+        events.append("WsDisconnected", {"client": client_name},
+                  session_id=session_fp)
         print(f"[ws] {client_name} disconnected "
               f"({sum(len(s) for s in _ws_clients.values())} sockets, "
               f"{len(_ws_clients)} names online)")

@@ -35,9 +35,9 @@ Three facts drive every design decision:
 - Builds an MCP server (`mcp.server.mcpserver.MCPServer`, the `mcp` 2.x
   API) named `pc-bridge` and serves it as **Streamable HTTP** via
   uvicorn on `127.0.0.1:8765`.
-- Registers the 63 wrapper tools from `tool_wrappers.ALL_TOOLS`, plus
-  four job-layer ops defined inline (`submit_job`, `job_status`,
-  `job_result`, `job_cancel`) — **67 tools** on the MCP surface.
+- Registers the 104 wrapper tools from `tool_wrappers.ALL_TOOLS`, plus
+  five job-layer ops defined inline (`submit_job`, `job_status`,
+  `job_result`, `job_cancel`, `doctor_jobs`) — **109 tools** on the MCP surface.
 - Adds plain HTTP routes beside the MCP endpoint:
   `GET /health` (unauthenticated liveness), `GET /chat` (the chat UI),
   `POST /pair`, `POST /logout`, `POST /revoke`, and the WebSocket relay
@@ -100,8 +100,10 @@ native Win32 `MessageBoxW` (Yes/No, system-modal): explicit **Yes** is
 the only path through; timeout, dialog error, or a non-interactive
 session all fail closed as a `PermissionError`, which the pipeline
 turns into a `{"error": ...}` tool result — a denial never crashes the
-server. The pipeline separately *predicts* the gate outcome to record
-an `ApprovalRequested` event.
+server. The approval gate reports its own outcome, and the pipeline records
+
+that report as an `ApprovalRequested` event — never a prediction.
+
 
 ### Risk profiles (`tool_profiles.py`)
 
@@ -154,7 +156,7 @@ The primary operation record — an append-only, event-sourced log:
 - Location: `%APPDATA%\pc-mcp-bridge\events\`, one JSONL file per UTC
   day, envelope version 1. Large values spill to a blob store
   (`blob_store.py`); secrets are redacted before anything is written.
-- Sessions are identified by a **token fingerprint**
+- Sessions are identified by the presenting token's **fingerprint**
   (`sess_` + first 12 hex of the token's SHA-256) — the token itself
   never appears in the log.
 - Stage events (`ToolCalled`, `HookEvaluated`, `ApprovalRequested`,
@@ -201,9 +203,12 @@ The primary operation record — an append-only, event-sourced log:
 ### Chat (`/chat`, `/ws`)
 
 The server hosts a small WebSocket relay for the humans and agents
-around the PC: clients connect as `cosmo`, `cho-zen1`, or `judith`
-(remote connections need a valid bearer token; localhost is trusted),
-and messages route by name or broadcast. The browser UI is served at
+around the PC: every peer presents a paired bearer token and takes
+
+its display name from the pairing record (no localhost bypass);
+
+messages route by name or broadcast. The browser UI is served at
+
 `GET /chat` (`pc-agent/chat.html`).
 
 ## The operator half (`bridge/`)

@@ -218,20 +218,15 @@ def test_read_call_event_chain():
     assert evts[1]["data"]["plan_mode"] is False
 
 
-def test_write_call_event_chain_with_approval_preview():
+def test_write_call_event_chain_mock_never_gates():
+    """Mock providers never consult approval, so a mock write logs no
+    ApprovalRequested at all (a predicted event here would claim a
+    dialog that never fired)."""
     toolcall.call("shell_exec", {"command": "echo hi"}, write=True)
-    evts = read_events()  # ApprovalRequested has no "tool" key in data
-    types = [e["type"] for e in evts]
-    # HookEvaluated from the command_rules PreToolUse hook (allow)
-    assert types == ["ToolCalled", "HookEvaluated",
-                     "ApprovalRequested", "ToolCompleted"]
-    appr = evts[2]
-    assert appr["data"]["tier"] == "always_ask"
-    assert appr["data"]["dialog_shown"] is False
-    assert appr["data"]["skipped_reason"] == "dontAsk"
-    assert appr["data"]["dialog_result"] == "yes"
-    assert appr["caused_by"] == evts[0]["event_id"]
-
+    evts = events_for("shell_exec", read_events())
+    kinds = [e["type"] for e in evts]
+    assert "ApprovalRequested" not in kinds
+    assert "ToolCompleted" in kinds
 
 def test_strict_mode_unknown_tool_raises():
     with pytest.raises(RuntimeError, match="not implemented by the 'mock'"):

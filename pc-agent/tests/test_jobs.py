@@ -19,6 +19,27 @@ import jobs  # noqa: E402
 import subproc  # noqa: E402
 
 
+def _proc_alive(pid):
+    """True while pid names a live process. psutil is the probe;
+    os.kill is the fallback (POSIX-reliable, Windows-unreliable)."""
+    try:
+        import psutil
+    except ImportError:
+        pass
+    else:
+        try:
+            return psutil.Process(pid).is_running()
+        except psutil.NoSuchProcess:
+            return False
+        except psutil.Error:
+            return True  # unknown: keep polling, never claim death
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
 def wait_state(mgr, job_id, states, timeout=15.0):
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -173,12 +194,14 @@ class TestCancel(ManagerCase):
         out = mgr.cancel(jid)
         self.assertTrue(out["cancelled"])
         self.assertEqual(mgr.status(jid)["state"], "cancelled")
-        # the registered child process is actually dead (fence worked)
+        # the registered child process is actually dead (fence worked).
+        # NOTE: os.kill(pid, 0) cannot be the probe on Windows: it
+        # reports a terminated process as alive while any handle to
+        # it is open, so the loop below would time out on a correctly
+        # fenced tree. psutil (a pc-agent requirement) is the probe.
         deadline = time.time() + 5
         while time.time() < deadline:
-            try:
-                os.kill(holder["pid"], 0)
-            except (ProcessLookupError, PermissionError):
+            if not _proc_alive(holder["pid"]):
                 break
             time.sleep(0.1)
         else:

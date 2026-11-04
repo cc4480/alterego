@@ -230,7 +230,7 @@ def record_audio(duration_s: int = 5, device: str = None) -> dict:
 
 
 def set_volume(level: int) -> dict:
-    """Set master volume 0-100. Requires approval."""
+    """Set master volume 0-100. No approval dialog (see tools.md note)."""
     return toolcall.call("set_volume", {"level": level}, write=True)
 
 
@@ -602,7 +602,7 @@ ALL_TOOLS.extend([mouse, keyboard, window, uia, file, process, browser,
 # ---- macros (Batch 6): cached tool-call combinations ----------------------
 def macro_record(name: str, steps: list) -> dict:
     """Record a named macro: 1-20 tool calls replayed as one call with
-    macro_replay. Steps run live on every replay. Requires approval."""
+    macro_replay. Steps run live on every replay. No approval dialog; replay gates."""
     return toolcall.call("macro_record", {"name": name, "steps": steps},
                          write=True)
 
@@ -620,7 +620,7 @@ def macro_replay(name: str) -> dict:
 
 def macro_delete(name: str) -> dict:
     """Delete a recorded macro. Fails loud on unknown names.
-    Requires approval."""
+    No approval dialog (owner-local record)."""
     return toolcall.call("macro_delete", {"name": name}, write=True)
 
 
