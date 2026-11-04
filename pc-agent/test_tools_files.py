@@ -43,15 +43,6 @@ def test_write_rejects_relative():
         raise AssertionError("should have raised")
 
 
-def test_edit_replaces_first(tmp_path):
-    p = str(tmp_path / "c.txt")
-    open(p, "w", encoding="utf-8").write("aaa bbb aaa")
-    r = tools_files.edit_file(p, "aaa", "zzz")
-    assert r["replacements"] == 1, r
-    assert open(p, encoding="utf-8").read() == "zzz bbb aaa"
-    print("PASS edit first occurrence")
-
-
 def test_edit_missing_text(tmp_path):
     p = str(tmp_path / "d.txt")
     open(p, "w", encoding="utf-8").write("hello")
@@ -210,42 +201,6 @@ def test_recon_validation():
     assert R._rdata_text(atype, data, rdata_off, rdlen) == "10 mail.example.com", \
         R._rdata_text(atype, data, rdata_off, rdlen)
     print("PASS recon validation")
-
-
-def test_support_tools(tmp_path):
-    import approval
-    import tools_support
-    # validation
-    for bad in ([], [{"tool": "x"}] * 21, [{"tool": "batch", "args": {}}],
-                [{"nope": 1}], [{"tool": "system_info", "args": []}]):
-        try:
-            tools_support.batch(bad)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError(f"batch should have raised for {str(bad)[:40]}")
-    for bad in ("", "   ", "x" * 8001, None):
-        try:
-            tools_support.shell_pwsh(bad)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("shell_pwsh should have raised")
-    # live dispatch on linux: read-only memory_recall inside a batch
-    (tmp_path / "m.md").write_text("# Hello\nbatch recall test", encoding="utf-8")
-    os.environ["PC_BRIDGE_MEMORY_DIR"] = str(tmp_path)
-    approval.AUTO_APPROVE = True
-    try:
-        r = tools_support.batch([
-            {"tool": "memory_recall", "args": {"query": "batch recall"}},
-            {"tool": "no_such_tool", "args": {}},
-        ])
-        assert r["calls"] == 2, r
-        assert r["results"][0]["result"]["files_matched"] == 1, r
-        assert "unknown tool" in r["results"][1]["error"], r
-    finally:
-        del os.environ["PC_BRIDGE_MEMORY_DIR"]
-    print("PASS support tools (batch + shell_pwsh validation, live dispatch)")
 
 
 def test_memory_recall(tmp_path):

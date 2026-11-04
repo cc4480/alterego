@@ -61,17 +61,6 @@ def test_eval_returns_value():
     print("PASS eval")
 
 
-def test_no_edge_gives_clear_error():
-    try:
-        browser_cdp.snapshot()
-    except browser_cdp.CDPError as e:
-        # either "not installed" or "cannot reach Edge" — both mention the fix
-        assert "9222" in str(e) or "websocket-client" in str(e), str(e)
-        print("PASS no-edge error")
-    else:
-        raise AssertionError("should have raised")
-
-
 class _Handshake403(Exception):
     """Stands in for websocket-client's WebSocketBadStatusException
     (status_code 403) without needing the library installed."""

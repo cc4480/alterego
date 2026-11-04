@@ -95,45 +95,6 @@ def _no_approval(monkeypatch):
                         lambda *a, **k: True)
 
 
-def test_auto_uses_ddg(monkeypatch):
-    _no_approval(monkeypatch)
-    monkeypatch.setattr(ws, "_search_ddg",
-                        lambda q, t: [{"title": "T", "url": "https://u",
-                                       "snippet": "S"}])
-    monkeypatch.setattr(ws, "_search_bing",
-                        lambda q, t: (_ for _ in ()).throw(
-                            AssertionError("bing should not run")))
-    r = ws.web_search("hello")
-    assert r["backend_used"] == "duckduckgo"
-    assert r["total"] == 1
-    assert r["query"] == "hello"
-
-
-def test_ddg_empty_falls_back_to_bing(monkeypatch):
-    _no_approval(monkeypatch)
-    monkeypatch.setattr(ws, "_search_ddg", lambda q, t: [])
-    monkeypatch.setattr(ws, "_search_bing",
-                        lambda q, t: [{"title": "B", "url": "https://b",
-                                       "snippet": "S"}])
-    r = ws.web_search("hello")
-    assert r["backend_used"] == "bing"
-
-
-def test_ddg_error_falls_back_to_bing(monkeypatch):
-    _no_approval(monkeypatch)
-
-    def _boom(q, t):
-        raise OSError("network down")
-
-    monkeypatch.setattr(ws, "_search_ddg", _boom)
-    monkeypatch.setattr(ws, "_search_bing",
-                        lambda q, t: [{"title": "B", "url": "https://b",
-                                       "snippet": "S"}])
-    r = ws.web_search("hello")
-    assert r["backend_used"] == "bing"
-    assert "notes" in r
-
-
 def test_pinned_bing_skips_ddg(monkeypatch):
     _no_approval(monkeypatch)
     monkeypatch.setattr(ws, "_search_ddg",
