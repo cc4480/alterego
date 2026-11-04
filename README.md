@@ -1,5 +1,20 @@
 <p align="center">
+  <img src="docs/assets/logo.png" alt="AlterEgo logo — two mirrored figures, one self in two places" width="140">
+</p>
+
+<p align="center">
   <img src="docs/assets/banner.svg" alt="AlterEgo — Muse Spark on your Windows PC, built for SecScan RedTeam" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/assets/muse-cho-zen1-animated.webp" alt="Muse and Cho-zen1, side by side — animated" width="100%">
+</p>
+
+<p align="center"><em>Muse — the Muse Spark mascot — and Cho-zen1, the coordinator who drives this bridge, side by side. AlterEgo is the seat that lets an agent work on a real Windows PC.</em></p>
+
+<p align="center">
+  <img src="docs/assets/secscan-diamond.svg" alt="SecScan RedTeam mark" width="30"><br>
+  Built for <a href="https://github.com/cc4480/secscan-redteam-desktop"><strong>SecScan RedTeam</strong></a> — Provenance, the Meta AI Developer Hackathon entry.
 </p>
 
 # AlterEgo — the bridge that gives Muse hands
@@ -186,7 +201,7 @@ every knob: [docs/configuration.md](docs/configuration.md).
 | [docs/architecture.md](docs/architecture.md) | How the pieces fit: server, seams/providers, tool pipeline, job layer, event log, chat |
 | [docs/setup.md](docs/setup.md) | PC owner: install (venv rule), tunnel, autostart, watchdog, daily use |
 | [docs/operator.md](docs/operator.md) | Operator: health checks, pairing, CLI, job mode, protocol notes |
-| [docs/tools.md](docs/tools.md) | The full catalog: all 108 MCP tools, grouped, with arguments and approval behavior |
+| [docs/tools.md](docs/tools.md) | The full catalog: all 109 MCP tools, grouped, with arguments and approval behavior |
 | [docs/security.md](docs/security.md) | Pairing, tokens, approval tiers and postures, hooks, ESTOP, revocation |
 | [docs/configuration.md](docs/configuration.md) | Every environment variable, `command_rules.json`, data-directory layout |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Field-proven diagnoses, including "tunnel up, server down" |
