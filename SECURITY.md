@@ -56,8 +56,10 @@ are never logged). Findings under item 1 stay as documented above under
 the owner's chosen posture. No fix is trusted on the auditor's word:
 the landing commit (585881b, 2026-11-04) was independently verified by
 the maintainer's agent — full test suite, 487 passed, 0 failed — and a
-fix counts only when the running server carries it live. Deployment of
-the verified code to the running server is the one step remaining.
+fix counts only when the running server carries it live. Deployment
+completed 2026-11-04: the running server now carries the verified code,
+confirmed live the same day (109 tools registered, including
+`doctor_jobs`).
 
 Disclosed 2026-11-04, the same day as the audit, because this project's
 claim is supervised autonomy — and supervision starts with publishing
