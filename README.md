@@ -1,4 +1,8 @@
 <p align="center">
+  <img src="docs/assets/logo.png" alt="AlterEgo logo — two mirrored figures, one self in two places" width="140">
+</p>
+
+<p align="center">
   <img src="docs/assets/banner.svg" alt="AlterEgo — Muse Spark on your Windows PC, built for SecScan RedTeam" width="100%">
 </p>
 
