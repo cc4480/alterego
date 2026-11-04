@@ -54,7 +54,7 @@ implements them (`pc-agent/server.py`, `pairing.py`, `approval.py`,
 - On the operator side, the token is stored at
   `~/.config/pc-bridge/token` (mode `0600`) by `bridge/token_store.py`,
   or supplied via `PC_BRIDGE_TOKEN`. It never appears in the audit
-  log: events identify sessions by a SHA-256 **fingerprint**
+  log: events identify sessions by the presenting token's SHA-256 **fingerprint**
   (`sess_` + 12 hex chars) only.
 
 ## Approval — the human gate
@@ -131,9 +131,12 @@ event log records every call with its tier and outcome.
 ## The audit trail
 
 - Every call appends typed events (`ToolCalled`,
-  `ApprovalRequested`, `ToolCompleted` / `ToolDenied` / `ToolFailed`,
+  `ToolCompleted` / `ToolDenied` / `ToolFailed`,
   plus per-hook `HookEvaluated`) to
   `%APPDATA%\pc-mcp-bridge\events\` (JSONL, one file per UTC day).
+  `ApprovalRequested` is appended only when the tool actually
+  consulted the approval gate, carrying the gate's own report
+  (shown + real outcome, or posture-skipped) - never a prediction.
 - Arguments and results are **redacted** before writing and large
   values spill to a blob store by reference. Each entry carries the
   tool's risk snapshot and the session fingerprint — enough to
@@ -154,7 +157,7 @@ Drop a file named **`ESTOP`** into `%APPDATA%\pc-mcp-bridge\`
   layer. (For everything-at-once, stop the server or delete
   `session_token`.)
 
-Delete the file to resume. `doctor` reports ESTOP state.
+Delete the file to resume. `doctor_jobs` reports ESTOP state.
 
 ## What this model does *not* do
 

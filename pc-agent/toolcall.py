@@ -16,12 +16,11 @@ sub-call's chain points at the BatchStarted event).
 
 Emergency rollback: EVENT_LOG_ENABLED=0 skips all event writes.
 
-Honest Phase-2 note (carried over): ApprovalRequested's
-dialog_shown/skipped_reason is a prediction from approval.request_approval's
-skip logic, and dialog_result is inferred from the outcome (the tool ran =>
-"yes"; PermissionError => "no" or "timeout"). The provider shows the actual
-dialog.
+Recorded-gate note: ApprovalRequested reports the approval gate's own
+record (dialog shown or posture-skipped, with its outcome). Providers
+that never consult the gate log no ApprovalRequested at all.
 """
+import contextvars
 import hashlib
 import json
 import os
@@ -30,6 +29,7 @@ import time
 from pathlib import Path
 
 import approval
+import auth
 import blob_store
 import events
 from events import _redact
@@ -43,9 +43,44 @@ _DRY_RUN_TOOLS = {"write_file", "edit_file", "delete_file",
 
 # The server's persisted session token (same file server.py uses). The
 # token itself is never logged — only its fingerprint becomes session_id.
-_SESSION_TOKEN_FILE = (
-    Path(os.environ.get("APPDATA") or Path.home())
-    / "pc-mcp-bridge" / "session_token")
+# Token path: auth.session_token_path() is the single source.
+
+
+
+# Presenting-token session (multi-client attribution): the auth layer
+# records the fingerprint of the bearer token on each request, so two
+# paired clients get distinct session ids. The fingerprint is sess_ +
+# sha256(token)[:12] — the same shape events.new_session() mints at
+# pairing, so ToolCalled chains to its SessionPaired. Unset (job
+# threads without a recorded submitter, tests, direct calls) falls
+# back to the token file in _session_id() below.
+_request_session_fp: contextvars.ContextVar = contextvars.ContextVar(
+    "pc_bridge_request_session", default=None)
+
+
+def fingerprint_token(token: str) -> str:
+    """Session fingerprint for one bearer token (never the token)."""
+    return auth.fingerprint_token(token)
+
+
+def set_request_session_token(token: str):
+    """Record the presenting request token; returns a reset token."""
+    return _request_session_fp.set(fingerprint_token(token))
+
+
+def set_request_session_fp(fp):
+    """Record a precomputed fingerprint (job workers); reset token."""
+    return _request_session_fp.set(fp)
+
+
+def get_request_session():
+    """The current request's session fingerprint, or None."""
+    return _request_session_fp.get()
+
+
+def reset_request_session(token) -> None:
+    """Undo a set_* call (mirror the auth layer's try/finally)."""
+    _request_session_fp.reset(token)
 
 
 def _risk_snapshot(name):
@@ -66,9 +101,14 @@ def _plan_mode_result(name, args):
 
 def _session_id():
     """Operator session id: 'sess_' + sha256(token)[:12]. Never the token
-    itself. None when no operator is paired (or the token file is gone)."""
+    itself. Prefers the presenting request's fingerprint (see above);
+    falls back to the token file. None when unpaired and unattributed."""
     try:
-        token = _SESSION_TOKEN_FILE.read_text(encoding="utf-8").strip()
+        fp = _request_session_fp.get()
+        if fp:
+            return fp
+        token = auth.session_token_path().read_text(
+            encoding="utf-8").strip()
     except OSError:
         return None
     if not token:
@@ -107,31 +147,18 @@ def _content_hash(obj):
     ).hexdigest())
 
 
-def _approval_preview(tool):
-    """Predict the approval gate outcome WITHOUT showing anything.
-
-    Mirrors approval.request_approval's skip logic (best-effort):
-    returns (dialog_shown, skipped_reason)."""
-    tier = approval_tier(tool)
-    if approval.is_full_access():
-        return False, "dontAsk"
-    if (approval.get_permission_mode() == "acceptedits"
-            and tool in approval.ACCEPT_EDITS_AUTO and tier != "always_ask"):
-        return False, "acceptEdits"
-    if tier == "always_ask":
-        return True, None
-    if approval.is_auto_approve():
-        return False, "auto_approve"
-    return True, None
-
-
-def _emit_approval_requested(name, risk, dialog_result, caused_by):
-    dialog_shown, skipped = _approval_preview(name)
+def _emit_approval_requested(name, risk, caused_by):
+    rec = approval.pop_gate_record()
+    if rec is None:
+        # The provider never consulted approval for this call:
+        # nothing truthful to log (an event here would claim
+        # a dialog that never fired).
+        return None
     return _emit("ApprovalRequested", {
         "tier": risk["tier"],
-        "dialog_shown": dialog_shown,
-        "dialog_result": dialog_result,
-        "skipped_reason": skipped,
+        "dialog_shown": rec["shown"],
+        "dialog_result": rec["result"],
+        "skipped_reason": rec["skipped"],
         # The provider builds the dialog text; toolcall never sees it.
         "summary_shown": None,
     }, caused_by=caused_by)
@@ -206,9 +233,11 @@ def call(name, args, write=False, rationale=None, caused_by=None):
         result = plan_stub if plan_stub is not None else fn(**args)
         fn_ms = int((time.perf_counter() - t_fn) * 1000)
         if write and not in_plan_mode:
-            # The provider ran the approval gate and the tool executed,
-            # so approval was granted (dialog Yes, or posture-skipped).
-            _emit_approval_requested(name, risk, "yes", called_id)
+            # Records the gate's own report (shown or posture-skipped);
+            # providers that never consult approval log no event.
+            _emit_approval_requested(name, risk, called_id)
+        else:
+            approval.pop_gate_record()  # no ApprovalRequested here; drop strays
         # 3. PostToolUse hooks (may log, verify, or replace result).
         # Per-hook HookEvaluated events are appended by hooks.py.
         try:
@@ -242,12 +271,14 @@ def call(name, args, write=False, rationale=None, caused_by=None):
         # best-effort classification (the reason string carries the truth).
         # Note: the provider's generic message ends "(or timed out)" — that
         # parenthetical alone is not evidence of an actual timeout.
-        denied_by, dialog_result = "approval_dialog", "no"
+        denied_by = "approval_dialog"
         low = msg.lower()
         if "timed out" in low and "(or timed out)" not in low:
-            denied_by, dialog_result = "approval_timeout", "timeout"
+            denied_by = "approval_timeout"
         if write and not in_plan_mode:
-            _emit_approval_requested(name, risk, dialog_result, called_id)
+            _emit_approval_requested(name, risk, called_id)
+        else:
+            approval.pop_gate_record()  # no ApprovalRequested here; drop strays
         _emit("ToolDenied", {
             "tool": name, "denied_by": denied_by, "reason": msg,
             "hook_event_id": None}, caused_by=called_id)

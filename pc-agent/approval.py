@@ -47,6 +47,7 @@ identical to one that already timed out unanswered within the last
 120 seconds is denied immediately without a new window, so a retrying
 caller cannot re-spam the desktop for a decision nobody made.
 """
+import contextvars
 import os
 import threading
 import time
@@ -106,6 +107,28 @@ def is_full_access() -> bool:
     return FULL_ACCESS or PERMISSION_MODE == "dontask"
 
 
+# Last gate decision, recorded by request_approval on EVERY path (shown
+# and skipped alike) so the audit log reports facts, never predictions.
+# Consumed once per tool call by the pipeline (pop_gate_record); a call
+# whose provider never consults the gate finds None and logs no
+# ApprovalRequested at all. Never holds token values.
+_GATE_RECORD: contextvars.ContextVar = contextvars.ContextVar(
+    "pc_bridge_gate_record", default=None)
+
+
+def _record_gate(shown, result, skipped, tier, tool) -> None:
+    _GATE_RECORD.set({"shown": shown, "result": result,
+                      "skipped": skipped, "tier": tier, "tool": tool})
+
+
+def pop_gate_record():
+    """Take the recorded gate decision (consume-once). None when the
+    provider never consulted approval for this call."""
+    rec = _GATE_RECORD.get()
+    _GATE_RECORD.set(None)
+    return rec
+
+
 def request_approval(summary: str, timeout_s: int = 30,
                      tier: str = "routine",
                      tool_name: str | None = None) -> bool:
@@ -123,15 +146,29 @@ def request_approval(summary: str, timeout_s: int = 30,
     are auto-approved; shell/destructive tools still show the dialog.
     """
     if is_full_access():
+        _record_gate(False, None, "dontAsk", tier, tool_name)
         return True
     if (PERMISSION_MODE == "acceptedits" and tool_name in ACCEPT_EDITS_AUTO
             and tier != "always_ask"):
+        _record_gate(False, None, "acceptEdits", tier, tool_name)
         return True
     if tier == "always_ask":
-        return _show_dialog(summary, timeout_s, destructive=True)
-    if AUTO_APPROVE:
+        approved, timed_out, shown = _show_dialog(summary, timeout_s,
+                                                 destructive=True)
+        result = ("yes" if approved else "timeout" if timed_out else "no") \
+            if shown else "no"
+        _record_gate(shown, result, None, tier, tool_name)
+        return approved
+    elif AUTO_APPROVE:
+        _record_gate(False, None, "auto_approve", tier, tool_name)
         return True
-    return _show_dialog(summary, timeout_s, destructive=False)
+    else:
+        approved, timed_out, shown = _show_dialog(summary, timeout_s,
+                                                 destructive=False)
+        result = ("yes" if approved else "timeout" if timed_out else "no") \
+            if shown else "no"
+        _record_gate(shown, result, None, tier, tool_name)
+        return approved
 
 
 MB_TIMEDOUT = 32000  # MessageBoxTimeoutW return value on timeout
@@ -146,7 +183,10 @@ _RECENT_TIMEOUTS: dict = {}
 _TIMEOUT_DEDUPE_S = 120
 
 
-def _show_dialog(summary: str, timeout_s: int, destructive: bool) -> bool:
+def _show_dialog(summary: str, timeout_s: int,
+                 destructive: bool) -> tuple:
+    """Show the dialog; returns (approved, timed_out, shown). The
+    timeout-dedupe cache denies without showing (shown False)."""
     with _DIALOG_LOCK:
         now = time.monotonic()
         # Prune stale entries so the cache stays bounded.
@@ -154,12 +194,12 @@ def _show_dialog(summary: str, timeout_s: int, destructive: bool) -> bool:
                     if now - ts >= _TIMEOUT_DEDUPE_S]:
             del _RECENT_TIMEOUTS[key]
         if summary in _RECENT_TIMEOUTS:
-            return False  # identical request already timed out once
+            return False, False, False  # identical timeout, no dialog shown
         approved, timed_out = _show_dialog_once(summary, timeout_s,
                                                 destructive)
         if timed_out:
             _RECENT_TIMEOUTS[summary] = time.monotonic()
-        return approved
+        return approved, timed_out, True
 
 
 def _show_dialog_once(summary: str, timeout_s: int,

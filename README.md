@@ -7,7 +7,7 @@
 **AlterEgo gives a Muse agent a second self on a Windows PC.** Not a sandbox.
 Not a screenshot API. A real operator's seat: the agent sees your screen,
 drives your mouse and keyboard, runs shells, manages files, and drives a real
-browser — through **108 MCP tools** — while every dangerous action pops a
+browser — through **109 MCP tools** — while every dangerous action pops a
 native **Yes/No dialog on your own screen** that *you* answer.
 
 It was built for one specific partnership: **Cho-zen1**, a personal agent
@@ -24,12 +24,14 @@ everything.
 <p align="center">
   <a href="https://www.python.org/downloads/"><img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white"></a>
   <a href="docs/setup.md"><img alt="Platform: Windows 10/11" src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6?logo=windows&logoColor=white"></a>
-  <a href="docs/tools.md"><img alt="108 MCP tools" src="https://img.shields.io/badge/MCP-108%20tools-6D5CFF"></a>
+  <a href="docs/tools.md"><img alt="109 MCP tools" src="https://img.shields.io/badge/MCP-109%20tools-6D5CFF"></a>
   <a href="https://modelcontextprotocol.io"><img alt="Transport: MCP Streamable HTTP" src="https://img.shields.io/badge/transport-MCP%20Streamable%20HTTP-38E1FF"></a>
   <a href="demo-evidence/"><img alt="Status: live, verified on a real PC" src="https://img.shields.io/badge/status-live%20on%20a%20real%20PC-E5484D"></a>
 </p>
 
 ---
+
+> **Meta Hackathon entry:** start at [PITCH.md](PITCH.md) — the Muse wiring arc, live evidence, and 5-minute runbook.
 
 ## See it work
 
@@ -169,6 +171,7 @@ every knob: [docs/configuration.md](docs/configuration.md).
 | [docs/configuration.md](docs/configuration.md) | Every environment variable, `command_rules.json`, data-directory layout |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Field-proven diagnoses, including "tunnel up, server down" |
 | [docs/development.md](docs/development.md) | Repo layout, adding a tool, running the test suites, the mock provider |
+| [PITCH.md](PITCH.md) | Hackathon entry: the Muse wiring arc, live evidence, 5-minute runbook ([DEMO.md](DEMO.md)) |
 
 ---
 

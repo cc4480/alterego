@@ -53,7 +53,7 @@ def snapshot(root):
         try:
             if path.stat().st_size > MAX_FILE_BYTES:
                 continue
-            snap[str(rel)] = _file_hash(path)
+            snap[rel.as_posix()] = _file_hash(path)
         except OSError:
             continue
     return snap

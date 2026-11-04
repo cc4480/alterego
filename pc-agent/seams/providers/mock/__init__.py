@@ -53,9 +53,10 @@ def record(tool: str, args: dict) -> None:
 
 def reset() -> None:
     """Restore all mock state to fixtures (tests call this per-test)."""
-    global PROCS
     FS.clear()
-    PROCS = [dict(p) for p in _PROCS_FIXTURE]
+    # In-place: pc.py/write.py bind the PROCS object at import;
+    # rebinding here would leave them on the stale (mutated) list.
+    PROCS[:] = [dict(p) for p in _PROCS_FIXTURE]
     CALLS.clear()
     TASKS.clear()
     _TASK_SEQ[0] = 0

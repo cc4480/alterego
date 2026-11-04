@@ -8,7 +8,7 @@ and is cleared automatically on 401. Re-pair only when the server rejects
 the stored token.
 
 Usage:
-  PC_BRIDGE_URL=... python3 op_call.py pair <6-digit-code>
+  PC_BRIDGE_URL=... python3 op_call.py pair <6-digit-code> [name]
   PC_BRIDGE_URL=... python3 op_call.py health
   PC_BRIDGE_URL=... python3 op_call.py tools
   PC_BRIDGE_URL=... python3 op_call.py call memory_recall '{"query":"x"}'
@@ -323,9 +323,11 @@ def main():
     if cmd == "pair":
         code = sys.argv[2] if len(sys.argv) > 2 else ""
         if not code.isdigit():
-            raise SystemExit("usage: op_call.py pair <6-digit-code>")
+            raise SystemExit("usage: op_call.py pair <6-digit-code> [name]")
         req = urllib.request.Request(
-            URL + "/pair", data=json.dumps({"code": code}).encode(),
+            URL + "/pair", data=json.dumps(
+                {"code": code, **({"name": sys.argv[3]}
+                                  if len(sys.argv) > 3 else {})}).encode(),
             headers={"Content-Type": "application/json",
                      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                                    "AppleWebKit/537.36 (KHTML, like Gecko) "

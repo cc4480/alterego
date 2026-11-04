@@ -1,8 +1,8 @@
 # Tool reference
 
 The catalog below is the MCP surface exactly as the server registers
-it: **108 tools** — 104 wrapper tools (`pc-agent/tool_wrappers*.py`,
-registered from `ALL_TOOLS`) plus 4 job-layer ops registered by
+it: **109 tools** — 104 wrapper tools (`pc-agent/tool_wrappers*.py`,
+registered from `ALL_TOOLS`) plus 5 job-layer ops registered by
 `server.py`. All are exposed over MCP (Streamable HTTP) at
 `POST {tunnel-url}/mcp`, authenticated with the session bearer token
 from `/pair`.
@@ -248,10 +248,10 @@ A macro records a combination of tool calls (1–20 steps) under a name and repl
 
 | Tool | Args | Approval | What it does |
 |---|---|---|---|
-| `macro_record` | `name`, `steps` (list of `{tool, args}`) | Dialog | Record a named macro; steps are validated (tool exists, arg keys are a subset of the def args, no nesting) |
+| `macro_record` | `name`, `steps` (list of `{tool, args}`) | — | Record a named macro; steps are validated (tool exists, arg keys are a subset of the def args, no nesting) |
 | `macro_list` | — | — | Recorded macros, sorted by name, with their steps |
 | `macro_replay` | `name` | **DESTRUCTIVE** | Replay a macro through the batch layer; steps re-validated on every replay |
-| `macro_delete` | `name` | Dialog | Delete a recorded macro; fails loud on unknown names |
+| `macro_delete` | `name` | — | Delete a recorded macro; fails loud on unknown names |
 
 ## Misc — memory, health, audit
 
@@ -324,6 +324,7 @@ or not the caller stays connected.
 | `job_status` | `job_id` | Job state + elapsed time + progress (running jobs: output bytes, stall age, reported message/current/total) + started/finished receipts |
 | `job_result` | `job_id` | The job's result once terminal (`succeeded`/`failed`/`killed`/`cancelled`) |
 | `job_cancel` | `job_id` | Cancel a queued or running job; a running job's process tree is fenced (only that job's processes are killed) |
+| `doctor_jobs` | — | Jobs/infra health: listener, tunnel, token, journal, ESTOP. Every failing component carries its one concrete fix; read-only |
 
 While an `ESTOP` sentinel file sits in the data dir, submissions are
 accepted and journaled but no new job executes. See

@@ -112,6 +112,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     args_hash      TEXT NOT NULL,
     state          TEXT NOT NULL,
     lineage        TEXT NOT NULL DEFAULT 'unattributed',
+    submitted_by   TEXT,
     submitted_ts   REAL NOT NULL,
     started_ts     REAL,
     finished_ts    REAL,
@@ -276,10 +277,13 @@ class JobJournal:
                 self._conn.execute(
                     "ALTER TABLE jobs ADD COLUMN lineage"
                     " TEXT NOT NULL DEFAULT 'unattributed'")
+            if "submitted_by" not in cols:
+                self._conn.execute(
+                    "ALTER TABLE jobs ADD COLUMN submitted_by TEXT")
             self._conn.commit()
 
     def insert_new(self, job_id, idem_key, tool, args,
-                   lineage="unattributed"):
+                   lineage="unattributed", submitted_by=None):
         """Insert a queued job. Returns the row, or None if idem_key is
         already taken (the caller then returns the existing job)."""
         now = time.time()
@@ -287,11 +291,12 @@ class JobJournal:
             try:
                 self._conn.execute(
                     "INSERT INTO jobs (job_id, idem_key, tool, args_json,"
-                    " args_hash, lineage, state, submitted_ts, progress_ts)"
-                    " VALUES (?,?,?,?,?,?,'queued',?,?)",
+                    " args_hash, lineage, submitted_by, state,"
+                    " submitted_ts, progress_ts)"
+                    " VALUES (?,?,?,?,?,?,?,'queued',?,?)",
                     (job_id, idem_key, tool,
                      json.dumps(args, default=str), _args_hash(args),
-                     _normalize_lineage(lineage),
+                     _normalize_lineage(lineage), submitted_by,
                      now, now))
                 self._conn.commit()
             except sqlite3.IntegrityError:
@@ -466,9 +471,12 @@ class JobManager:
                               f"({self.max_workers} running + "
                               f"{self.max_queued} queued); retry later",
                     "tool": tool}
+        from toolcall import get_request_session  # lazy: jobs must not import the tool layer at module load
+        submitted_by = get_request_session()
         job_id = events.new_event_id("job_")
         row = self.journal.insert_new(job_id, idem_key, tool, args,
-                                      lineage=lineage)
+                                      lineage=lineage,
+                                      submitted_by=submitted_by)
         if row is None:  # lost an insert race on the idempotency key
             existing = self.journal.get_by_key(idem_key)
             return {"job_id": existing["job_id"], "state": existing["state"],
@@ -485,6 +493,7 @@ class JobManager:
         out = {"job_id": row["job_id"], "tool": row["tool"],
                "state": row["state"],
                "lineage": row.get("lineage") or "unattributed",
+               "submitted_by": row.get("submitted_by"),
                "args_hash": row["args_hash"],
                "submitted_at": _iso(row["submitted_ts"]),
                "started_at": _iso(row["started_ts"]),
@@ -518,6 +527,7 @@ class JobManager:
         out = {"job_id": row["job_id"], "tool": row["tool"],
                "state": row["state"], "error": row["error"],
                "lineage": row.get("lineage") or "unattributed",
+               "submitted_by": row.get("submitted_by"),
                "classification": row["classification"]}
         if row["result_ref"]:
             raw = blob_store.get(row["result_ref"])
@@ -620,12 +630,22 @@ class JobManager:
             with self._guard:
                 self._contexts[job_id] = ctx
             _thread_ctx.ctx = ctx
+            # Attribute the inner tool's events to the submitting
+            # client (None on pre-migration rows: legacy fallback).
+            _sess_token = None
+            if row.get("submitted_by"):
+                from toolcall import (reset_request_session,  # lazy: jobs must not import the tool layer at module load
+                                      set_request_session_fp)
+                _sess_token = set_request_session_fp(
+                    row.get("submitted_by"))
             try:
                 result = self._executor(tool, args, ctx)
                 state, error = "succeeded", None
             except Exception as e:  # noqa: BLE001 - job carries the failure
                 result, state, error = None, "failed", f"{type(e).__name__}: {e}"
             finally:
+                if _sess_token is not None:
+                    reset_request_session(_sess_token)
                 _thread_ctx.ctx = None
             fields = {"finished_ts": time.time(),
                       "output_bytes": ctx.snapshot()["output_bytes"]}

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Agent Chat — Cosmo · Cho-zen1 · Judith</title>
+<title>Agent Chat — bridge room</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -79,11 +79,12 @@
 <div id="messages"></div>
 
 <div id="inputbar">
-  <select id="to">
+  <input id="to" list="targets" value="all" placeholder="all or a name">
+  <datalist id="targets">
     <option value="all">Everyone</option>
     <option value="cosmo">Cosmo</option>
     <option value="cho-zen1">Cho-zen1</option>
-  </select>
+  </datalist>
   <input id="text" placeholder="Type a message or /command..."
          autocomplete="off">
   <button id="send" onclick="send()">Send</button>
@@ -92,10 +93,11 @@
 <script>
 let ws = null;
 let token = '';
+let myName = 'judith';  // corrected by the server welcome
 
 function connect() {
   token = document.getElementById('token').value.trim();
-  // Token optional for localhost — server allows 127.0.0.1 without auth
+  // Token required: the server names you from your pairing record
 
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   // Connect to local bridge (Judith opens this on her PC)
@@ -106,12 +108,13 @@ function connect() {
   ws.onopen = () => {
     document.getElementById('login').classList.add('hidden');
     setStatus(true);
-    addMsg('system', 'Connected as Judith');
+    addMsg('system', 'Connected; waiting for server-assigned name...');
   };
 
   ws.onmessage = (e) => {
     const d = JSON.parse(e.data);
     if (d.ok !== undefined && !d.from) return; // ack, skip
+    if (d.you) { myName = d.you; addMsg('system', 'You are ' + myName); }
     addMsg(d.from || 'system', d.text || '', d.ts);
   };
 
@@ -150,9 +153,9 @@ function send() {
   const text = document.getElementById('text').value.trim();
   if (!text || !ws || ws.readyState !== 1) return;
   const to = document.getElementById('to').value;
-  const id = 'judith-' + Date.now();
+  const id = myName + '-' + Date.now();
   ws.send(JSON.stringify({ to, text, id }));
-  addMsg('judith', text, Date.now() / 1000);
+  addMsg(myName, text, Date.now() / 1000);
   document.getElementById('text').value = '';
 }
 

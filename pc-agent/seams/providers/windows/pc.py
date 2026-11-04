@@ -623,7 +623,7 @@ def record_audio(duration_s: int = 5, device: str = None) -> dict:
         + "; ".join(errors))
 
 def set_volume(level: int) -> dict:
-    """Set master wave volume 0-100. Requires approval."""
+    """Set master wave volume 0-100. No approval dialog (see tools.md note)."""
     level = max(0, min(int(level), 100))
     v = int(level * 65535 / 100)
     fn = ctypes.windll.winmm.waveOutSetVolume

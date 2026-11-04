@@ -57,6 +57,9 @@ curl -s -X POST $PC_BRIDGE_URL/pair \
   revoked. Pairing is **additive**: a new pairing adds a token and
   does *not* invalidate existing ones — several clients can be paired
   at once.
+- Pair with a room name when you want one: `pair <code> <name>`
+  (`a-z 0-9 _ -`, max 32 chars). The chat room shows it; tokens
+  paired without a name appear as `guest-xxxxxx`.
 - A 401 on every call means the token was revoked (owner deleted the
   token file, `/logout`, or `/revoke`). The CLI clears its saved
   token on a 401. Ask for a fresh pairing code and re-pair. Do not
@@ -72,7 +75,7 @@ curl -s -X POST $PC_BRIDGE_URL/pair \
 ## 2. Call tools (synchronous)
 
 ```bash
-python3 bridge/op_call.py tools                       # 67 tools
+python3 bridge/op_call.py tools                       # 109 tools
 python3 bridge/op_call.py call system_info '{}'
 python3 bridge/op_call.py call screenshot '{}'        # -> /tmp/shot-full.json
 python3 bridge/op_call.py call shell_exec '{"command":"whoami"}'
@@ -147,8 +150,12 @@ python3 bridge/op_call.py resume --key build-42 # ...or by idempotency key
   (DNS-rebinding) check: the tunnel hostname can't be allowlisted,
   the server is loopback-only, and the bearer token is the real
   authentication.
-- A WebSocket relay lives at `/ws?client=<name>&token=<bearer>`
-  (`cosmo`, `cho-zen1`, `judith`); the chat UI is at `GET /chat`.
+- A WebSocket relay lives at `/ws?token=<bearer>` (the display
+
+  name comes from the pairing record; re-pair with a name to keep
+
+  yours). The chat UI is at `GET /chat`.
+
 
 ## 5. No-PC testing
 

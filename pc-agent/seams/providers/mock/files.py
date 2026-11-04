@@ -46,8 +46,17 @@ def _require_fresh(p: str, expected: str | None) -> None:
         raise _stale_error(expected, actual)
 
 
+_ISO_SEQ = [0]
+
+
 def _iso_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    # Windows wall-clock granularity is coarse (~15 ms): rapid writes
+    # would tie and mtime sorts would fall back to walk order. The
+    # monotonic suffix keeps stamps strictly increasing; ISO prefix
+    # keeps chronological string order.
+    _ISO_SEQ[0] += 1
+    return "%s#%010d" % (datetime.now(timezone.utc).isoformat(),
+                         _ISO_SEQ[0])
 
 
 def _snippets(old: str, new: str, old_text: str,

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Single admin console for the AlterEgo pc-mcp-bridge (replaces the eight
   one-off *.ps1 scripts: check_state, do-restart, docker_fix, fix_handler,
@@ -78,7 +78,7 @@ function Restart-Bridge {
         $env:PC_BRIDGE_PERMISSION_MODE = $PermissionMode
     }
     "STARTING SERVER (mode=$PermissionMode)" | Out-File $Log -Append
-    Start-Process -FilePath "python" `
+    Start-Process -FilePath "$Repo\pc-agent\.venv\Scripts\python.exe" `
         -ArgumentList "pc-agent\server.py" `
         -WorkingDirectory $Repo `
         -WindowStyle Minimized `
@@ -135,7 +135,7 @@ function Start-Supervised {
         Remove-Item Env:\PC_BRIDGE_FULL_ACCESS -ErrorAction SilentlyContinue
         $env:PC_BRIDGE_PERMISSION_MODE = $PermissionMode
     }
-    Start-Process -FilePath "python" `
+    Start-Process -FilePath "$Repo\pc-agent\.venv\Scripts\python.exe" `
         -ArgumentList "pc-agent\supervisor.py" `
         -WorkingDirectory $Repo `
         -WindowStyle Minimized `
@@ -154,3 +154,4 @@ switch ($Command) {
     "supervise"         { Start-Supervised }
     "supervisor-status" { Show-SupervisorStatus }
 }
+

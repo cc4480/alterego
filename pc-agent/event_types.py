@@ -106,6 +106,14 @@ def _v_elicitation_answered(d):
     return _req(d, "elicitation_id", "choice")
 
 
+def _v_ws_connected(d):
+    return _req(d, "client")
+
+
+def _v_ws_disconnected(d):
+    return _req(d, "client")
+
+
 VALIDATORS = {
     "SessionPaired": _v_session_paired,
     "SessionRevoked": _v_session_revoked,
@@ -124,6 +132,8 @@ VALIDATORS = {
     "MediaCaptureConsent": _v_media_capture_consent,
     "ElicitationCreated": _v_elicitation_created,
     "ElicitationAnswered": _v_elicitation_answered,
+    "WsConnected": _v_ws_connected,
+    "WsDisconnected": _v_ws_disconnected,
 }
 
 VALID_EVENT_TYPES = frozenset(VALIDATORS)
