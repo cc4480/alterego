@@ -7,10 +7,15 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/muse-and-cho-zen1.jpg" alt="Muse and Cho-zen1, side by side" width="100%">
+  <img src="docs/assets/muse-cho-zen1-animated.webp" alt="Muse and Cho-zen1, side by side — animated" width="100%">
 </p>
 
 <p align="center"><em>Muse — the Muse Spark mascot — and Cho-zen1, the coordinator who drives this bridge, side by side. AlterEgo is the seat that lets an agent work on a real Windows PC.</em></p>
+
+<p align="center">
+  <img src="docs/assets/secscan-diamond.svg" alt="SecScan RedTeam mark" width="30"><br>
+  Built for <a href="https://github.com/cc4480/secscan-redteam-desktop"><strong>SecScan RedTeam</strong></a> — Provenance, the Meta AI Developer Hackathon entry.
+</p>
 
 # AlterEgo — the bridge that gives Muse hands
 
