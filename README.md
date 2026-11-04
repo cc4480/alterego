@@ -87,6 +87,26 @@ Full detail: [docs/architecture.md](docs/architecture.md).
 
 ---
 
+## Who can run this
+
+Anyone. It's MIT-licensed: clone it, run it on your own machine, point
+any MCP client at it. No accounts, no purchases, no credentials to
+arrange - pairing is a 6-digit code you read off your own screen, and
+the server never knows or cares which agent is calling.
+
+Three things the repo can't give you:
+
+- A **Windows 10/11 PC**. The tools are Win32, UI Automation, and Edge
+  CDP throughout - Windows-only by construction.
+- **Python 3.11+ with the pinned deps** (`mcp>=2.0`). A shared Python
+  with other MCP tooling on `mcp<2` will break one side or the other -
+  use the dedicated venv in the Quickstart below.
+- **Reach of your own machine.** Loopback works as-is; remote access
+  needs a tunnel you start yourself, and `dontAsk` mode needs one
+  human click on the PC at startup.
+
+---
+
 ## Quickstart
 
 **PC owner (Windows):**
@@ -113,7 +133,7 @@ autostart, watchdog, permissions postures:
 export PC_BRIDGE_URL=https://pc.secscan.info
 python3 bridge/op_call.py health              # tunnel / server / token, layer by layer
 python3 bridge/op_call.py pair 279416         # exchange the code; token saved (0600)
-python3 bridge/op_call.py tools               # 108 tools
+python3 bridge/op_call.py tools               # 109 tools
 python3 bridge/op_call.py call system_info '{}'
 ```
 
