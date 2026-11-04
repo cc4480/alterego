@@ -39,10 +39,14 @@ def web_fetch(url: str, max_bytes: int = 100000,
 
 
 def web_search(query: str, max_results: int = 10,
-               backend: str = "auto") -> dict:
+               backend: str = "auto", time_range: str = "",
+               language: str = "en") -> dict:
     """Search the web without an API key (DuckDuckGo/Bing scraping,
     optional self-hosted SearXNG). Returns title/url/snippet per result.
-    Approval in default mode (skipped when dontAsk)."""
+    time_range ("day"|"week"|"month"|"year") and language apply on the
+    SearXNG backend. Approval in default mode (skipped when dontAsk)."""
     return toolcall.call("web_search", {"query": query,
                                         "max_results": max_results,
-                                        "backend": backend})
+                                        "backend": backend,
+                                        "time_range": time_range,
+                                        "language": language})

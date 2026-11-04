@@ -86,12 +86,18 @@ WEB_SEARCH = ToolDef(
     doc="Search the web without an API key. Backends: DuckDuckGo HTML "
         "scrape (default), Bing HTML fallback, optional self-hosted "
         "SearXNG (SEARXNG_URL env or backend='searxng'). Returns "
-        "title/url/snippet per result, deduplicated by URL.",
+        "title/url/snippet per result, deduplicated by URL. On the "
+        "SearXNG backend, time_range limits result age and language "
+        "sets the search language.",
     args={"query": {"type": "str", "required": True},
           "max_results": {"type": "int", "default": 10,
                           "required": False},
           "backend": {"type": "str", "default": "auto",
-                      "required": False}},
+                      "required": False},
+          "time_range": {"type": "str", "default": "",
+                         "required": False},
+          "language": {"type": "str", "default": "en",
+                       "required": False}},
     result_keys=["query", "backend_used", "results", "total"],
     approval_tier="ask",
     side_effects="network",
