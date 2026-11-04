@@ -2,6 +2,12 @@
   <img src="docs/assets/banner.svg" alt="AlterEgo — Muse Spark on your Windows PC, built for SecScan RedTeam" width="100%">
 </p>
 
+<p align="center">
+  <img src="docs/assets/muse-and-cho-zen1.jpg" alt="Muse and Cho-zen1, side by side" width="100%">
+</p>
+
+<p align="center"><em>Muse — the Muse Spark mascot — and Cho-zen1, the coordinator who drives this bridge, side by side. AlterEgo is the seat that lets an agent work on a real Windows PC.</em></p>
+
 # AlterEgo — the bridge that gives Muse hands
 
 **AlterEgo gives a Muse agent a second self on a Windows PC.** Not a sandbox.
@@ -113,7 +119,7 @@ autostart, watchdog, permissions postures:
 export PC_BRIDGE_URL=https://pc.secscan.info
 python3 bridge/op_call.py health              # tunnel / server / token, layer by layer
 python3 bridge/op_call.py pair 279416         # exchange the code; token saved (0600)
-python3 bridge/op_call.py tools               # 108 tools
+python3 bridge/op_call.py tools               # 109 tools
 python3 bridge/op_call.py call system_info '{}'
 ```
 
@@ -166,7 +172,7 @@ every knob: [docs/configuration.md](docs/configuration.md).
 | [docs/architecture.md](docs/architecture.md) | How the pieces fit: server, seams/providers, tool pipeline, job layer, event log, chat |
 | [docs/setup.md](docs/setup.md) | PC owner: install (venv rule), tunnel, autostart, watchdog, daily use |
 | [docs/operator.md](docs/operator.md) | Operator: health checks, pairing, CLI, job mode, protocol notes |
-| [docs/tools.md](docs/tools.md) | The full catalog: all 108 MCP tools, grouped, with arguments and approval behavior |
+| [docs/tools.md](docs/tools.md) | The full catalog: all 109 MCP tools, grouped, with arguments and approval behavior |
 | [docs/security.md](docs/security.md) | Pairing, tokens, approval tiers and postures, hooks, ESTOP, revocation |
 | [docs/configuration.md](docs/configuration.md) | Every environment variable, `command_rules.json`, data-directory layout |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Field-proven diagnoses, including "tunnel up, server down" |
