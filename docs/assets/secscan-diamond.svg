@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-label="SecScan RedTeam mark">
+  <title>SecScan RedTeam — the diamond mark</title>
+  <defs>
+    <linearGradient id="rt-red" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F43F5E"/>
+      <stop offset="1" stop-color="#BE123C"/>
+    </linearGradient>
+  </defs>
+  <!-- Shield / diamond outline -->
+  <path d="M120 14 L218 40 V118 L120 226 L22 118 V40 Z" fill="url(#rt-red)"/>
+  <!-- Black interior -->
+  <path d="M120 48 L188 66 V110 L120 190 L52 110 V66 Z" fill="#0B0F1A"/>
+  <!-- Blue crosshair -->
+  <g stroke="#38BDF8" stroke-width="8" fill="none">
+    <circle cx="120" cy="119" r="27"/>
+    <path d="M120 74 V100 M120 138 V164 M75 119 H101 M139 119 H165"/>
+  </g>
+  <circle cx="120" cy="119" r="7" fill="#38BDF8"/>
+</svg>
