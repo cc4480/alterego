@@ -54,7 +54,7 @@ only record dialogs that actually fired, and journal events are stamped
 with a fingerprint of the token that was presented (tokens themselves
 are never logged). Findings under item 1 stay as documented above under
 the owner's chosen posture. No fix is trusted on the auditor's word:
-the landing commit (008b115, 2026-11-04) was independently verified by
+the landing commit (585881b, 2026-11-04) was independently verified by
 the maintainer's agent — full test suite, 487 passed, 0 failed — and a
 fix counts only when the running server carries it live. Deployment of
 the verified code to the running server is the one step remaining.
