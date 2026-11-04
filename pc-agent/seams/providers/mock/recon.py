@@ -58,9 +58,11 @@ def web_fetch(url: str, max_bytes: int = 100000,
 
 
 def web_search(query: str, max_results: int = 10,
-               backend: str = "auto") -> dict:
+               backend: str = "auto", time_range: str = "",
+               language: str = "en") -> dict:
     record("web_search", {"query": query, "max_results": max_results,
-                          "backend": backend})
+                          "backend": backend, "time_range": time_range,
+                          "language": language})
     return {"query": query, "backend_used": "mock",
             "results": [{"title": "Mock Result",
                          "url": "https://example.com",

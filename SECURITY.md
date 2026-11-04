@@ -46,7 +46,7 @@ anything below was accepted. Verified findings:
 
 ## Remediation status
 
-Remediation is being implemented in this repository **by the auditor
+Remediation has been implemented in this repository **by the auditor
 itself** — Muse Code — server-side and agent-agnostic (no
 client-specific branches), covering findings 2, 3, and 4: the chat room
 requires a token and derives the participant name from it, approval logs
@@ -54,8 +54,12 @@ only record dialogs that actually fired, and journal events are stamped
 with a fingerprint of the token that was presented (tokens themselves
 are never logged). Findings under item 1 stay as documented above under
 the owner's chosen posture. No fix is trusted on the auditor's word:
-each landing commit is independently verified by the maintainer's agent,
-and a fix counts only when the running server carries it live.
+the landing commit (585881b, 2026-11-04) was independently verified by
+the maintainer's agent — full test suite green, re-verified 519 passed,
+0 failed after stale-test cleanup — and a fix counts only when the running
+server carries it live. Deployment completed 2026-11-04: the running
+server now carries the verified code, confirmed live the same day
+(109 tools registered, including `doctor_jobs`).
 
 Disclosed 2026-11-04, the same day as the audit, because this project's
 claim is supervised autonomy — and supervision starts with publishing

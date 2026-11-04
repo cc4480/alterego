@@ -199,7 +199,9 @@ def web_fetch(url: str, max_bytes: int = 100000,
 
 
 def web_search(query: str, max_results: int = 10,
-               backend: str = "auto") -> dict:
+               backend: str = "auto", time_range: str = "",
+               language: str = "en") -> dict:
     """Search the web (DDG/Bing scrape, optional SearXNG). See websearch.py."""
     from seams.providers.windows.websearch import web_search as _impl
-    return _impl(query=query, max_results=max_results, backend=backend)
+    return _impl(query=query, max_results=max_results, backend=backend,
+                 time_range=time_range, language=language)

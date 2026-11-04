@@ -177,13 +177,21 @@ def _searxng_base() -> str | None:
     return base or None
 
 
-def _search_searxng(query: str, timeout_s: int) -> list[dict]:
+_TIME_RANGES = ("", "day", "week", "month", "year")
+
+
+def _search_searxng(query: str, timeout_s: int,
+                    time_range: str = "",
+                    language: str = "en") -> list[dict]:
     """Pure-ish: query SearXNG JSON API. Raise on any failure."""
     base = _searxng_base()
     if not base:
         raise ValueError("SEARXNG_URL not set")
-    q = urllib.parse.quote_plus(query)
-    req = urllib.request.Request(f"{base}/search?q={q}&format=json",
+    params = {"q": query, "format": "json", "language": language}
+    if time_range:
+        params["time_range"] = time_range
+    qs = urllib.parse.urlencode(params)
+    req = urllib.request.Request(f"{base}/search?{qs}",
                                  headers={"User-Agent": _UA})
     with urllib.request.urlopen(req, timeout=timeout_s) as r:
         data = json.loads(r.read(500_000).decode("utf-8",
@@ -211,9 +219,13 @@ def _dedup(results: list[dict]) -> list[dict]:
 
 
 def web_search(query: str, max_results: int = 10,
-               backend: str = "auto") -> dict:
+               backend: str = "auto", time_range: str = "",
+               language: str = "en") -> dict:
     """Search the web. Backends: auto (DDG then Bing), duckduckgo, bing,
     searxng (needs SEARXNG_URL). Falls back down the chain on failure.
+
+    time_range ("day"|"week"|"month"|"year") and language apply to the
+    SearXNG backend; the scrape fallbacks ignore them.
     """
     from approval import request_approval
     if not isinstance(query, str) or not query.strip():
@@ -224,6 +236,10 @@ def web_search(query: str, max_results: int = 10,
     if backend not in ("auto", "duckduckgo", "bing", "searxng"):
         raise ValueError("backend must be auto, duckduckgo, bing, "
                          "or searxng")
+    time_range = (time_range or "").lower()
+    if time_range not in _TIME_RANGES:
+        raise ValueError("time_range must be day, week, month, or year")
+    language = (language or "en").strip().lower()[:5] or "en"
     if not request_approval(f"[web_search]\n{query[:200]}",
                            tier="routine", tool_name="web_search"):
         raise PermissionError("denied by local approval (or timed out)")
@@ -241,7 +257,9 @@ def web_search(query: str, max_results: int = 10,
     searxng_failed = False
     if backend == "searxng" or (backend == "auto" and _searxng_base()):
         try:
-            results = _search_searxng(query, _budget())
+            results = _search_searxng(query, _budget(),
+                                      time_range=time_range,
+                                      language=language)
             used = "searxng"
         except Exception as e:  # noqa: BLE001 - fall through to DDG
             notes.append(f"searxng failed ({type(e).__name__}), "
