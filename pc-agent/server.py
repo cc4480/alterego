@@ -38,6 +38,7 @@ from starlette.routing import Route, WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 import uvicorn
 
+import admission
 import approval
 import auth
 import events
@@ -565,9 +566,42 @@ async def _ws_relay(websocket: WebSocket):
               f"{len(_ws_clients)} names online)")
 
 
+# --- Tool-path capacity (2026-11-14 hang fix, audit causes #2/#4) ---
+# The MCP SDK runs every sync tool on anyio's process-wide default
+# thread limiter (40 tokens). 40 long calls wedged the bridge under
+# burst load while /health stayed green. The startup hook below raises
+# the ceiling to 200 (owner's bar: 100+ concurrent calls); admission.py
+# is the bounded, fail-fast queue in front of execution, and /health
+# reports the tool path's real state from now on.
+_THREAD_TOKENS_TARGET = 200
+try:
+    _THREAD_TOKENS_TARGET = int(
+        os.environ.get("PC_BRIDGE_THREAD_TOKENS", "") or 200)
+except ValueError:
+    _THREAD_TOKENS_TARGET = 200
+_thread_tokens_applied: dict = {}
+
+
+async def _apply_thread_limiter():
+    """Startup hook: raise anyio's default thread limiter."""
+    try:
+        import anyio
+        limiter = anyio.to_thread.current_default_thread_limiter()
+        limiter.total_tokens = _THREAD_TOKENS_TARGET
+        _thread_tokens_applied["tokens"] = limiter.total_tokens
+    except Exception as e:  # noqa: BLE001 - never block startup on this
+        print(f"[server] thread limiter raise failed: {e}",
+              file=sys.stderr)
+
+
 async def _health(request):
-    return JSONResponse({"ok": True, "service": "pc-bridge",
-                         "permission_mode": approval.get_permission_mode()})
+    return JSONResponse({
+        "ok": True, "service": "pc-bridge",
+        "permission_mode": approval.get_permission_mode(),
+        "thread_tokens": _thread_tokens_applied.get(
+            "tokens", _THREAD_TOKENS_TARGET),
+        "tools": admission.stats(),
+        "dialog": approval.dialog_stats()})
 
 
 async def _chat_page(request):
@@ -653,6 +687,7 @@ def main():
             enable_dns_rebinding_protection=False
         )
     )
+    app.router.on_startup.append(_apply_thread_limiter)
     app.routes.append(Route("/health", _health))
     app.routes.append(Route("/chat", _chat_page))
     app.routes.append(Route("/pair", _pair, methods=["POST"]))

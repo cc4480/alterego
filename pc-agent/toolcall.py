@@ -28,6 +28,7 @@ import sys
 import time
 from pathlib import Path
 
+import admission
 import approval
 import auth
 import blob_store
@@ -230,7 +231,16 @@ def call(name, args, write=False, rationale=None, caused_by=None):
 
     try:
         t_fn = time.perf_counter()
-        result = plan_stub if plan_stub is not None else fn(**args)
+        if plan_stub is not None:
+            result = plan_stub
+        else:
+            # Bounded admission (2026-11-14 hang fix): at most
+            # admission.MAX_INFLIGHT tool bodies execute at once;
+            # a caller that cannot get a slot within QUEUE_WAIT_S
+            # fails fast with BusyError instead of queueing silently
+            # for minutes behind long-running calls.
+            with admission.slot(name):
+                result = fn(**args)
         fn_ms = int((time.perf_counter() - t_fn) * 1000)
         if write and not in_plan_mode:
             # Records the gate's own report (shown or posture-skipped);
@@ -264,6 +274,11 @@ def call(name, args, write=False, rationale=None, caused_by=None):
                 "summary": result["summary"],
             }, caused_by=called_id)
         return result
+    except admission.BusyError as e:
+        approval.pop_gate_record()  # fn never ran; drop any stray record
+        _emit("ToolBusy", {
+            "tool": name, "reason": str(e)}, caused_by=called_id)
+        return {"error": str(e), "busy": True, "retry_after_s": 5}
     except PermissionError as e:
         msg = str(e)
         # Providers raise PermissionError("denied by local approval ...")

@@ -182,12 +182,32 @@ _DIALOG_LOCK = threading.Lock()
 _RECENT_TIMEOUTS: dict = {}
 _TIMEOUT_DEDUPE_S = 120
 
+# Max seconds a caller waits for the dialog lock before being denied
+# fast. Pre-fix, callers queued unboundedly behind 30s dialog waits —
+# ~10 queued calls = a 5-6 minute wedge (2026-11-14 hang audit, #1).
+_DIALOG_QUEUE_S = 10
+_DIALOG_BUSY_DENIED = [0]  # count of fail-fast dialog denials
+
+
+def dialog_stats() -> dict:
+    """Dialog-queue state for /health."""
+    return {"queue_wait_s": _DIALOG_QUEUE_S,
+            "busy_denied": _DIALOG_BUSY_DENIED[0]}
+
 
 def _show_dialog(summary: str, timeout_s: int,
                  destructive: bool) -> tuple:
     """Show the dialog; returns (approved, timed_out, shown). The
-    timeout-dedupe cache denies without showing (shown False)."""
-    with _DIALOG_LOCK:
+    timeout-dedupe cache denies without showing (shown False).
+
+    The dialog lock is acquired with a bounded wait: while one dialog
+    is up, another caller waits at most _DIALOG_QUEUE_S, then is
+    denied fast (shown False) instead of queueing unboundedly behind
+    30s dialog waits — the 2026-11-14 wedge mechanism."""
+    if not _DIALOG_LOCK.acquire(timeout=_DIALOG_QUEUE_S):
+        _DIALOG_BUSY_DENIED[0] += 1
+        return False, False, False  # dialog queue busy: fail fast
+    try:
         now = time.monotonic()
         # Prune stale entries so the cache stays bounded.
         for key in [k for k, ts in _RECENT_TIMEOUTS.items()
@@ -200,6 +220,8 @@ def _show_dialog(summary: str, timeout_s: int,
         if timed_out:
             _RECENT_TIMEOUTS[summary] = time.monotonic()
         return approved, timed_out, True
+    finally:
+        _DIALOG_LOCK.release()
 
 
 def _show_dialog_once(summary: str, timeout_s: int,
