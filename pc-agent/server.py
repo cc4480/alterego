@@ -18,6 +18,7 @@ through chat.
 
 Run:  python pc-agent/server.py   (from the repo root)
 """
+import asyncio
 import ipaddress
 import json
 import os
@@ -582,8 +583,15 @@ except ValueError:
 _thread_tokens_applied: dict = {}
 
 
-async def _apply_thread_limiter():
-    """Startup hook: raise anyio's default thread limiter."""
+async def _serve(app):
+    """Serve `app` after raising anyio's thread limiter on THIS loop.
+
+    The limiter is loop-bound, so it must be raised on the very loop
+    that serves requests, before serving starts. A Starlette startup
+    hook cannot do this portably (the installed Starlette has no
+    Router.on_startup — that hook crashed startup 2026-11-14), so
+    main() runs uvicorn's Server API under asyncio.run instead.
+    """
     try:
         import anyio
         limiter = anyio.to_thread.current_default_thread_limiter()
@@ -592,6 +600,9 @@ async def _apply_thread_limiter():
     except Exception as e:  # noqa: BLE001 - never block startup on this
         print(f"[server] thread limiter raise failed: {e}",
               file=sys.stderr)
+    config = uvicorn.Config(app, host=HOST, port=PORT,
+                            log_level="warning")
+    await uvicorn.Server(config).serve()
 
 
 async def _health(request):
@@ -687,7 +698,6 @@ def main():
             enable_dns_rebinding_protection=False
         )
     )
-    app.router.on_startup.append(_apply_thread_limiter)
     app.routes.append(Route("/health", _health))
     app.routes.append(Route("/chat", _chat_page))
     app.routes.append(Route("/pair", _pair, methods=["POST"]))
@@ -735,7 +745,7 @@ def main():
     print("events: %APPDATA%/pc-mcp-bridge/events/  (primary operation log)")
     started = _emit_server_started()
     try:
-        uvicorn.run(app, host=HOST, port=PORT, log_level="warning")
+        asyncio.run(_serve(app))
     finally:  # ServerStopping on clean shutdown (events.append never raises)
         events.append("ServerStopping", {
             "reason": "shutdown",
