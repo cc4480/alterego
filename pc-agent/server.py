@@ -276,7 +276,22 @@ def _load_session_tokens() -> list:
         if not data:
             return []
         if data.startswith("["):
-            return json.loads(data)
+            entries = json.loads(data)
+            # Entries may be bare token strings (legacy) or per-client
+            # records {"token", "name", "paired_at"} as written by
+            # auth.save_client — normalize to token strings, mirroring
+            # auth.load_tokens(). Returning the raw records here made
+            # BearerAuth compare "Bearer {'token': ...}" and 401 every
+            # record-format session on first use.
+            tokens = []
+            for entry in entries:
+                if isinstance(entry, str) and entry:
+                    tokens.append(entry)
+                elif isinstance(entry, dict) \
+                        and isinstance(entry.get("token"), str) \
+                        and entry["token"]:
+                    tokens.append(entry["token"])
+            return tokens
         return [data]  # old format: bare token
     except (OSError, json.JSONDecodeError):
         return []
