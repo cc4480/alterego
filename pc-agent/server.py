@@ -566,7 +566,8 @@ async def _ws_relay(websocket: WebSocket):
 
 
 async def _health(request):
-    return JSONResponse({"ok": True, "service": "pc-bridge"})
+    return JSONResponse({"ok": True, "service": "pc-bridge",
+                         "permission_mode": approval.get_permission_mode()})
 
 
 async def _chat_page(request):
@@ -628,8 +629,18 @@ def main():
     if approval.get_permission_mode() == "dontask":
         from startup_confirm import confirm_dontask_mode
         if not confirm_dontask_mode():
-            print("dontask: not confirmed, falling back to default mode")
-            approval.override_permission_mode("default")
+            # Pinned by the owner's standing order (2026-11-14): this
+            # bridge NEVER falls back to dialog mode. The old fallback
+            # silently downgraded unattended starts (30s dialog timeout
+            # with nobody at the desk) to dialog mode, where every shell
+            # call queues behind the single approval-dialog lock — the
+            # multi-minute wedge. A failed confirmation is now LOUD in
+            # the startup log and the mode stays dontask; /health also
+            # reports the live mode so the state is visible externally.
+            print("!" * 68)
+            print("!!!  dontask confirmation FAILED - staying in dontask mode !!!")
+            print("!!!  (fallback to dialog mode is disabled on this bridge)  !!!")
+            print("!" * 68)
     # The SDK auto-enables DNS-rebinding protection for localhost servers,
     # which 421s any Host header that isn't localhost — including our
     # Cloudflare tunnel hostname (random per session, can't be allowlisted).

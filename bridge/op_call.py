@@ -44,14 +44,27 @@ TOKEN = token_store.resolve_token()  # None until paired; pair cmd handles it
 # flaps for a minute or two at a time (home-network micro-outages), and
 # most of these mean the request never completed. NOT retried: HTTP
 # errors (the server answered) — including 401, which clears the token.
-# Caveat: a retry after a lost *response* can double-execute a write;
-# callers driving writes should verify state after a retried call.
+# Caveat: a retry after a lost *response* can double-execute a write,
+# so tools/call posts pass retry_after_send=False: after-send failures
+# (timeout, reset, truncated) raise at once instead of re-sending; only
+# connection-refused — the request provably never arrived — is retried
+# on that path. (The old retry-everything policy also stretched one
+# stalled call into ~380s of queueing: 3 tries x 120s + backoff.)
 _RETRYABLE = (urllib.error.URLError, TimeoutError, ConnectionError,
               http.client.RemoteDisconnected, http.client.IncompleteRead)
 _RETRY_BACKOFF_S = (5, 15)
 
 
-def post(path, body, session_id=None):
+def _never_reached(e) -> bool:
+    """True when the failure proves the request never reached the
+    server (connection refused) — the only failure a re-send cannot
+    double-execute."""
+    if isinstance(e, ConnectionRefusedError):
+        return True
+    return isinstance(getattr(e, "reason", None), ConnectionRefusedError)
+
+
+def post(path, body, session_id=None, retry_after_send=True):
     req = urllib.request.Request(
         URL + path,
         data=json.dumps(body).encode(),
@@ -84,6 +97,11 @@ def post(path, body, session_id=None):
             raise
         except _RETRYABLE as e:
             last = e
+            if not retry_after_send and not _never_reached(e):
+                # The request may already be executing server-side;
+                # re-sending would double-execute it and stretch a
+                # server stall into minutes of queueing (2026-11-14).
+                raise
             if attempt < len(_RETRY_BACKOFF_S):
                 wait = _RETRY_BACKOFF_S[attempt]
                 print(f"[retry {attempt + 1}] {type(e).__name__} — "
@@ -172,7 +190,8 @@ def classify_transport_error(e):
 
 def _tool_call(name, args, sid):
     res, _ = post("/mcp", {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-                           "params": {"name": name, "arguments": args}}, sid)
+                           "params": {"name": name, "arguments": args}}, sid,
+                  retry_after_send=False)
     text = res["content"][0]["text"]
     try:
         return json.loads(text)
@@ -416,7 +435,8 @@ def main():
         name = sys.argv[2]
         args = json.loads(sys.argv[3]) if len(sys.argv) > 3 else {}
         res, _ = post("/mcp", {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-                               "params": {"name": name, "arguments": args}}, sid)
+                               "params": {"name": name, "arguments": args}}, sid,
+                      retry_after_send=False)
         text = res["content"][0]["text"]
         # Always stash the full response; the print is capped for
         # readability and the cap announces itself (see _print_capped).

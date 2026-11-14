@@ -22,6 +22,26 @@ def _job_context():
         return None
 
 
+def _kill_tree(proc):
+    """Kill proc's whole process tree, not just the direct child.
+
+    A bare proc.kill() orphans grandchildren (detached shells, builds,
+    sync tools), which accumulate as stuck processes on the PC — the
+    codebase already knows this lesson (exec_cancel's tree-kill). The
+    timeout paths below use this; falls back to proc.kill() when
+    taskkill is unavailable or fails.
+    """
+    try:
+        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                       capture_output=True, timeout=10)
+    except Exception:
+        pass
+    try:
+        proc.kill()
+    except Exception:
+        pass
+
+
 def run_noinherit(cmd, timeout_s, **kwargs):
     """Run cmd; returns (returncode, stdout, stderr, timed_out)."""
     out_f = tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace")
@@ -35,7 +55,7 @@ def run_noinherit(cmd, timeout_s, **kwargs):
                 proc.wait(timeout=timeout_s)
             except subprocess.TimeoutExpired:
                 timed_out = True
-                proc.kill()
+                _kill_tree(proc)
                 proc.wait()
         else:
             # Inside a bridge job: register the child so the watchdog /
@@ -61,7 +81,7 @@ def run_noinherit(cmd, timeout_s, **kwargs):
                             break
                         if deadline is not None and elapsed >= deadline:
                             timed_out = True
-                            proc.kill()
+                            _kill_tree(proc)
                             proc.wait()
                             break
             finally:
