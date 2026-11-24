@@ -272,6 +272,9 @@ A macro records a combination of tool calls (1–20 steps) under a name and repl
 | `list_watches` | — | — | Registered watches with last fingerprints |
 | `poll_changes` | `since_seq` (default 0), `limit` (default 50) | — | Change journal entries after a sequence cursor (window-set + watched-file changes) |
 | `dashboard` | — | — | Bridge status summary for the MCP Apps widget (same data as text for clients without Apps) |
+| `supervisor_status` | — | — | Supervisor health: running, child pid, restarts, heartbeat age |
+| `server_reload` | — | **Dialog** | Restart the bridge server via the supervisor (fresh code, same tunnel and tokens). Refuses when no supervisor is running |
+| `hot_reload` | `action` (`status` / `enable` / `disable` / `trigger`) | **Dialog** for `enable` / `disable` / `trigger` | Hot-reload control for the bridge's code watcher; `status` needs no approval |
 
 ## Prompts & resources
 
